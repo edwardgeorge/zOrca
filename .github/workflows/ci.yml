@@ -418,9 +418,13 @@ jobs:
       - name: Build release orca with PortMidi
         run: CFLAGS_EXTRA=-Werror ./tool build --portmidi orca
 
-      # The debug-counter build compiles the drop counters and their stderr
-      # line. It writes build/orca, so it runs before the plain --alsa build,
-      # whose binary the next step checks.
+      # The debug-counter builds compile the wakeup counter (both) and the
+      # ALSA drop counters (--alsa), with their stderr lines. They write
+      # build/orca, so they run before the plain --alsa build, whose binary
+      # the next step checks.
+      - name: Build release orca with debug counters
+        run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build orca
+
       - name: Build release orca with ALSA and debug counters
         run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build --alsa orca
 
@@ -538,7 +542,7 @@ jobs:
           shellcheck -s sh tool tests/run.sh tests/check-includes.sh
           tests/check-nm.sh tests/check-debug-build.sh tests/check-doc-sync.sh
           tests/check-examples.sh tests/upstream/build-cli.sh
-          tests/upstream/compare.sh
+          tests/upstream/compare.sh tests/wakeups/ab.sh
 
   # Optional compile-only check for 32-bit ARM (Pi Zero 2W), where Usz is
   # 32-bit. It calls the cross compiler directly instead of going through

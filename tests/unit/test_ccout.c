@@ -1,12 +1,15 @@
-// Unit tests for ccout.c, the CC engine (spec item B3, CAP-8; spine AD-9,
-// AD-10): one test or more for each row of the story's I/O matrix, at the
-// API level, on engines built on the stack. The tick-level rows (rates 0 and
-// z on the wire, the step-3 poll order) are in test_tick.c. The pause row is
-// ged_set_playing's ccout_cancel, checked by code reading together with
+// Unit tests for ccout.c, the CC engine (spec items B3, CAP-8, and I2,
+// CAP-14; spine AD-9, AD-10): one test or more for each row of the stories'
+// I/O matrices, at the API level, on engines built on the stack. The
+// tick-level rows (rates 0 and z on the wire, the step-3 poll order, the
+// sub-tick poll) are in test_tick.c. The pause row is ged_set_playing's
+// ccout_cancel, checked by code reading together with
 // ccout_cancel_keeps_last_value.
 //
 // Rate w (index 32) glides over 36 - 32 = 4 ticks, and one tick is 125 000 us
-// at 120 BPM, so a glide at w lasts 500 000 us.
+// at 120 BPM, so a glide at w lasts 500 000 us. The budget holds 80 tokens
+// and refills one every 1 250 us (800 per second); its balance is kept in
+// token-us, so 80 tokens are 100 000.
 #include "../../ccout.h"
 #include "../../vmio.h"
 #include "tests.h"
@@ -220,10 +223,11 @@ void test_ccout_noop_submit(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "No-op, step held back": glide_hz holds the step to 1 at
+// Matrix row "No-op catch-up" (I2): glide_hz holds the step to 1 at
 // t0 + 5 000, so a glide to 1 then equals the current value (the
-// interpolant): it cancels the glide and sends nothing. The wire stays at 0
-// (AD-9 as written; the spine defect is reported in the story).
+// interpolant) while the wire is still at 0. The no-op sends 1 at once, a
+// target emission, and ends the glide; then nothing more goes out. Before
+// I2 it sent nothing, and the wire stayed at 0 (AD-9, amended 2026-10-10).
 void test_ccout_noop_step_held_back(void) {
   Ccout_engine e;
   ccout_init(&e);
@@ -234,12 +238,14 @@ void test_ccout_noop_step_held_back(void) {
   instant_at(&e, 0, 0, &out, &seq);
   glide_at(&e, 64, Rate_w, tick_us, 0, &out, &seq);
   poll_at(&e, 5000, &out, &seq);
+  CHECK(seq.count == 1); // glide_hz held the step back
   glide_at(&e, 1, Rate_w, tick_us, 5000, &out, &seq);
   CHECK(is_idle(&e));
   for (U64 k = 1; k <= 5; ++k)
     poll_at(&e, k * tick_us, &out, &seq);
-  U8 const want[] = {0};
-  CHECK(seq_is(&seq, want, 1));
+  U8 const want[] = {0, 1};
+  CHECK(seq_is(&seq, want, ORCA_ARRAY_COUNTOF(want)));
+  CHECK(seq.count == 2 && seq.times[1] == 5000);
   oevent_list_deinit(&out);
 }
 
@@ -852,13 +858,15 @@ void test_ccout_poll_slot_order(void) {
 }
 
 // ccout_init sets every field, whatever the memory held: no glide, every
-// last value unknown, no emission times, glide_hz 100. ccout_configure
-// rounds the step gap up to whole microseconds.
+// last value unknown, no emission times, glide_hz 100, the budget full and
+// the poll starting at slot 0. ccout_configure rounds the step gap up to
+// whole microseconds.
 void test_ccout_init_and_configure(void) {
   Ccout_engine e;
   memset(&e, 0xA5, sizeof e);
   ccout_init(&e);
   CHECK(e.active_count == 0 && e.glide_hz == 100 && e.step_gap == 10000);
+  CHECK(e.budget == 100000 && e.refill_time == 0 && e.start_slot == 0);
   bool idle = true, unknown = true, never = true;
   for (Usz i = 0; i < Ccout_slots; ++i) {
     if (e.glides[i].active)
@@ -890,4 +898,511 @@ void test_ccout_init_and_configure(void) {
   ccout_poll(&e, 4000, &out); // 0.512: 1
   CHECK(out.count == 1 && out.buffer[0].midi_cc.value == 1);
   oevent_list_deinit(&out);
+}
+
+// Polls at each ccout_next_deadline from now, as the wait point does, until
+// the engine is idle or max_polls polls have run. Each poll's output is left
+// in out for take(u, out, t), called after every poll; *polls counts them.
+static void poll_deadlines(Ccout_engine *e, U64 now, Usz max_polls,
+                           Oevent_list *out,
+                           void (*take)(void *u, Oevent_list const *out,
+                                        U64 t),
+                           void *u, Usz *polls) {
+  U64 t;
+  *polls = 0;
+  while (*polls < max_polls && ccout_next_deadline(e, now, &t)) {
+    oevent_list_clear(out);
+    ccout_poll(e, t, out);
+    take(u, out, t);
+    ++*polls;
+    now = t;
+  }
+}
+
+static void take_seq(void *u, Oevent_list const *out, U64 t) {
+  seq_take(u, out, t);
+}
+
+// Matrix row "CAP-14 glide": at 120 BPM (tick_len 125 000 us), instant 0,
+// then 0 to 127 at rate 4 (32 ticks), polled at each deadline. The glide
+// lasts exactly 4 000 000 us and sends exactly 127 values after the
+// instant, 1 to 127, rising strictly and at least step_gap apart, and every
+// poll sends one; the last, 127, is a step that goes out before t_end, and
+// then the engine is idle. An engine that sent only the target at t_end
+// fails. Polled only at ticks, it sent one value per tick, 8 a second.
+void test_ccout_cap14_glide(void) {
+  enum { T0 = 1000000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  Seq seq;
+  seq_clear(&seq);
+  instant_at(&e, 0, T0, &out, &seq);
+  seq_clear(&seq);
+  glide_at(&e, 127, 4, tick_us, T0, &out, &seq);
+  Ccout_glide const *g = &e.glides[Ch * Ccout_controls + Cc];
+  CHECK(g->active && g->t0 == T0 && g->t_end - g->t0 == 4000000);
+  U64 const t_end = g->t_end;
+  Usz polls;
+  poll_deadlines(&e, T0, 10000, &out, take_seq, &seq, &polls);
+  CHECK(is_idle(&e));
+  CHECK(!seq.bad && seq.count == 127);
+  CHECK(polls == seq.count);
+  bool rising = true, gaps_ok = true;
+  for (Usz i = 1; i < seq.count; ++i) {
+    if (seq.values[i] <= seq.values[i - 1])
+      rising = false;
+    if (seq.times[i] - seq.times[i - 1] < e.step_gap)
+      gaps_ok = false;
+  }
+  CHECK(rising);
+  CHECK(gaps_ok);
+  CHECK(seq.count > 0 && seq.values[seq.count - 1] == 127 &&
+        seq.times[seq.count - 1] < t_end);
+  oevent_list_deinit(&out);
+}
+
+// Controller k of a many-controller test: channel k / 128, cc k % 128.
+static Usz flood_slot(Oevent_midi_cc const *cc) {
+  return (Usz)cc->channel * Ccout_controls + cc->control;
+}
+
+// What a run of polls emitted on controllers 0 to Flood_max - 1, split into
+// steps (before t_end, which every glide in the run shares) and the rest.
+enum { Flood_max = 256, Flood_steps = 1024 };
+typedef struct {
+  U64 t_end;
+  U64 step_times[Flood_steps];
+  Usz steps;
+  Usz steps_of[Flood_max];
+  int last_of[Flood_max]; // the last value emitted, -1 if none
+  bool bad;               // another controller, or past the capacity
+} Flood;
+
+static void flood_init(Flood *f, U64 t_end) {
+  memset(f, 0, sizeof *f);
+  f->t_end = t_end;
+  for (Usz k = 0; k < Flood_max; ++k)
+    f->last_of[k] = -1;
+}
+
+static void take_flood(void *u, Oevent_list const *out, U64 t) {
+  Flood *f = u;
+  for (Usz i = 0; i < out->count; ++i) {
+    Oevent_midi_cc const *cc = &out->buffer[i].midi_cc;
+    Usz k = flood_slot(cc);
+    if (out->buffer[i].any.oevent_type != Oevent_type_midi_cc ||
+        k >= Flood_max) {
+      f->bad = true;
+      continue;
+    }
+    f->last_of[k] = cc->value;
+    if (t >= f->t_end)
+      continue;
+    if (f->steps == Flood_steps) {
+      f->bad = true;
+      continue;
+    }
+    f->step_times[f->steps++] = t;
+    ++f->steps_of[k];
+  }
+}
+
+// Gives controllers 0 to count - 1 the last value 0, with instants at now,
+// then starts a glide to 127 at rate on each, at glide_at.
+static void flood_glides(Ccout_engine *e, Usz count, U8 rate, U64 now,
+                         U64 glide_at_us, Oevent_list *out) {
+  for (Usz k = 0; k < count; ++k)
+    ccout_submit_instant(e, (U8)(k / Ccout_controls),
+                         (U8)(k % Ccout_controls), 0, now, out);
+  for (Usz k = 0; k < count; ++k)
+    ccout_submit_glide(e, (U8)(k / Ccout_controls), (U8)(k % Ccout_controls),
+                       127, rate, tick_us, glide_at_us, out);
+}
+
+// Matrix row "Flood": 200 controllers glide at once, 0 to 127 at w, from a
+// full budget, polled at each deadline. In any window [t_i, t_j] of their
+// steps at most 80 + 800 (t_j - t_i) / 1 000 000 go out: in token-us, the
+// count times 1 250 is at most 100 000 + (t_j - t_i). Every glide still
+// ends at its target, at t_end.
+void test_ccout_budget_flood(void) {
+  enum { Count = 200, T0 = 2000000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  // The instants a second before, so the budget has refilled by T0.
+  flood_glides(&e, Count, Rate_w, T0 - 1000000, T0, &out);
+  CHECK(e.active_count == Count);
+  Flood f;
+  flood_init(&f, T0 + 4 * tick_us);
+  Usz polls;
+  poll_deadlines(&e, T0, 100000, &out, take_flood, &f, &polls);
+  CHECK(is_idle(&e));
+  CHECK(!f.bad);
+  // The burst, then one a token: about 80 + 800 x 0.5 steps.
+  CHECK(f.steps >= 400 && f.steps <= 480);
+  bool window_ok = true;
+  for (Usz i = 0; i < f.steps; ++i) {
+    for (Usz j = i; j < f.steps; ++j) {
+      U64 count = j - i + 1;
+      if (count * 1250 > 100000 + (f.step_times[j] - f.step_times[i]))
+        window_ok = false;
+    }
+  }
+  CHECK(window_ok);
+  bool targets_ok = true;
+  for (Usz k = 0; k < Count; ++k) {
+    if (f.last_of[k] != 127)
+      targets_ok = false;
+  }
+  CHECK(targets_ok);
+  oevent_list_deinit(&out);
+}
+
+// Matrix row "Instant flood": instants on another controller, one every
+// 500 us (2 000 per second, above the cap), from 200 000 us before a glide
+// on (Ch, Cc), 0 to 127 at w, until after its t_end; a poll follows each
+// instant. Every instant goes out, the balance floors at -80 tokens, the
+// glide's steps wait, and its target goes out at t_end.
+void test_ccout_budget_instant_flood(void) {
+  enum { T0 = 2000000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  Seq seq;
+  seq_clear(&seq);
+  instant_at(&e, 0, T0 - 1000000, &out, &seq);
+  seq_clear(&seq);
+  Usz instants = 0, sent = 0;
+  bool floor_ok = true;
+  U64 const t_end = T0 + 4 * tick_us;
+  for (U64 t = T0 - 200000; t <= t_end + 100000; t += 500) {
+    oevent_list_clear(&out);
+    ccout_submit_instant(&e, Ch, Cc + 1, (U8)(t / 500 % 128), t, &out);
+    ++instants;
+    sent += out.count;
+    if (e.budget < -100000)
+      floor_ok = false;
+    if (t == T0)
+      glide_at(&e, 127, Rate_w, tick_us, T0, &out, &seq);
+    poll_at(&e, t, &out, &seq);
+  }
+  CHECK(sent == instants);
+  CHECK(floor_ok && e.budget == -100000);
+  U8 const want[] = {127};
+  CHECK(seq_is(&seq, want, 1));
+  CHECK(seq.count == 1 && seq.times[0] == t_end);
+  CHECK(is_idle(&e));
+  oevent_list_deinit(&out);
+}
+
+// Spends the budget to exactly 0 tokens at now: 80 instants, on channel 1,
+// from a full budget.
+static void spend_budget(Ccout_engine *e, U64 now, Oevent_list *out) {
+  for (U8 cc = 0; cc < 80; ++cc)
+    ccout_submit_instant(e, 1, cc, 0, now, out);
+}
+
+// Matrix row "Empty bucket": at T1 a step on (Ch, Cc) is due (glide_hz
+// allows it, and the value has moved to 3) but the balance is 0 tokens.
+// ccout_next_deadline is the token time, T1 + 1 250; every poll in
+// [T1, T1 + 1 250) emits nothing, and the poll at T1 + 1 250 sends the step.
+void test_ccout_budget_empty(void) {
+  enum { T0 = 1000000, T1 = T0 + 10000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  ccout_submit_instant(&e, Ch, Cc, 0, T0, &out);
+  ccout_submit_glide(&e, Ch, Cc, 127, Rate_w, tick_us, T0, &out);
+  spend_budget(&e, T1, &out);
+  CHECK(e.budget == 0 && e.refill_time == T1);
+  CHECK(deadline_is_first_change(&e, T1, T1 + 1250, &out));
+  CHECK(out.count == 1 && out.buffer[0].midi_cc.control == Cc &&
+        out.buffer[0].midi_cc.value == 3);
+  CHECK(e.budget == 0);
+  oevent_list_deinit(&out);
+}
+
+// Matrix row "Time goes back" (the budget): with the balance at 0 tokens
+// from T1, an instant stamped 5 000 us earlier, and then a poll 4 000 us
+// earlier that sends a glide's target (on channel 1, CC 120, at y, its t_end
+// long past), still debit, but add no tokens and leave the refill time at
+// T1. The poll is too soon for a step on (Ch, Cc), so that step waits for
+// three tokens: until T1 + 3 750.
+void test_ccout_budget_time_back(void) {
+  enum { T0 = 1000000, T1 = T0 + 10000, Rate_y = 34 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  ccout_submit_instant(&e, 1, 120, 0, T0 - 300000, &out);
+  ccout_submit_glide(&e, 1, 120, 50, Rate_y, tick_us, T0 - 300000, &out);
+  ccout_submit_instant(&e, Ch, Cc, 0, T0, &out);
+  ccout_submit_glide(&e, Ch, Cc, 127, Rate_w, tick_us, T0, &out);
+  CHECK(e.active_count == 2);
+  spend_budget(&e, T1, &out);
+  CHECK(e.budget == 0 && e.refill_time == T1);
+  oevent_list_clear(&out);
+  ccout_submit_instant(&e, 1, 100, 0, T1 - 5000, &out);
+  CHECK(out.count == 1);
+  CHECK(e.budget == -1250 && e.refill_time == T1);
+  oevent_list_clear(&out);
+  ccout_poll(&e, T1 - 4000, &out);
+  CHECK(out.count == 1 && out.buffer[0].midi_cc.channel == 1 &&
+        out.buffer[0].midi_cc.control == 120 &&
+        out.buffer[0].midi_cc.value == 50);
+  CHECK(e.active_count == 1 && e.start_slot == 0);
+  CHECK(e.budget == -2500 && e.refill_time == T1);
+  CHECK(deadline_is_first_change(&e, T1, T1 + 3750, &out));
+  CHECK(out.count == 1 && out.buffer[0].midi_cc.control == Cc);
+  oevent_list_deinit(&out);
+}
+
+// Matrix row "Rotation": 20 controllers glide at once, 0 to 127 at y (2
+// ticks), so their steps (100 a second each, 2 000 in all) outrun the
+// tokens (800). Polled at each deadline, every controller steps before
+// t_end, and their step counts differ by at most 1. Starting every poll at
+// slot 0, the low slots took every token and the high ones starved.
+void test_ccout_budget_rotation(void) {
+  enum { Count = 20, Rate_y = 34, T0 = 2000000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  flood_glides(&e, Count, Rate_y, T0 - 1000000, T0, &out);
+  Flood f;
+  flood_init(&f, T0 + 2 * tick_us);
+  Usz polls;
+  poll_deadlines(&e, T0, 100000, &out, take_flood, &f, &polls);
+  CHECK(is_idle(&e) && !f.bad);
+  Usz least = SIZE_MAX, most = 0;
+  bool targets_ok = true;
+  for (Usz k = 0; k < Count; ++k) {
+    if (f.steps_of[k] < least)
+      least = f.steps_of[k];
+    if (f.steps_of[k] > most)
+      most = f.steps_of[k];
+    if (f.last_of[k] != 127)
+      targets_ok = false;
+  }
+  CHECK(least >= 1);
+  CHECK(most - least <= 1);
+  CHECK(targets_ok);
+  // The tokens were the limit: fewer steps than glide_hz alone allows.
+  CHECK(f.steps < Count * 25);
+  oevent_list_deinit(&out);
+}
+
+// Matrix row "Flood ends": while a glide runs on (Ch, Cc), 0 to 127 at rate
+// 28 (8 ticks, 1 000 000 us), 200 instants on other controllers at L drive
+// the balance to -80 tokens, then stop. The glide's next step goes out at
+// L + 101 250, when 81 tokens have refilled, leaving the balance at 0, and
+// from then on every poll at a deadline emits, until the glide ends at its
+// target. Clamping a refill's time at 100 000 us (full) rather than 200 000
+// (full minus floor) left the balance at 0 then, short of a token.
+void test_ccout_budget_flood_ends(void) {
+  enum { T0 = 1000000, L = T0 + 1000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  Seq seq;
+  seq_clear(&seq);
+  instant_at(&e, 0, T0, &out, &seq);
+  seq_clear(&seq);
+  glide_at(&e, 127, 28, tick_us, T0, &out, &seq);
+  for (Usz k = 0; k < 200; ++k)
+    ccout_submit_instant(&e, (U8)(1 + k / Ccout_controls),
+                         (U8)(k % Ccout_controls), 0, L, &out);
+  CHECK(e.budget == -100000 && e.refill_time == L);
+  U64 t = 0;
+  CHECK(ccout_next_deadline(&e, L, &t) && t == L + 101250);
+  poll_at(&e, L + 101250, &out, &seq);
+  CHECK(seq.count == 1 && e.budget == 0);
+  Usz polls;
+  poll_deadlines(&e, L + 101250, 10000, &out, take_seq, &seq, &polls);
+  CHECK(is_idle(&e) && !seq.bad);
+  CHECK(seq.count == polls + 1); // every poll at a deadline emitted
+  CHECK(seq.count > 1 && seq.values[seq.count - 1] == 127);
+  oevent_list_deinit(&out);
+}
+
+// cancel, forget and configure leave the budget and the start slot alone.
+// A poll before the token time holds the step on (Ch, Cc) and moves the
+// start slot there; then each lifecycle call keeps all three.
+void test_ccout_budget_lifecycle(void) {
+  enum { T0 = 1000000, T1 = T0 + 10000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  ccout_submit_instant(&e, Ch, Cc, 0, T0, &out);
+  ccout_submit_glide(&e, Ch, Cc, 127, Rate_w, tick_us, T0, &out);
+  spend_budget(&e, T1, &out);
+  oevent_list_clear(&out);
+  ccout_poll(&e, T1 + 1000, &out);
+  CHECK(out.count == 0);
+  CHECK(e.budget == 0 && e.refill_time == T1 &&
+        e.start_slot == Ch * Ccout_controls + Cc);
+  ccout_configure(&e, 200);
+  CHECK(e.budget == 0 && e.refill_time == T1 &&
+        e.start_slot == Ch * Ccout_controls + Cc);
+  ccout_forget(&e);
+  CHECK(e.budget == 0 && e.refill_time == T1 &&
+        e.start_slot == Ch * Ccout_controls + Cc);
+  ccout_cancel(&e);
+  CHECK(e.budget == 0 && e.refill_time == T1 &&
+        e.start_slot == Ch * Ccout_controls + Cc);
+  oevent_list_deinit(&out);
+}
+
+// Matrix row "No-op catch-up" when the budget, not glide_hz, held the step
+// back (AD-9 rule 4): with the balance at 0 tokens, the poll at T1 holds
+// the step from 0 to 1 of a glide to 64 at w, and moves the start slot to
+// it. A glide to 1 at T1 then equals the current value while the wire is
+// still at 0: the no-op sends 1 at T1, a target emission that needs no
+// token and debits the balance below 0, and ends the glide.
+void test_ccout_noop_budget_held_back(void) {
+  enum { T0 = 1000000, T1 = T0 + 10000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  Seq seq;
+  seq_clear(&seq);
+  instant_at(&e, 0, T0, &out, &seq);
+  glide_at(&e, 64, Rate_w, tick_us, T0, &out, &seq);
+  spend_budget(&e, T1, &out);
+  CHECK(e.budget == 0);
+  poll_at(&e, T1, &out, &seq);
+  CHECK(seq.count == 1 && e.start_slot == Ch * Ccout_controls + Cc);
+  glide_at(&e, 1, Rate_w, tick_us, T1, &out, &seq);
+  U8 const want[] = {0, 1};
+  CHECK(seq_is(&seq, want, ORCA_ARRAY_COUNTOF(want)));
+  CHECK(seq.count == 2 && seq.times[1] == T1);
+  CHECK(e.budget == -1250);
+  CHECK(is_idle(&e));
+  oevent_list_deinit(&out);
+}
+
+// A glide_hz change reaches a running glide (AD-9's "glide_hz change"): at
+// 100 Hz a glide from 0 to 127 at w steps at T1, and its next step is due
+// at T1 + 10 000; after ccout_configure(50) it is due at T1 + 20 000.
+void test_ccout_glide_hz_change_applies(void) {
+  enum { T0 = 1000000, T1 = T0 + 10000 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  Seq seq;
+  seq_clear(&seq);
+  instant_at(&e, 0, T0, &out, &seq);
+  glide_at(&e, 127, Rate_w, tick_us, T0, &out, &seq);
+  poll_at(&e, T1, &out, &seq);
+  CHECK(seq.count == 2 && seq.times[1] == T1);
+  U64 t = 0;
+  CHECK(ccout_next_deadline(&e, T1, &t) && t == T1 + 10000);
+  ccout_configure(&e, 50);
+  CHECK(ccout_next_deadline(&e, T1, &t) && t >= T1 + 20000);
+  CHECK(deadline_is_first_change(&e, T1, T1 + 20000, &out));
+  CHECK(out.count == 1 && out.buffer[0].midi_cc.control == Cc);
+  oevent_list_deinit(&out);
+}
+
+// The start slot is the first slot a poll held back, in poll order
+// (AD-10): five controllers on channel 2, CCs 10 to 14, glide at w with
+// the balance at 0 tokens. The poll at T1 holds all five, and the next
+// starts at CC 10; a token later, the poll sends CC 10's step and holds
+// CCs 11 to 14, and the next starts at CC 11. Keeping the last slot held
+// would start at CC 14.
+void test_ccout_budget_first_held_slot(void) {
+  enum { T0 = 1000000, T1 = T0 + 10000, Chan = 2 };
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  for (U8 cc = 10; cc <= 14; ++cc) {
+    ccout_submit_instant(&e, Chan, cc, 0, T0, &out);
+    ccout_submit_glide(&e, Chan, cc, 127, Rate_w, tick_us, T0, &out);
+  }
+  spend_budget(&e, T1, &out);
+  CHECK(e.budget == 0 && e.active_count == 5);
+  oevent_list_clear(&out);
+  ccout_poll(&e, T1, &out);
+  CHECK(out.count == 0 && e.start_slot == Chan * Ccout_controls + 10);
+  oevent_list_clear(&out);
+  ccout_poll(&e, T1 + 1250, &out);
+  CHECK(out.count == 1 && out.buffer[0].midi_cc.channel == Chan &&
+        out.buffer[0].midi_cc.control == 10);
+  CHECK(e.start_slot == Chan * Ccout_controls + 11);
+  oevent_list_deinit(&out);
+}
+
+// examples/misc/glide_rate.orca's first second, as README's I2 changelog
+// shows it: a glide at y (rate 34) on (Ch, Cc) whose target alternates 0
+// and 127, submitted on ticks 0 to 8, 125 000 us apart (120 BPM). Each tick
+// polls, then submits, as tick_body does; with subtick, the engine is also
+// polled at each deadline before the next tick, as the wait point does.
+static void replay_glide_rate(Seq *seq, bool subtick) {
+  enum { Ticks = 9, Rate_y = 34 };
+  U64 const end = (Ticks - 1) * tick_us;
+  Ccout_engine e;
+  ccout_init(&e);
+  Oevent_list out;
+  oevent_list_init(&out);
+  seq_clear(seq);
+  for (U64 k = 0; k < Ticks; ++k) {
+    U64 now = k * tick_us, t;
+    poll_at(&e, now, &out, seq);
+    glide_at(&e, (U8)(k % 2 ? 127 : 0), Rate_y, tick_us, now, &out, seq);
+    for (U64 at = now; subtick && ccout_next_deadline(&e, at, &t) &&
+                       t < (k + 1) * tick_us && t <= end;
+         at = t)
+      poll_at(&e, t, &out, seq);
+  }
+  oevent_list_deinit(&out);
+}
+
+// The index of the first value seq sent in tick k, or seq->count if none.
+static Usz first_in_tick(Seq const *seq, U64 k) {
+  Usz i = 0;
+  while (i < seq->count && seq->times[i] < k * tick_us)
+    ++i;
+  return i;
+}
+
+// README's I2 before/after (replay_glide_rate). Polled only at ticks, the
+// engine sends 8 CCs: 0 | | 64 | 32 | 79 | 40 | 83 | 42 | 84. Polled at
+// each deadline too, it sends 89: 0 | 1 6 11 16 21 26 31 36 41 46 51 56 61
+// | 62 59 57 54 … | 32 36 40 …
+void test_ccout_glide_rate_example(void) {
+  Seq seq;
+  replay_glide_rate(&seq, false);
+  U8 const before[] = {0, 64, 32, 79, 40, 83, 42, 84};
+  U64 const before_ticks[] = {0, 2, 3, 4, 5, 6, 7, 8};
+  CHECK(seq_is(&seq, before, ORCA_ARRAY_COUNTOF(before)));
+  bool ticks_ok = seq.count == ORCA_ARRAY_COUNTOF(before_ticks);
+  for (Usz i = 0; ticks_ok && i < seq.count; ++i)
+    ticks_ok = seq.times[i] == before_ticks[i] * tick_us;
+  CHECK(ticks_ok);
+
+  replay_glide_rate(&seq, true);
+  CHECK(!seq.bad && seq.count == 89);
+  U8 const first[] = {0, 1, 6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56, 61};
+  bool first_ok = seq.count >= ORCA_ARRAY_COUNTOF(first);
+  for (Usz i = 0; first_ok && i < ORCA_ARRAY_COUNTOF(first); ++i)
+    first_ok = seq.values[i] == first[i];
+  CHECK(first_ok);
+  CHECK(first_in_tick(&seq, 1) == 1 &&
+        first_in_tick(&seq, 2) == ORCA_ARRAY_COUNTOF(first));
+  Usz i2 = first_in_tick(&seq, 2), i3 = first_in_tick(&seq, 3);
+  CHECK(i2 + 4 <= seq.count && seq.values[i2] == 62 &&
+        seq.values[i2 + 1] == 59 && seq.values[i2 + 2] == 57 &&
+        seq.values[i2 + 3] == 54);
+  CHECK(i3 + 3 <= seq.count && seq.values[i3] == 32 &&
+        seq.values[i3 + 1] == 36 && seq.values[i3 + 2] == 40);
 }

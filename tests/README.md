@@ -523,6 +523,56 @@ nice -n 19 taskset -c 0-2 tests/check-debug-build.sh build/debug/unit_tests /tmp
 Each `--portmidi` or `--alsa` test build overwrites
 `build/debug/unit_tests`, so check each runner right after its own run.
 
+## Wakeup check
+
+`tests/wakeups/ab.sh` (spec item I2, CAP-14) is a development check of the
+event loop's wakeups; CI only shellchecks it. It needs no arguments:
+
+```sh
+nice -n 19 taskset -c 0-2 tests/wakeups/ab.sh
+```
+
+It builds two release `orca`s without ALSA or PortMidi, each in its own
+tree under `build/wakeups/`, and never writes `build/orca`: `4f349cd`, from
+`git archive` with `tests/wakeups/4f349cd-counter.patch` applied, and this
+working tree's tracked files with `CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS`.
+Both count the loop's waits and print
+`bOrca wakeups: <n> waits, <z> zero-timeout in <s> s` to stderr on quit:
+`<n>` counts the waits (`wgetch` calls) entered with a timeout above 0,
+`<z>` those entered with a timeout of 0. The patch adds only that counter,
+at the same code point, unconditionally, since `4f349cd`'s `tool` has no
+`CFLAGS_EXTRA`.
+
+Each run lasts 30 s with `--bpm 120`, in a pty of 40 rows by 120 columns
+(util-linux `script`), with its own scratch `XDG_CONFIG_HOME` holding only
+`midi_beat_clock`, so `glide_hz` is 100; Ctrl+Q then quits it. `script`
+runs the command with `$SHELL`, so the script pins `SHELL=/bin/sh`. There
+are two configurations: `strict`, with `--strict-timing` and
+`midi_beat_clock = 1`, and `off`, with neither and `midi_beat_clock = 0`.
+
+- **Idle**: an empty grid, on both builds in both configurations. It fails
+  unless bOrca's waits per second are within 0.90 to 1.10 times
+  `4f349cd`'s, and its zero-timeout waits per second at most 1.5 times
+  `4f349cd`'s + 5, which shows that no busy-wait was added. (`4f349cd`'s
+  deadline also waits on note-offs, hence the empty grid.)
+- **Glide**, bOrca only: `examples/misc/glide_rate.orca`, whose glide never
+  ends and steps at `glide_hz`, against a control, the same file with its
+  `!` replaced by `.`, in the same configuration. In `off` the glide's
+  waits per second must be at least the control's + 50, which shows the
+  loop waking for the CC engine's deadline. In `strict` the table already
+  wakes the loop about 190 times a second, so waits cannot show that; there
+  its zero-timeout waits per second must be at most 1.5 times the
+  control's, which shows the engine's deadline staying off the strict
+  table (folding it into the table measured about 2.2 times). In both, the
+  glide's waits per second must be at most the control's + 2 ×
+  `glide_hz`, 200: a wait point that stops polling the engine leaves its
+  deadline passed and waits 1 ms on every pass, about 770 more a second.
+
+It prints one line per run and a PASS or FAIL line per bound, and exits 0
+when every bound holds, 1 when one fails, and 2 when a build or a run
+fails. It takes about five minutes. The final figures for the appliance
+come from the installed candidate at the repin, not from this script.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes and pull requests to
@@ -560,9 +610,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `--alsa --portmidi` with `Choose ALSA or PortMidi`, then builds the debug
   `orca`, the debug `orca` with PortMidi (`make debug`) and with ALSA, the
   release `orca` without mouse support, the release `orca` with PortMidi,
-  the release `orca` with ALSA and `-DBORCA_DEBUG_COUNTERS`, the release
-  `orca` with ALSA and the appliance `orca` (`make appliance`, which is
-  `--alsa --harden --pie`), all with `-Werror`. The plain ALSA and appliance
+  the release `orca` with `-DBORCA_DEBUG_COUNTERS`, without and then with
+  ALSA, the release `orca` with ALSA and the appliance `orca`
+  (`make appliance`, which is `--alsa --harden --pie`), all with `-Werror`. The plain ALSA and appliance
   binaries must list `libasound.so.2` as `NEEDED` in `readelf -d`; the
   appliance binary must also be of type `DYN` in `readelf -h` (PIE) and
   import `__stack_chk_fail` in `nm -D --undefined-only` (hardened). Both
@@ -573,8 +623,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   prints `FAIL unit_check_canary:`; and runs
   `shellcheck -s sh` over `tool`, `tests/run.sh`, `tests/check-includes.sh`,
   `tests/check-nm.sh`, `tests/check-debug-build.sh`,
-  `tests/check-doc-sync.sh`, `tests/check-examples.sh` and
-  `tests/upstream/build-cli.sh`.
+  `tests/check-doc-sync.sh`, `tests/check-examples.sh`,
+  `tests/upstream/build-cli.sh`, `tests/upstream/compare.sh` and
+  `tests/wakeups/ab.sh`.
 - **armhf** (`ubuntu-24.04`, optional): only cross-compiles, with
   `arm-linux-gnueabihf-gcc`, each file in the union of `./tool sources cli`,
   `./tool sources test` and `./tool sources readme-gen`; a red result does
@@ -605,17 +656,22 @@ nice -n 19 taskset -c 0-2 tests/check-debug-build.sh build/debug/unit_tests /tmp
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --no-mouse orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d --alsa orca
+CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build orca
 CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --alsa orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 make appliance
 ```
 
 `-DBORCA_DEBUG_COUNTERS`, passed through `CFLAGS_EXTRA`, is a development
-switch for `--alsa` builds: the ALSA output also counts the messages it drops
-on `EAGAIN` or `EINTR`, and on quit, after the screen closes, prints
-`bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all` to
-stderr (`<m>` counts every message that did not go out). It is never part of
-a release or appliance build; CI only compiles it.
+switch for `orca`, with or without `--alsa`. The event loop counts its waits
+and, on quit, after the screen closes, prints
+`bOrca wakeups: <n> waits, <z> zero-timeout in <s> s` to stderr, which the
+wakeup check above compares with `4f349cd`. In an `--alsa` build the ALSA
+output also counts the messages it drops on `EAGAIN` or `EINTR`, and prints
+`bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`
+before it (`<m>` counts every message that did not go out). It is never
+part of a release or appliance build; CI only compiles it, with and
+without `--alsa`.
 
 Building an `--alsa` `orca` is safe while the appliance runs; running one is
 not, unless it uses another client name: the appliance router refuses to

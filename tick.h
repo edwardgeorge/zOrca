@@ -9,8 +9,8 @@
 // obeys the core include allow-list (AD-2): it reads no clock, does no I/O,
 // keeps no writable globals and sends only through the sink below, so the
 // unit tests link it against libc alone. Every CC goes through the caller's
-// CC engine (ccout.h): the tick body polls it, and each CC or CCI the VM
-// emits is submitted to it.
+// CC engine (ccout.h): the tick body and the shell's wait point poll it
+// (tick_poll_engine), and each CC or CCI the VM emits is submitted to it.
 
 // The send sink, provided by the shell, which also sends its own single bytes
 // through it. u is the shell's context, passed back on every call.
@@ -92,21 +92,31 @@ typedef struct {
 //   1. F8, when beat clock is on: sent by the shell, before tick_body;
 //   2. every sustained note ages by one tick, and the note-offs of those
 //      that run out go out;
-//   3. the CC engine's glide steps: the engine list is cleared, the engine
-//      is polled at now_us into it, and its CCs go out;
+//   3. the CC engine's glide steps and targets: tick_poll_engine at now_us
+//      into the engine list;
 //   then the VM runs into the tick list, ++*tick_num, and the tick list goes
 //   out:
 //   4. CCs, pitch bends and OSC/UDP, at once, in list (VM) order. Each CC or
 //      CCI clears the engine list, is submitted to the engine at now_us, and
-//      the engine's output goes out at once: a CC, a CCI at rate 0 or z, and
-//      a CCI on a controller with no last value go out in this tick, and a
-//      glide's steps in step 3 of later ticks;
+//      the engine's output goes out at once: a CC, a CCI at rate 0 or z, a
+//      CCI on a controller with no last value, and a no-op CCI's catch-up to
+//      a target whose step was held back go out in this tick, and a glide's
+//      steps later, from the wait point's sub-tick polls (at glide_hz,
+//      between ticks) and step 3 of later ticks;
 //   5. the note-offs of retriggered notes (a new note on a sustained channel
 //      and note), then the note-ons;
 //   6. the mono round: the note-offs of every sustained note on a channel
 //      with a new mono note, then the mono note-ons.
 // The shell sends nothing else for the tick.
 void tick_body(Tick_ctx const *ctx, Tick_sink const *sink);
+
+// One poll of the CC engine (spine AD-14, AD-16): clears engine, the engine
+// output list, polls ccout at now_us into it, and sends its CCs through the
+// sink, in the engine's order. Step 3 of tick_body is this call, and the
+// shell's wait point makes it between ticks, the sub-tick poll, whenever
+// ccout_next_deadline has passed. now_us must never go back (AD-13).
+void tick_poll_engine(Ccout_engine *ccout, U64 now_us, Oevent_list *engine,
+                      Tick_sink const *sink);
 
 // Clears the marks and the list, then runs the VM once into the list, with
 // ctx's store and dialect. Sends nothing, ages nothing and never touches the

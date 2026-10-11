@@ -1,0 +1,48 @@
+The I2 wakeup counter, and nothing else, for bOrca's base, boorch/bOrca
+4f349cdb0a8a4bb157df67a5178df7df100f9dcf (spec item I2, CAP-14). It counts
+the event loop's waits, the wgetch calls, at the same code point as bOrca's
+-DBORCA_DEBUG_COUNTERS counter in tui_main.c, and prints the same line to
+stderr after endwin: `bOrca wakeups: <n> waits, <z> zero-timeout in <s> s`.
+4f349cd's tool has no CFLAGS_EXTRA, so the counter is unconditional here.
+tests/wakeups/ab.sh applies it to a `git archive` of 4f349cd with
+`patch -p1`.
+
+--- a/tui_main.c
++++ b/tui_main.c
+@@ -3469,6 +3469,12 @@
+ 
+   wtimeout(stdscr, 0);
+   int cur_timeout = 0;
++  // The wakeup counter (bOrca I2, tests/wakeups/): the event loop's waits,
++  // the wgetch calls, counted apart by whether they enter with a timeout
++  // above 0 or with 0, from the start of the loop. Printed to stderr after
++  // endwin. This counter-only patch of 4f349cd defines it unconditionally.
++  Usz debug_waits = 0, debug_zero_waits = 0;
++  U64 debug_waits_since = stm_now();
+   Usz brackpaste_starting_x = 0, brackpaste_y = 0, brackpaste_x = 0,
+       brackpaste_max_y = 0, brackpaste_max_x = 0;
+   bool is_in_brackpaste = false;
+@@ -3522,8 +3528,13 @@
+   ged_make_cursor_visible(&t.ged);
+   ged_send_osc_bpm(&t.ged, (I32)t.ged.bpm); // Send initial BPM
+   ged_set_playing(&t.ged, true);            // Auto-play
++  debug_waits_since = stm_now();
+   // Enter main loop. Process events as they arrive.
+ event_loop:;
++  if (cur_timeout > 0)
++    ++debug_waits;
++  else
++    ++debug_zero_waits;
+   int key = wgetch(stdscr);
+   if (cur_timeout != 0) {
+     wtimeout(stdscr, 0); // Until we run out, don't wait between events.
+@@ -3935,6 +3946,9 @@
+ #endif
+   printf("\033[?2004h\n"); // Tell terminal to not use bracketed paste
+   endwin();
++  fprintf(stderr, "bOrca wakeups: %zu waits, %zu zero-timeout in %.3f s\n",
++          debug_waits, debug_zero_waits,
++          stm_sec(stm_since(debug_waits_since)));
+   ged_deinit(&t.ged);
+   osofree(t.file_name);
+   osofree(t.osc_address);

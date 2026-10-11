@@ -136,10 +136,10 @@ void tick_release_all(Tick_sink const *sink, Susnote_list *susnotes) {
   susnote_list_clear(susnotes);
 }
 
-// Sends the CC engine's output, which holds only Oevent_midi_cc items: step
-// 3 of the wire order in tick.h, and each submit's output in step 4. The
-// engine list never goes through tick_send_events, which would submit its
-// CCs to the engine again.
+// Sends the CC engine's output, which holds only Oevent_midi_cc items: each
+// poll's (step 3 of the wire order in tick.h, and the wait point's sub-tick
+// poll) and each submit's in step 4. The engine list never goes through
+// tick_send_events, which would submit its CCs to the engine again.
 static void send_engine_ccs(Tick_sink const *sink, Oevent_list const *engine) {
   for (Usz i = 0; i < engine->count; ++i) {
     Oevent_midi_cc const *ec = &engine->buffer[i].midi_cc;
@@ -215,9 +215,11 @@ static void tick_send_events(Tick_ctx const *ctx, Tick_sink const *sink,
     }
     case Oevent_type_midi_cc_interpolated: {
       Oevent_midi_cc_interpolated const *eci = &e->midi_cc_interpolated;
-      // Whatever the engine emits for the submit (an instant rate, or a
-      // controller with no last value) goes out at once, in list order; a
-      // glide's steps go out in step 3 of later ticks.
+      // Whatever the engine emits for the submit (an instant rate, a
+      // controller with no last value, or a no-op's catch-up to a target
+      // whose step was held back) goes out at once, in list order; a glide's
+      // steps go out from later polls: the wait point's sub-tick polls, at
+      // glide_hz, and step 3 of later ticks.
       oevent_list_clear(engine);
       ccout_submit_glide(ccout, eci->channel, eci->control, eci->target_value,
                          eci->interpolation_rate, ctx->tick_len, ctx->now_us,
@@ -294,16 +296,21 @@ void tick_run_vm(Glyph *restrict gbuffer, Mark *restrict mbuffer, Usz height,
   orca_run(gbuffer, mbuffer, height, width, tick_num, list, random_seed, ctx);
 }
 
+void tick_poll_engine(Ccout_engine *ccout, U64 now_us, Oevent_list *engine,
+                      Tick_sink const *sink) {
+  // The engine appends, so its list is cleared first: nothing left in it,
+  // such as a preview's events, is ever sent (CAP-9).
+  oevent_list_clear(engine);
+  ccout_poll(ccout, now_us, engine);
+  send_engine_ccs(sink, engine);
+}
+
 void tick_body(Tick_ctx const *ctx, Tick_sink const *sink) {
   assert(ctx->ccout);
   // Steps 2 to 6 of the wire order in tick.h.
   age_sustained_notes(sink, ctx->susnotes);
-  // Step 3. The engine appends, so its list is cleared first: nothing left
-  // in it, such as a preview's events, is ever sent (CAP-9).
-  Oevent_list *engine = ctx->engine_list;
-  oevent_list_clear(engine);
-  ccout_poll(ctx->ccout, ctx->now_us, engine);
-  send_engine_ccs(sink, engine);
+  // Step 3.
+  tick_poll_engine(ctx->ccout, ctx->now_us, ctx->engine_list, sink);
   Oevent_list *list = ctx->tick_list;
   Orca_run_ctx const run_ctx = {.opstate = ctx->opstate,
                                 .dialect = ctx->dialect};

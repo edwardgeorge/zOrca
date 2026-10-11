@@ -1197,7 +1197,9 @@ typedef struct {
   // The CC engine (AD-9, AD-10): every CC of the tick path goes through it,
   // and it keeps the glides and the last value sent on each controller. The
   // shell drives its lifecycle: cancel on pause, cancel and forget on open
-  // and new, forget when the output changes.
+  // and new, forget when the output changes, configure on the glide_hz
+  // setting. The tick body polls it, and so does the wait point between
+  // ticks whenever its deadline has passed (ged_poll_ccout).
   Ccout_engine ccout;
   Susnote_list susnote_list;
   Ged_cursor ged_cursor;
@@ -1266,7 +1268,8 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   oevent_list_init(&a->engine_oevent_list);
   // No clock here: ged_init runs before stm_setup().
   ccout_init(&a->ccout);
-  ccout_configure(&a->ccout, 100); // glide_hz; I2 makes it a setting
+  // glide_hz, until orca.conf's glide_hz key or the Glide Rate menu sets it.
+  ccout_configure(&a->ccout, Ccout_glide_hz_default);
   susnote_list_init(&a->susnote_list);
   ged_cursor_init(&a->ged_cursor);
   a->tick_num = 0;
@@ -1442,6 +1445,14 @@ static Tick_sink ged_sink(Ged *a) {
 static void ged_send_midi_byte(Ged *a, int byte) {
   Tick_sink const sink = ged_sink(a);
   sink.midi1(sink.u, byte);
+}
+
+// The sub-tick poll (spine AD-14, AD-16): the wait point runs it between
+// ticks whenever the CC engine's deadline has passed, so glides step on
+// wall-clock time at glide_hz. now is a now_us() read made after the tick's.
+static void ged_poll_ccout(Ged *a, U64 now) {
+  Tick_sink const sink = ged_sink(a);
+  tick_poll_engine(&a->ccout, now, &a->engine_oevent_list, &sink);
 }
 
 static void send_control_message(Oosc_dev *oosc_dev, char const *osc_address) {
@@ -2250,6 +2261,7 @@ enum {
   Set_fancy_grid_dots_menu_id,
   Set_fancy_grid_rulers_menu_id,
   Dialect_menu_id,
+  Glide_rate_menu_id,
 #ifdef FEAT_PORTMIDI
   Portmidi_output_device_menu_id,
 #endif
@@ -2405,12 +2417,38 @@ static void push_dialect_menu(Orca_dialect dialect) {
 }
 enum {
   Playback_menu_midi_bclock = 1,
+  Playback_menu_glide_rate,
 };
 static void push_playback_menu(bool midi_bclock_enabled) {
   Qmenu *qm = qmenu_create(Playback_menu_id);
   qmenu_set_title(qm, "Clock & Timing");
   qmenu_add_printf(qm, Playback_menu_midi_bclock, "[%c] Send MIDI Beat Clock",
                    midi_bclock_enabled ? '*' : ' ');
+  qmenu_add_choice(qm, Playback_menu_glide_rate, "Glide Rate...");
+  qmenu_push_to_nav(qm);
+}
+// The CC engine's glide_hz, the most glide steps per second on one
+// controller (ccout.h, spine AD-20): a radio of the three valid rates with
+// the active one marked, as the dialect radio. Picking it again changes
+// nothing.
+enum {
+  Glide_rate_menu_50 = 1,
+  Glide_rate_menu_100,
+  Glide_rate_menu_200,
+};
+static void push_glide_rate_menu(Usz glide_hz) {
+  Qmenu *qm = qmenu_create(Glide_rate_menu_id);
+  qmenu_set_title(qm, "Glide Rate");
+  qmenu_add_printf(qm, Glide_rate_menu_50, "(%c) 50 Hz",
+                   glide_hz == 50 ? '*' : ' ');
+  qmenu_add_printf(qm, Glide_rate_menu_100, "(%c) 100 Hz",
+                   glide_hz == 100 ? '*' : ' ');
+  qmenu_add_printf(qm, Glide_rate_menu_200, "(%c) 200 Hz",
+                   glide_hz == 200 ? '*' : ' ');
+  if (glide_hz == 100)
+    qmenu_set_current_item(qm, Glide_rate_menu_100);
+  else if (glide_hz == 200)
+    qmenu_set_current_item(qm, Glide_rate_menu_200);
   qmenu_push_to_nav(qm);
 }
 static void push_about_msg(void) {
@@ -2763,7 +2801,8 @@ static char const *const conf_file_name = "orca.conf";
   _(margins)                                                                   \
   _(grid_dot_type)                                                             \
   _(grid_ruler_type)                                                           \
-  _(dialect)
+  _(dialect)                                                                   \
+  _(glide_hz)
 char const *const confopts[] = {CONFOPTS(CONFOPT_STRING)};
 enum { Confoptslen = ORCA_ARRAY_COUNTOF(confopts) };
 enum { CONFOPTS(CONFOPT_ENUM) };
@@ -2805,6 +2844,19 @@ staticni bool conf_read_boolish(char const *val, bool *out) {
     if (strcmp(val, falses[i]) != 0)
       continue;
     *out = false;
+    return true;
+  }
+  return false;
+}
+
+// glide_hz: 50, 100 or 200, written as such. Anything else is not a value.
+staticni bool conf_read_glide_hz(char const *val, Usz *out) {
+  static char const *const names[] = {"50", "100", "200"};
+  static Usz const rates[] = {50, 100, 200};
+  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(names); i++) {
+    if (strcmp(val, names[i]) != 0)
+      continue;
+    *out = rates[i];
     return true;
   }
   return false;
@@ -2923,6 +2975,16 @@ staticni void tui_load_conf(Tui *t) {
       if (orca_dialect_from_name(ez.value, &dialect)) {
         ged_set_dialect(&t->ged, dialect);
         touched |= TOUCHFLAG(Confopt_dialect);
+      }
+      break;
+    }
+    case Confopt_glide_hz: {
+      // 50, 100 or 200; anything else is ignored, which leaves 100, and its
+      // value is kept until the Glide Rate menu sets a rate.
+      Usz glide_hz;
+      if (conf_read_glide_hz(ez.value, &glide_hz)) {
+        ccout_configure(&t->ged.ccout, glide_hz);
+        touched |= TOUCHFLAG(Confopt_glide_hz);
       }
       break;
     }
@@ -3052,6 +3114,9 @@ staticni void tui_save_prefs(Tui *t) {
     case Confopt_dialect:
       fputs(orca_dialect_name(t->ged.dialect), ez.file);
       break;
+    case Confopt_glide_hz:
+      fprintf(ez.file, "%zu", t->ged.ccout.glide_hz);
+      break;
     }
   }
   osofree(midi_output_device_name);
@@ -3125,6 +3190,20 @@ staticni void dialect_menu_was_picked(Tui *t, int picked_id) {
   if (!ged_set_dialect(&t->ged, dialect))
     return; // already the dialect: nothing changes, nothing is saved
   t->prefs_touched |= TOUCHFLAG(Confopt_dialect);
+  tui_save_prefs(t);
+}
+
+// A new glide_hz applies at once, to running glides too (spine AD-9's
+// "glide_hz change"), and is saved.
+staticni void glide_rate_menu_was_picked(Tui *t, int picked_id) {
+  Usz glide_hz = picked_id == Glide_rate_menu_50    ? 50
+                 : picked_id == Glide_rate_menu_200 ? 200
+                                                    : 100;
+  qnav_stack_pop();
+  if (glide_hz == t->ged.ccout.glide_hz)
+    return; // already the rate: nothing changes, nothing is saved
+  ccout_configure(&t->ged.ccout, glide_hz);
+  t->prefs_touched |= TOUCHFLAG(Confopt_glide_hz);
   tui_save_prefs(t);
 }
 
@@ -3395,7 +3474,13 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           tui_save_prefs(t);
           break;
         }
+        case Playback_menu_glide_rate:
+          push_glide_rate_menu(t->ged.ccout.glide_hz);
+          break;
         }
+        break;
+      case Glide_rate_menu_id:
+        glide_rate_menu_was_picked(t, act.picked.id);
         break;
       case Set_fancy_grid_dots_menu_id:
         plainorfancy_menu_was_picked(t, act.picked.id, &t->fancy_grid_dots,
@@ -3863,6 +3948,14 @@ int main(int argc, char **argv) {
 
   wtimeout(stdscr, 0);
   int cur_timeout = 0;
+#ifdef BORCA_DEBUG_COUNTERS
+  // The wakeup counter (I2): the event loop's waits, the wgetch calls,
+  // counted apart by whether they enter with a timeout above 0 or with 0,
+  // from the start of the loop. Printed to stderr after endwin.
+  // tests/wakeups/ compares it with a counter-only build of 4f349cd.
+  Usz debug_waits = 0, debug_zero_waits = 0;
+  U64 debug_waits_since = stm_now();
+#endif
   Usz brackpaste_starting_x = 0, brackpaste_y = 0, brackpaste_x = 0,
       brackpaste_max_y = 0, brackpaste_max_x = 0;
   bool is_in_brackpaste = false;
@@ -3921,11 +4014,20 @@ int main(int argc, char **argv) {
     goto quit;
 #endif
   ged_set_playing(&t.ged, true);            // Auto-play
+#ifdef BORCA_DEBUG_COUNTERS
+  debug_waits_since = stm_now();
+#endif
   // Enter main loop. Process events as they arrive.
 event_loop:;
 #ifdef FEAT_ALSA
   if (alsa_shutdown_requested)
     goto quit;
+#endif
+#ifdef BORCA_DEBUG_COUNTERS
+  if (cur_timeout > 0)
+    ++debug_waits;
+  else
+    ++debug_zero_waits;
 #endif
   int key = wgetch(stdscr);
   if (cur_timeout != 0) {
@@ -3987,6 +4089,31 @@ event_loop:;
       else new_timeout = 50;
     } // clang-format on
 #undef DEADTIME
+    // The CC engine's deadline (spine AD-16), only while a glide runs, so
+    // with none this is 4f349cd's path: no clock read, no call. It never
+    // goes through the table above: when it has passed, the sub-tick poll
+    // sends what is due, and the next one shortens the wait, rounded up to
+    // whole milliseconds and never below 1, so it never asks for a
+    // zero-timeout wait.
+    if (t.ged.ccout.active_count > 0) {
+      U64 now = now_us();
+      U64 deadline;
+      bool engine_busy = ccout_next_deadline(&t.ged.ccout, now, &deadline);
+      if (engine_busy && deadline <= now) {
+        ged_poll_ccout(&t.ged, now);
+        engine_busy = ccout_next_deadline(&t.ged.ccout, now, &deadline);
+      }
+      if (engine_busy) {
+        U64 wait_us = deadline - now; // never negative: deadline >= now
+        U64 wait_ms = wait_us / 1000;
+        if (wait_us % 1000 != 0)
+          ++wait_ms; // rounded up
+        if (wait_ms < 1)
+          wait_ms = 1;
+        if (wait_ms < (U64)new_timeout)
+          new_timeout = (int)wait_ms;
+      }
+    }
     if (new_timeout != cur_timeout) {
       wtimeout(stdscr, new_timeout);
       cur_timeout = new_timeout;
@@ -4349,6 +4476,11 @@ quit:
           "bOrca ALSA: %zu MIDI sends dropped on EAGAIN/EINTR, %zu not sent "
           "in all\n",
           alsa_ctx.send_drops, alsa_ctx.send_failures);
+#endif
+#ifdef BORCA_DEBUG_COUNTERS
+  fprintf(stderr, "bOrca wakeups: %zu waits, %zu zero-timeout in %.3f s\n",
+          debug_waits, debug_zero_waits,
+          stm_sec(stm_since(debug_waits_since)));
 #endif
   ged_deinit(&t.ged);
 #ifdef FEAT_ALSA

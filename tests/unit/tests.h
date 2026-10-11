@@ -63,12 +63,25 @@
   X(ccout_poll_before_start)                                                   \
   X(ccout_poll_slot_order)                                                     \
   X(ccout_init_and_configure)                                                  \
+  X(ccout_cap14_glide)                                                         \
+  X(ccout_budget_flood)                                                        \
+  X(ccout_budget_instant_flood)                                                \
+  X(ccout_budget_empty)                                                        \
+  X(ccout_budget_time_back)                                                    \
+  X(ccout_budget_rotation)                                                     \
+  X(ccout_budget_flood_ends)                                                   \
+  X(ccout_budget_lifecycle)                                                    \
+  X(ccout_noop_budget_held_back)                                               \
+  X(ccout_glide_hz_change_applies)                                             \
+  X(ccout_budget_first_held_slot)                                              \
+  X(ccout_glide_rate_example)                                                  \
   X(tick_cap9_resume_after_edit)                                               \
   X(tick_cap9_resume_without_edit)                                             \
   X(tick_wire_order)                                                           \
   X(tick_cci_same_tick)                                                        \
   X(tick_engine_poll_order)                                                    \
   X(tick_engine_cc_path)                                                       \
+  X(tick_poll_engine)                                                          \
   X(tick_release_all)                                                          \
   X(tick_note_length)                                                          \
   X(tick_note_length_beat_clock)                                               \

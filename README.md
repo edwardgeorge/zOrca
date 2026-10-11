@@ -279,16 +279,18 @@ The MIDI CC operator sends MIDI Control Change messages. The control number is s
 
 ### Interpolation
 
-When the 6th parameter (interpolation rate) is `1` to `y`, the operator glides the CC from its current value to the target, at most one step per tick, instead of jumping. This allows for smooth parameter sweeps and reduces the "staircase" effect of Orca's discrete timing.
+When the 6th parameter (interpolation rate) is `1` to `y`, the operator glides the CC from its current value to the target instead of jumping, in steps sent on the clock between ticks as well as on them. This allows for smooth parameter sweeps and removes the "staircase" effect of Orca's discrete timing.
 
 - **Rates `.`, `0` and `z`**: instant. The value goes out at once, in the tick that bangs the operator. Uppercase reads like lowercase, so `Z` is instant too, and any other glyph counts as `0`, so it is instant.
 - **Rates `1` to `y`**: a glide over 36 − rate ticks: `1` takes 35 ticks (the slowest), `w` 4 and `y` 2. Its length is fixed in time when it starts, so a tempo change while it runs does not move its end.
 - **Where a glide starts**: from the CC's current value, which is where a glide already running on that channel and control has got to, or else the last value bOrca sent to it. If bOrca has sent nothing to that control since it started, since the file was opened or created, or since the MIDI output changed, the glide jumps straight to its target. To glide from a known value, send it first with an instant `!`.
-- **Banging it again**: banging the same glide again (the same target and rate) while it runs leaves it running, so a `!` banged on every tick still reaches its target on time. A new target or rate starts a new glide from the current value, and a target equal to the current value stops the glide and sends nothing. An instant `!` on the same control stops a running glide.
-- **Steps**: a glide sends a step only when the value changes, at most 100 per second on one control, and a glide that runs to its end finishes on its target. A value already reached is not sent again while the operator keeps banging.
+- **Banging it again**: banging the same glide again (the same target and rate) while it runs leaves it running, so a `!` banged on every tick still reaches its target on time. A new target or rate starts a new glide from the current value, and a target equal to the current value stops the glide. That target goes out first if the last value sent differs from it, because the glide's step to it was held back by the glide rate or the cap below, so the control never stays a step short; otherwise nothing goes out. An instant `!` on the same control stops a running glide.
+- **Steps**: a glide sends a step whenever its value changes, on wall-clock time: between ticks, as soon as the step is due, and not only when a tick runs. One control gets at most Glide Rate steps a second, 100 unless you change it (below), and a glide that runs to its end finishes on its target, which goes out at its end whatever the glide rate. A value already reached is not sent again while the operator keeps banging.
+- **Glide Rate**: open the main menu (Ctrl+D), choose Clock & Timing..., then Glide Rate..., and pick 50, 100 or 200 Hz, the most steps a second one glide sends. A new rate applies at once, to running glides too. It is saved in `orca.conf` as `glide_hz = 50`, `100` or `200`; any other value is ignored, which leaves 100, and its value is kept. Picking the rate that is already active saves nothing.
+- **The cap**: bOrca keeps one budget of 800 CC messages a second, with bursts of up to 80, that every CC it sends draws on. A glide's step goes out only when the budget has room for it, and otherwise waits; when many glides run at once, their steps take turns, so none of them always waits. Instant CCs and glide targets always go out and draw on the budget, even past the cap, so while instants alone go past 800 a second, running glides send no steps and jump to their targets at their ends. The cap is fixed; there is no setting for it.
 - **Pausing** stops every running glide where it is; the next glide starts from the last value sent.
 
-Each channel and control has its own glide, so several CCs glide independently.
+Each channel and control has its own glide, so several CCs glide independently. `examples/misc/glide_rate.orca` keeps one glide running, its target changing on every tick, so it steps at the glide rate.
 
 The operator automatically clamps control numbers above 127 to 127 to ensure valid MIDI CC range. Values use increments of 4 for predictable and musical MIDI CC values.
 
@@ -326,7 +328,7 @@ Space starts and pauses playback, Ctrl+D opens the main menu and Ctrl+G lists th
 
 `--alsa` cannot be combined with `--portmidi` or `--static`, and fails on anything but Linux. An `--alsa` build opens one ALSA sequencer client when it starts, named `bOrca`, or the value of `BORCA_ALSA_CLIENT_NAME` when that is set and non-empty, with one output port, `MIDI out`, that other programs subscribe to (`aconnect -l` lists it). It has no MIDI input. The client opens even with `--osc-midi-bidule`, whose output then replaces it, so such a run also needs a sequencer and, while another `bOrca` runs, its own client name. If the sequencer cannot be opened, or another client already has the name (checked once, at startup: when restarting `orca` by hand, wait for the old instance to exit), `orca` prints an error and exits with status 1 before the screen starts; two clients with one name would make the uConsole appliance's router refuse to route either. A MIDI message the sequencer does not take is dropped, never retried, and the HUD's first line then shows a bold `MIDI err` until you quit. SIGTERM, SIGHUP or SIGINT quits cleanly, stopping playback first, unless that signal was already ignored when `orca` started. `orca -h` repeats this in an `--alsa` build.
 
-For development, `CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS ./tool build --alsa orca` also counts the dropped messages and, after the screen closes on quit, prints one line to stderr: `bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`, where `<n>` counts the messages dropped because the sequencer's output was full or the write was interrupted, and `<m>` every message that did not go out.
+For development, `CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS ./tool build orca`, with or without `--alsa`, counts the event loop's wakeups and, after the screen closes on quit, prints one line to stderr: `bOrca wakeups: <n> waits, <z> zero-timeout in <s> s`, where `<n>` counts the loop's waits for input entered with a timeout above 0, `<z>` those entered with a timeout of 0, and `<s>` the seconds since the loop started; `tests/wakeups/ab.sh` compares it with `4f349cd`'s (see [`tests/README.md`](tests/README.md)). In an `--alsa` build it also counts the dropped messages and prints another line before that one: `bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`, where `<n>` counts the messages dropped because the sequencer's output was full or the write was interrupted, and `<m>` every message that did not go out.
 
 The `make` wrapper:
 
@@ -342,6 +344,26 @@ On the uConsole, the appliance is built with `make appliance`: ALSA only, so it 
 ## Changelog
 
 Changes since boorch/bOrca `4f349cd` that alter how an existing patch plays, change what goes out over MIDI, or break the public `orca_run` API, newest first. Each entry has a one-line title, says what changed and why, shows a before/after example, and points at an updated or new patch under `examples/`. The id in brackets at the end of an entry (`P0.1`, `B2`, …) is the item in the fork's implementation spec, the same vocabulary the `.xfail` markers under `tests/` use.
+
+### CC glides step between ticks, and a held-back final step is sent
+
+A `!` glide moved only when a tick ran, so it sent at most one step per tick, 8 a second at 120 BPM, and a sweep stepped audibly. B3's CC engine already worked in wall-clock time, but the loop asked it for steps only at ticks. Now the event loop also wakes when the engine's next step is due, so a glide sends the values it passes through as it reaches them, at most Glide Rate times a second on one control: 100 unless set to 50 or 200 under Clock & Timing (Ctrl+D), or with `glide_hz` in `orca.conf`. The engine also gets its budget, 800 CC messages a second in bursts of up to 80, shared by every CC it sends; glide steps wait for it. This breaks patches that rely on the old sound:
+
+- Glides send many more, smaller steps. At 120 BPM a glide from 0 to 127 at `4` (32 ticks) sent 32 steps, 4, 8, 12 … 123, 127, one per tick; it now sends all 127 values, 1, 2, 3 … 127, about one every 31 ms, and reaches 127 16 ms before its end rather than at it. A fast glide is now limited by the glide rate rather than the tempo: a synth or a MIDI link that cannot take 100 CCs a second on one control may want a Glide Rate of 50.
+- A bang whose target equals where a running glide has got to, while the step to it is still held back by the glide rate or the cap, now sends that target and then stops the glide. Before, it stopped the glide with nothing sent, so the control could stay one step short of where the glide had got to: after an instant 0, a glide to 64 at `w` and, 5 ms later, a glide to 1, the control stayed at 0, and now goes to 1 at once.
+- The 800 a second cap is new. A step over it waits, and glides running together take turns. Instant CCs and glide targets always go out and count against it, so while instant CCs alone go past 800 a second, running glides send no steps and jump to their targets at their ends. Before, nothing capped them.
+- A running glide's next step can only shorten the event loop's wait, never below 1 ms and never through the `--strict-timing` table. With no glide running, the loop reads no extra clock and makes no extra call. `tests/wakeups/ab.sh` checks the idle wakeup rate against `4f349cd`, and a glide's wakeups against the same patch without its `!`.
+
+For code that uses `ccout.h` or `tick.h`: `Ccout_engine` gains `budget`, `refill_time` and `start_slot`, which `ccout_init` sets, and `ccout_poll` now starts from `start_slot`; `ccout_next_deadline` counts the budget, and a no-op `ccout_submit_glide` can now emit. `tick.h` gains `tick_poll_engine`, the poll that `tick_body`'s step 3 makes and that the TUI's loop makes between ticks whenever `ccout_next_deadline` has passed. A caller that polls only in `tick_body` keeps one step per tick.
+
+Before → after, the first second of `examples/misc/glide_rate.orca` at 120 BPM, CC 74 on channel 0, as the engine sends it when polled at each of its deadlines (a `|` marks each new tick; the loop rounds each wait up to whole milliseconds, so on the wire a step can fall up to 1 ms later):
+
+```
+before: 0 | | 64 | 32 | 79 | 40 | 83 | 42 | 84                                 8 CCs
+after:  0 | 1 6 11 16 21 26 31 36 41 46 51 56 61 | 62 59 57 54 … | 32 36 40 …   89 CCs
+```
+
+Example: `examples/misc/glide_rate.orca`, a `!` at `y` whose target alternates 0 and 127 on every bang, so its glide never ends and steps at the glide rate; it is also the glide patch of the wakeup check. (I2)
 
 ### Lowercase `r` never sends one value twice in a row, and takes its right input's case
 

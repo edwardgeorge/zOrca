@@ -564,6 +564,74 @@ void test_tick_engine_cc_path(void) {
   CHECK(ccout.last_emit[0 * Ccout_controls + 74] == engine_t0 + tick_us);
 }
 
+// The sub-tick poll (I2, spine AD-14, AD-16), tick_poll_engine, as the wait
+// point makes it between ticks, on a recording sink. Two glides at y (2
+// ticks): CC 74 on channel 0 from 0 to 20, and CC 5 on channel 1 from 100 to
+// 80. The engine list starts with a leftover CC, as a preview could leave
+// there, which is never sent. A poll before glide_hz allows a step sends
+// nothing; polls at each deadline then send every step, in slot order
+// within a poll, through midi3 alone, until both glides end at their
+// targets.
+void test_tick_poll_engine(void) {
+  Ccout_engine ccout;
+  ccout_init(&ccout);
+  Oevent_list seed, engine_list;
+  oevent_list_init(&seed);
+  oevent_list_init(&engine_list);
+  ccout_submit_instant(&ccout, 0, 74, 0, 0, &seed);
+  ccout_submit_instant(&ccout, 1, 5, 100, 0, &seed);
+  ccout_submit_glide(&ccout, 1, 5, 80, 34, tick_us, 0, &seed);
+  ccout_submit_glide(&ccout, 0, 74, 20, 34, tick_us, 0, &seed);
+  CHECK(seed.count == 2 && ccout.active_count == 2);
+  Oevent_midi_cc *leftover = &oevent_list_alloc_item(&engine_list)->midi_cc;
+  leftover->oevent_type = Oevent_type_midi_cc;
+  leftover->channel = 2;
+  leftover->control = 1;
+  leftover->value = 99;
+
+  Recording rec;
+  Tick_sink const sink = rec_sink(&rec);
+  tick_poll_engine(&ccout, 5000, &engine_list, &sink); // glide_hz holds both
+  CHECK(rec.midi3_count == 0 && engine_list.count == 0);
+  // At 10 000: 20 x 0.04 = 0.8 and 100 - 20 x 0.04 = 99.2, channel 0 first.
+  tick_poll_engine(&ccout, 10000, &engine_list, &sink);
+  Triple const want_first[] = {{0xB0, 74, 1}, {0xB1, 5, 99}};
+  CHECK(triples_are(&rec, want_first, ORCA_ARRAY_COUNTOF(want_first)));
+
+  // Then at each deadline until both end: every poll sends, each glide's
+  // values move one way, and each ends on its target by t_end.
+  U64 now = 10000, t;
+  Usz polls = 0;
+  while (polls < 1000 && ccout_next_deadline(&ccout, now, &t)) {
+    Usz before = rec.midi3_count, active_before = ccout.active_count;
+    tick_poll_engine(&ccout, t, &engine_list, &sink);
+    CHECK(rec.midi3_count > before || ccout.active_count < active_before);
+    ++polls;
+    now = t;
+  }
+  CHECK(engine_idle(&ccout));
+  CHECK(now <= 2 * tick_us);
+  CHECK(!rec.overflow && rec.midi1_count == 0 && rec.osc_count == 0);
+  int last74 = -1, last5 = 101;
+  bool moving_ok = true, ccs_ok = true;
+  for (Usz i = 0; i < rec.midi3_count; ++i) {
+    Triple const tr = rec.midi3[i];
+    if (tr.status == 0xB0 && tr.d1 == 74) {
+      moving_ok = moving_ok && tr.d2 > last74;
+      last74 = tr.d2;
+    } else if (tr.status == 0xB1 && tr.d1 == 5) {
+      moving_ok = moving_ok && tr.d2 < last5;
+      last5 = tr.d2;
+    } else {
+      ccs_ok = false;
+    }
+  }
+  CHECK(ccs_ok && moving_ok);
+  CHECK(last74 == 20 && last5 == 80);
+  oevent_list_deinit(&seed);
+  oevent_list_deinit(&engine_list);
+}
+
 // Release-all (pause, quit, an output change) sends a note-off for every
 // sustained note and clears the list, whatever their counts.
 void test_tick_release_all(void) {
