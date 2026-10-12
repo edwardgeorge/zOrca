@@ -18,12 +18,13 @@
 //
 // The touched bits. A key's bit is set when its line was read from the file
 // with a value taken, or when a setter changed its value; tui_save_prefs
-// writes the touched keys and ezconf copies every other line verbatim. An
-// override clears its key's bit, whether or not the override took effect
-// (External without a reader; an input name that does not fit), so a flag
-// lasts for the session and the stored line is kept until a menu change
-// touches the key again (AD-20). portmidi_output_device and the input key
-// are never touched by a read.
+// writes the touched keys, and ezconf writes every other key line back with
+// its value unchanged (as `key = value`: ezconf normalises the spacing, as it
+// always has) and every comment line as it was. An override clears its key's
+// bit, whether or not the override took effect (External without a reader; an
+// input name that does not fit), so a flag lasts for the session and the
+// stored line is kept until a menu change touches the key again (AD-20).
+// portmidi_output_device and the input key are never touched by a read.
 
 // The keys, in the order ezconf appends missing keys (TUI_PREFS_KEYS order
 // is behaviour: a key absent from the file is appended in this order). A
@@ -121,15 +122,18 @@ void tui_prefs_init(Tui_prefs *p, bool has_midi_in, Confopt midi_in_key);
 // leaving both alone, when there is no leading number.
 bool tui_prefs_read_nxn_or_n(char const *str, int *out_a, int *out_b);
 
-// Takes one conf line's value for key, as tui_load_conf read it before
-// P3-4b. True when the value is taken: it is stored and the key touched (but
-// for portmidi_output_device and the input key, stored only). The two OSC
-// strings are stored as given, empty included: the port line too, which
-// tui_prefs_set_osc_output_port alone refuses empty. False, with nothing
-// changed, for a value that is not one of the key's (an unknown line is
-// then kept verbatim on save), for External or an input key without a
-// reader, for the other backend's input key, and for a value of
-// Tui_prefs_value_cap bytes or more.
+// Takes one conf line's value for key, as tui_load_conf read it before P3-4b.
+// True when the value is taken: it is stored and the key touched (but for
+// portmidi_output_device and the input key, stored only). The two OSC strings
+// are stored as given, empty included: the port line too, which
+// tui_prefs_set_osc_output_port alone refuses empty. One difference from
+// before P3-4b: a later empty osc_output_address line now wins (loopback),
+// where tui_load_conf kept an earlier non-empty address; only a hand-edited
+// file holds the key twice, since a save comments out a repeated key. False,
+// with nothing changed, for a value that is not one of the key's (that line is
+// then written back with its value unchanged on save), for External or an
+// input key without a reader, for the other backend's input key, and for a
+// value of Tui_prefs_value_cap bytes or more.
 bool tui_prefs_read_line(Tui_prefs *p, Confopt key, char const *value);
 
 // Applies each key in o->keys (Tui_overrides_keys only, asserted) over the

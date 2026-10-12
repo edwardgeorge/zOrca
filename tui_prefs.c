@@ -166,8 +166,8 @@ bool tui_prefs_read_line(Tui_prefs *p, Confopt key, char const *value) {
       return false;
     break;
   case Confopt_glide_hz:
-    // 50, 100 or 200; anything else is kept verbatim until the Glide Rate
-    // menu sets a rate.
+    // 50, 100 or 200; anything else is written back unchanged until the
+    // Glide Rate menu sets a rate.
     if (!ccout_glide_hz_from_name(value, &p->glide_hz))
       return false;
     break;
