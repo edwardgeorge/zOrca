@@ -145,11 +145,16 @@ typedef enum {
   Glyph_class_bang,
 } Glyph_class;
 
-static Glyph_class glyph_class_of(Glyph glyph) {
+// The class a glyph draws as. In the upstream dialect (sim.h) `$` and `&`
+// are no operators, so they draw as unknown glyphs (bold red), as Orca-c
+// 9df9786 draws them; bOrca's colours do not change.
+static Glyph_class glyph_class_of(Glyph glyph, Orca_dialect dialect) {
   if (glyph == '.')
     return Glyph_class_grid;
   if (glyph >= '0' && glyph <= '9')
     return Glyph_class_numeric;
+  if (dialect == Orca_dialect_upstream && (glyph == '$' || glyph == '&'))
+    return Glyph_class_unknown;
   switch (glyph) {
   case 'N':
   case 'n':
@@ -182,8 +187,8 @@ static Glyph_class glyph_class_of(Glyph glyph) {
   return Glyph_class_unknown;
 }
 
-static attr_t term_attrs_of_cell(Glyph g, Mark m) {
-  Glyph_class gclass = glyph_class_of(g);
+static attr_t term_attrs_of_cell(Glyph g, Mark m, Orca_dialect dialect) {
+  Glyph_class gclass = glyph_class_of(g, dialect);
   attr_t attr = A_normal;
   switch (gclass) {
   case Glyph_class_unknown:
@@ -656,7 +661,8 @@ staticni void draw_glyphs_grid(WINDOW *win, int draw_y, int draw_x, int draw_h,
                                Mark const *restrict mbuffer, Usz field_h,
                                Usz field_w, Usz offset_y, Usz offset_x,
                                Usz ruler_spacing_y, Usz ruler_spacing_x,
-                               bool use_fancy_dots, bool use_fancy_rulers) {
+                               bool use_fancy_dots, bool use_fancy_rulers,
+                               Orca_dialect dialect) {
   assert(draw_y >= 0 && draw_x >= 0);
   assert(draw_h >= 0 && draw_w >= 0);
   enum { Bufcount = 4096 };
@@ -717,7 +723,7 @@ staticni void draw_glyphs_grid(WINDOW *win, int draw_y, int draw_x, int draw_h,
       } else {
         ch = (chtype)g;
       }
-      attr_t attrs = term_attrs_of_cell(g, m);
+      attr_t attrs = term_attrs_of_cell(g, m, dialect);
       chbuffer[ix] = ch | attrs;
     }
     wmove(win, draw_y + (int)iy, draw_x);
@@ -729,7 +735,8 @@ staticni void draw_glyphs_grid_scrolled(
     WINDOW *win, int draw_y, int draw_x, int draw_h, int draw_w,
     Glyph const *restrict gbuffer, Mark const *restrict mbuffer, Usz field_h,
     Usz field_w, int scroll_y, int scroll_x, Usz ruler_spacing_y,
-    Usz ruler_spacing_x, bool use_fancy_dots, bool use_fancy_rulers) {
+    Usz ruler_spacing_x, bool use_fancy_dots, bool use_fancy_rulers,
+    Orca_dialect dialect) {
   if (scroll_y < 0) {
     draw_y += -scroll_y;
     scroll_y = 0;
@@ -741,7 +748,7 @@ staticni void draw_glyphs_grid_scrolled(
   draw_glyphs_grid(win, draw_y, draw_x, draw_h, draw_w, gbuffer, mbuffer,
                    field_h, field_w, (Usz)scroll_y, (Usz)scroll_x,
                    ruler_spacing_y, ruler_spacing_x, use_fancy_dots,
-                   use_fancy_rulers);
+                   use_fancy_rulers, dialect);
 }
 
 static void ged_cursor_confine(Ged_cursor *tc, Usz height, Usz width) {
@@ -1937,7 +1944,8 @@ staticni void ged_draw(Ged *a, WINDOW *win, char const *filename,
   draw_glyphs_grid_scrolled(
       win, 0, 0, a->grid_h, win_w, a->field.buffer, a->mbuf_r.buffer,
       a->field.height, a->field.width, a->grid_scroll_y, a->grid_scroll_x,
-      a->ruler_spacing_y, a->ruler_spacing_x, use_fancy_dots, use_fancy_rulers);
+      a->ruler_spacing_y, a->ruler_spacing_x, use_fancy_dots, use_fancy_rulers,
+      a->dialect);
   draw_grid_cursor(win, 0, 0, a->grid_h, win_w, a->field.buffer,
                    a->field.height, a->field.width, a->grid_scroll_y,
                    a->grid_scroll_x, a->ged_cursor.y, a->ged_cursor.x,
