@@ -554,7 +554,10 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
                        Ged_input_mode input_mode, Usz activity_counter,
                        Glyph const *gbuffer, Port_label_cell const *labels,
                        Usz labels_h, Usz labels_w, bool midi_err) {
-  assert(height >= 2); // two rows: the tooltip's lines go on win_y and win_y + 1
+  // Two rows: the tooltip's lines go on win_y and win_y + 1. Release builds
+  // compile the assert out, so the parameter is also used by the cast.
+  assert(height >= 2);
+  (void)height;
   enum { Tabstop = 8 };
   wmove(win, win_y, win_x);
   wprintw(win, "%zux%zu", field_w, field_h);
