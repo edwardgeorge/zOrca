@@ -12,6 +12,7 @@
 #include "tick.h"
 #include "tooltips.h"
 #include "transport.h"
+#include "tui_prefs.h"
 #include "vmio.h"
 #include <getopt.h>
 #include <locale.h>
@@ -3101,26 +3102,6 @@ staticni bool read_int(char const *str, int *out) {
   return true;
 }
 
-// Reads something like '5x3' or '5'. Writes the same value to both outputs if
-// only one is specified. Returns false on error.
-staticni bool read_nxn_or_n(char const *str, int *out_a, int *out_b) {
-  int a, b;
-  int res = sscanf(str, "%dx%d", &a, &b);
-  if (res == EOF)
-    return false;
-  if (res == 1) {
-    *out_a = a;
-    *out_b = a;
-    return true;
-  }
-  if (res == 2) {
-    *out_a = a;
-    *out_b = b;
-    return true;
-  }
-  return false;
-}
-
 typedef enum {
   Brackpaste_seq_none = 0,
   Brackpaste_seq_begin,
@@ -3166,82 +3147,8 @@ staticni void try_send_to_gui_clipboard(Ged const *a,
     *io_use_gui_clipboard = false;
 }
 
+// The settings file; its keys and their rules are tui_prefs.h's (AD-20).
 static char const *const conf_file_name = "orca.conf";
-#define CONFOPT_STRING(x) #x,
-#define CONFOPT_ENUM(x) Confopt_##x,
-#define CONFOPTS(_)                                                            \
-  _(portmidi_output_device)                                                    \
-  _(osc_output_address)                                                        \
-  _(osc_output_port)                                                           \
-  _(osc_output_enabled)                                                        \
-  _(midi_beat_clock)                                                           \
-  _(margins)                                                                   \
-  _(grid_dot_type)                                                             \
-  _(grid_ruler_type)                                                           \
-  _(dialect)                                                                   \
-  _(glide_hz)                                                                  \
-  _(clock_source)                                                              \
-  _(portmidi_input_device)                                                     \
-  _(alsa_input_device)
-char const *const confopts[] = {CONFOPTS(CONFOPT_STRING)};
-enum { Confoptslen = ORCA_ARRAY_COUNTOF(confopts) };
-enum { CONFOPTS(CONFOPT_ENUM) };
-#undef CONFOPTS
-#undef CONFOPT_STRING
-#undef CONFOPT_ENUM
-
-// Use this to create a bitflag out of a Confopt_. These flags are used to
-// indicate that a setting has been touched by the user. In other words, these
-// flags are used to check whether or not a particular setting should be
-// written back to the conf file during a conf file save.
-#define TOUCHFLAG(_confopt) (1u << (Usz)_confopt)
-
-char const *const prefval_plain = "plain";
-char const *const prefval_fancy = "fancy";
-
-staticni bool plainorfancy(char const *val, bool *out) {
-  if (strcmp(val, prefval_plain) == 0) {
-    *out = false;
-    return true;
-  }
-  if (strcmp(val, prefval_fancy) == 0) {
-    *out = true;
-    return true;
-  }
-  return false;
-}
-
-staticni bool conf_read_boolish(char const *val, bool *out) {
-  static char const *const trues[] = {"1", "true", "yes"};
-  static char const *const falses[] = {"0", "false", "no"};
-  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(trues); i++) {
-    if (strcmp(val, trues[i]) != 0)
-      continue;
-    *out = true;
-    return true;
-  }
-  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(falses); i++) {
-    if (strcmp(val, falses[i]) != 0)
-      continue;
-    *out = false;
-    return true;
-  }
-  return false;
-}
-
-// Settings given on the command line (spine AD-20). main() parses each flag
-// into a pending override before curses starts: it sets the key's TOUCHFLAG
-// in keys and its value below. tui_apply_overrides applies them after
-// tui_load_conf, so a flag beats orca.conf, and clears those keys' touched
-// bits: an override lasts for the session only, and tui_save_prefs copies
-// the key's stored line verbatim until a menu change touches the key again.
-// A new override adds its value here and one branch to tui_apply_overrides.
-typedef struct {
-  U32 keys;                   // TOUCHFLAG(Confopt_...) of each overridden key
-  Orca_dialect dialect;       // --dialect
-  Clock_source clock_source;  // --clock-source
-  oso *midi_in;               // --midi-in, the compiled backend's input key
-} Tui_overrides;
 
 // The input key of the compiled backend (AD-20): the ALSA `client:port`
 // name, or the PortMidi input device name.
@@ -3253,17 +3160,17 @@ typedef struct {
 
 typedef struct {
   Ged ged;
+  // The orca.conf settings for this session (tui_prefs.h): loaded, then the
+  // flags over them, then handed to the engine once (tui_apply_overrides);
+  // each menu or form change goes through a setter, then the engine, then
+  // tui_save_prefs. prefs.midi_in is the MIDI input in the compiled
+  // backend's naming (Confopt_midi_input_device), empty when none is set;
+  // prefs.clock_source is applied once at startup by
+  // tui_apply_clock_source, after the overrides and before auto-play.
+  Tui_prefs prefs;
   Tui_overrides overrides;
   oso *file_name;
-  oso *osc_address, *osc_port, *osc_midi_bidule_path;
-  // The MIDI input for this session, in the compiled backend's naming
-  // (Confopt_midi_input_device); NULL or empty when none is set. Its conf
-  // line is copied verbatim until the MIDI Input menu changes it.
-  oso *midi_in_name;
-  // The clock source the conf or --clock-source asks for, applied once at
-  // startup by tui_apply_clock_source, after the overrides and before
-  // auto-play.
-  Clock_source startup_clock_source;
+  oso *osc_midi_bidule_path;
 #ifdef FEAT_ALSA
   Alsa_ctx *alsa; // the input reader's own pointer to the one ALSA context
 #endif
@@ -3276,13 +3183,9 @@ typedef struct {
   Usz midi_in_overflows, midi_in_errors;
 #endif
   int undo_history_limit;
-  int softmargin_y, softmargin_x;
   int hardmargin_y, hardmargin_x;
-  U32 prefs_touched;
   bool use_gui_cboard; // not bitfields due to taking address of
   bool strict_timing;
-  bool osc_output_enabled;
-  bool fancy_grid_dots, fancy_grid_rulers;
 } Tui;
 
 ORCA_OK_IF_UNUSED staticni void print_loading_message(char const *s) {
@@ -3299,133 +3202,17 @@ ORCA_OK_IF_UNUSED staticni void print_loading_message(char const *s) {
   refresh();
 }
 
+// Reads orca.conf (if it exists) into the settings, one line at a time
+// (tui_prefs_read_line), then opens the PortMidi output it names.
 staticni void tui_load_conf(Tui *t) {
-  oso *portmidi_output_device = NULL, *osc_output_address = NULL,
-      *osc_output_port = NULL;
-  U32 touched = 0;
   Ezconf_r ez;
   for (ezconf_r_start(&ez, conf_file_name);
-       ezconf_r_step(&ez, confopts, Confoptslen);) {
-    switch (ez.index) {
-    case Confopt_portmidi_output_device:
-      osoput(&portmidi_output_device, ez.value);
-      break;
-    case Confopt_osc_output_address: {
-      // Don't actually allocate heap string if string is empty
-      Usz len = strlen(ez.value);
-      if (len > 0)
-        osoputlen(&osc_output_address, ez.value, len);
-      touched |= TOUCHFLAG(Confopt_osc_output_address);
-      break;
-    }
-    case Confopt_osc_output_port: {
-      osoput(&osc_output_port, ez.value);
-      touched |= TOUCHFLAG(Confopt_osc_output_port);
-      break;
-    }
-    case Confopt_osc_output_enabled: {
-      bool enabled;
-      if (conf_read_boolish(ez.value, &enabled)) {
-        t->osc_output_enabled = enabled;
-        touched |= TOUCHFLAG(Confopt_osc_output_enabled);
-      }
-      break;
-    }
-    case Confopt_midi_beat_clock: {
-      bool enabled;
-      if (conf_read_boolish(ez.value, &enabled)) {
-        t->ged.clock_out.enabled = enabled;
-        touched |= TOUCHFLAG(Confopt_midi_beat_clock);
-      }
-      break;
-    }
-    case Confopt_margins: {
-      int softmargin_y, softmargin_x;
-      if (read_nxn_or_n(ez.value, &softmargin_x, &softmargin_y) &&
-          softmargin_y >= 0 && softmargin_x >= 0) {
-        t->softmargin_y = softmargin_y;
-        t->softmargin_x = softmargin_x;
-        touched |= TOUCHFLAG(Confopt_margins);
-      }
-      break;
-    }
-    case Confopt_grid_dot_type: {
-      bool fancy;
-      if (plainorfancy(ez.value, &fancy)) {
-        t->fancy_grid_dots = fancy;
-        touched |= TOUCHFLAG(Confopt_grid_dot_type);
-      }
-      break;
-    }
-    case Confopt_grid_ruler_type: {
-      bool fancy;
-      if (plainorfancy(ez.value, &fancy)) {
-        t->fancy_grid_rulers = fancy;
-        touched |= TOUCHFLAG(Confopt_grid_ruler_type);
-      }
-      break;
-    }
-    case Confopt_dialect: {
-      // borca or upstream; anything else is ignored, which leaves bOrca.
-      Orca_dialect dialect;
-      if (orca_dialect_from_name(ez.value, &dialect)) {
-        ged_set_dialect(&t->ged, dialect);
-        touched |= TOUCHFLAG(Confopt_dialect);
-      }
-      break;
-    }
-    case Confopt_glide_hz: {
-      // 50, 100 or 200; anything else is ignored, which leaves 100, and its
-      // value is kept until the Glide Rate menu sets a rate.
-      Usz glide_hz;
-      if (ccout_glide_hz_from_name(ez.value, &glide_hz)) {
-        ccout_configure(&t->ged.ccout, glide_hz);
-        touched |= TOUCHFLAG(Confopt_glide_hz);
-      }
-      break;
-    }
-    case Confopt_clock_source: {
-      // internal or external, applied once at startup. Anything else, and
-      // external in a build with no input reader, is ignored and its line
-      // kept, which leaves Internal (AD-20).
-      Clock_source source;
-      if (clock_source_from_name(ez.value, &source)) {
-#ifndef BORCA_HAS_MIDI_IN
-        if (source == Clock_source_external)
-          break;
-#endif
-        t->startup_clock_source = source;
-        touched |= TOUCHFLAG(Confopt_clock_source);
-      }
-      break;
-    }
-    case Confopt_portmidi_input_device:
+       ezconf_r_step(&ez, confopts, Confoptslen);)
+    (void)tui_prefs_read_line(&t->prefs, (Confopt)ez.index, ez.value);
 #ifdef FEAT_PORTMIDI
-      osoput(&t->midi_in_name, ez.value);
-#endif
-      break; // parsed only in a build with its backend; the line is kept
-    case Confopt_alsa_input_device:
-#ifdef FEAT_ALSA
-      osoput(&t->midi_in_name, ez.value);
-#endif
-      break; // parsed only in a build with its backend; the line is kept
-    }
-  }
-
-  if (touched & TOUCHFLAG(Confopt_osc_output_address)) {
-    ososwap(&t->osc_address, &osc_output_address);
-  } else {
-    // leave null
-  }
-  if (touched & TOUCHFLAG(Confopt_osc_output_port)) {
-    ososwap(&t->osc_port, &osc_output_port);
-  } else {
-    osoput(&t->osc_port, "49162");
-  }
-
-#ifdef FEAT_PORTMIDI
+  char const *portmidi_output_device = t->prefs.portmidi_output_device;
   if (t->ged.midi_mode.any.type == Midi_mode_type_null &&
-      osolen(portmidi_output_device)) {
+      portmidi_output_device[0] != '\0') {
     // PortMidi can be hilariously slow to initialize. Since it will be
     // initialized automatically if the user has a prefs entry for PortMidi
     // devices, we should show a message to the user letting them know why
@@ -3434,8 +3221,8 @@ staticni void tui_load_conf(Tui *t) {
     print_loading_message("Waiting on PortMidi...");
     PmError pmerr;
     PmDeviceID devid;
-    if (portmidi_find_device_id_by_name(osoc(portmidi_output_device),
-                                        osolen(portmidi_output_device), &pmerr,
+    if (portmidi_find_device_id_by_name(portmidi_output_device,
+                                        strlen(portmidi_output_device), &pmerr,
                                         &devid)) {
       midi_mode_deinit(&t->ged.midi_mode);
       pmerr = midi_mode_init_portmidi(&t->ged.midi_mode, devid);
@@ -3445,25 +3232,19 @@ staticni void tui_load_conf(Tui *t) {
     }
   }
 #endif
-  t->prefs_touched |= touched;
-  osofree(portmidi_output_device);
-  osofree(osc_output_address);
-  osofree(osc_output_port);
 }
 
-// Applies the command-line overrides, after tui_load_conf (see
-// Tui_overrides).
+// Applies the command-line overrides over orca.conf's values, clearing
+// their touched bits (tui_prefs_apply_overrides, AD-20), then hands the
+// settings to the engine once: the dialect, glide_hz and the stored beat
+// clock setting. Nothing plays and no glide runs yet, so this one hand-off
+// after the flags is what applying the conf during the load and the flags
+// again gave. The clock source follows later, in tui_apply_clock_source.
 staticni void tui_apply_overrides(Tui *t) {
-  Tui_overrides const *o = &t->overrides;
-  if (o->keys & TOUCHFLAG(Confopt_dialect))
-    ged_set_dialect(&t->ged, o->dialect);
-  if (o->keys & TOUCHFLAG(Confopt_clock_source))
-    t->startup_clock_source = o->clock_source;
-#ifdef BORCA_HAS_MIDI_IN
-  if (o->keys & TOUCHFLAG(Confopt_midi_input_device))
-    osoputoso(&t->midi_in_name, o->midi_in);
-#endif
-  t->prefs_touched &= ~o->keys;
+  tui_prefs_apply_overrides(&t->prefs, &t->overrides);
+  (void)ged_set_dialect(&t->ged, t->prefs.dialect);
+  ccout_configure(&t->ged.ccout, t->prefs.glide_hz);
+  t->ged.clock_out.enabled = t->prefs.midi_bclock;
 }
 
 staticni void tui_save_prefs(Tui *t) {
@@ -3504,55 +3285,20 @@ staticni void tui_save_prefs(Tui *t) {
     if (i == Confopt_portmidi_output_device)
       // This has its own special logic
       continue;
-    if (t->prefs_touched & TOUCHFLAG(i))
+    if (t->prefs.touched & TOUCHFLAG(i))
       ezconf_w_addopt(&ez, confopts[i], i);
   }
+  char number[Tui_prefs_number_cap]; // tui_prefs_saved_value's margins
   while (ezconf_w_step(&ez)) {
     switch (ez.optid) {
-    case Confopt_osc_output_address:
-      // Fine to not write anything here
-      if (osolen(t->osc_address))
-        fputs(osoc(t->osc_address), ez.file);
-      break;
-    case Confopt_osc_output_port:
-      if (osolen(t->osc_port))
-        fputs(osoc(t->osc_port), ez.file);
-      break;
-    case Confopt_osc_output_enabled:
-      fputc(t->osc_output_enabled ? '1' : '0', ez.file);
-      break;
 #ifdef FEAT_PORTMIDI
     case Confopt_portmidi_output_device:
       fputs(osoc(midi_output_device_name), ez.file);
       break;
 #endif
-    case Confopt_midi_beat_clock:
-      fputc(t->ged.clock_out.enabled ? '1' : '0', ez.file);
-      break;
-    case Confopt_margins:
-      fprintf(ez.file, "%dx%d", t->softmargin_x, t->softmargin_y);
-      break;
-    case Confopt_grid_dot_type:
-      fputs(t->fancy_grid_dots ? prefval_fancy : prefval_plain, ez.file);
-      break;
-    case Confopt_grid_ruler_type:
-      fputs(t->fancy_grid_rulers ? prefval_fancy : prefval_plain, ez.file);
-      break;
-    case Confopt_dialect:
-      fputs(orca_dialect_name(t->ged.dialect), ez.file);
-      break;
-    case Confopt_glide_hz:
-      fprintf(ez.file, "%zu", t->ged.ccout.glide_hz);
-      break;
-    case Confopt_clock_source:
-      fputs(clock_source_name(t->ged.clock_source), ez.file);
-      break;
-    case Confopt_portmidi_input_device:
-    case Confopt_alsa_input_device:
-      // Touched only by a MIDI Input pick, which sets the name; the other
-      // backend's key is never touched.
-      if (osolen(t->midi_in_name))
-        fputs(osoc(t->midi_in_name), ez.file);
+    default:
+      fputs(tui_prefs_saved_value(&t->prefs, (Confopt)ez.optid, number),
+            ez.file);
       break;
     }
   }
@@ -3566,7 +3312,8 @@ staticni void tui_save_prefs(Tui *t) {
 
 staticni bool tui_suggest_nice_grid_size(Tui *t, int win_h, int win_w,
                                          Usz *out_grid_h, Usz *out_grid_w) {
-  int softmargin_y = t->softmargin_y, softmargin_x = t->softmargin_x;
+  int softmargin_y = t->prefs.softmargin_y,
+      softmargin_x = t->prefs.softmargin_x;
   int ruler_spacing_y = (int)t->ged.ruler_spacing_y,
       ruler_spacing_x = (int)t->ged.ruler_spacing_x;
   if (win_h < 1 || win_w < 1 || softmargin_y < 0 || softmargin_x < 0 ||
@@ -3592,7 +3339,8 @@ staticni bool tui_suggest_nice_grid_size(Tui *t, int win_h, int win_w,
 
 staticni bool tui_suggest_tight_grid_size(Tui *t, int win_h, int win_w,
                                           Usz *out_grid_h, Usz *out_grid_w) {
-  int softmargin_y = t->softmargin_y, softmargin_x = t->softmargin_x;
+  int softmargin_y = t->prefs.softmargin_y,
+      softmargin_x = t->prefs.softmargin_x;
   if (win_h < 1 || win_w < 1 || softmargin_y < 0 || softmargin_x < 0)
     return false;
   // TODO overflow checks
@@ -3605,18 +3353,16 @@ staticni bool tui_suggest_tight_grid_size(Tui *t, int win_h, int win_w,
   return true;
 }
 
+// set is tui_prefs_set_grid_dots or tui_prefs_set_grid_rulers.
 staticni void plainorfancy_menu_was_picked(Tui *t, int picked_id,
-                                           bool *p_is_fancy,
-                                           U32 pref_touch_flag) {
+                                           bool (*set)(Tui_prefs *, bool)) {
   bool is_fancy = picked_id == 1; // 1 -> fancy, 2 -> plain
   qnav_stack_pop();
   // ^- doesn't actually matter when we do this, with our current code
-  if (is_fancy == *p_is_fancy)
-    return;
-  *p_is_fancy = is_fancy;
-  t->prefs_touched |= pref_touch_flag;
-  tui_save_prefs(t);
+  if (!set(&t->prefs, is_fancy))
+    return; // already the style: nothing changes, nothing is saved
   t->ged.is_draw_dirty = true;
+  tui_save_prefs(t);
 }
 
 staticni void dialect_menu_was_picked(Tui *t, int picked_id) {
@@ -3624,9 +3370,9 @@ staticni void dialect_menu_was_picked(Tui *t, int picked_id) {
                              ? Orca_dialect_upstream
                              : Orca_dialect_borca;
   qnav_stack_pop();
-  if (!ged_set_dialect(&t->ged, dialect))
+  if (!tui_prefs_set_dialect(&t->prefs, dialect))
     return; // already the dialect: nothing changes, nothing is saved
-  t->prefs_touched |= TOUCHFLAG(Confopt_dialect);
+  (void)ged_set_dialect(&t->ged, dialect);
   tui_save_prefs(t);
 }
 
@@ -3637,10 +3383,9 @@ staticni void glide_rate_menu_was_picked(Tui *t, int picked_id) {
                  : picked_id == Glide_rate_menu_200 ? 200
                                                     : 100;
   qnav_stack_pop();
-  if (glide_hz == t->ged.ccout.glide_hz)
+  if (!tui_prefs_set_glide_hz(&t->prefs, glide_hz))
     return; // already the rate: nothing changes, nothing is saved
-  ccout_configure(&t->ged.ccout, glide_hz);
-  t->prefs_touched |= TOUCHFLAG(Confopt_glide_hz);
+  ccout_configure(&t->ged.ccout, glide_hz); // at once, running glides too
   tui_save_prefs(t);
 }
 
@@ -3663,12 +3408,12 @@ staticni void tui_input_close(Tui *t) {
 #endif
 }
 
-// Opens the input named by midi_in_name: subscribes it to MIDI in (ALSA),
+// Opens the input named by prefs.midi_in: subscribes it to MIDI in (ALSA),
 // or opens its stream with the drop list and discards what arrived before
 // the filter (PortMidi). On a failure the message says so; under ALSA the
 // shell then waits for PORT_START.
 staticni void tui_input_open(Tui *t) {
-  char const *name = osolen(t->midi_in_name) ? osoc(t->midi_in_name) : "";
+  char const *name = t->prefs.midi_in;
 #ifdef FEAT_ALSA
   int result = alsa_in_subscribe(t->alsa, name);
   if (!*name) {
@@ -3753,8 +3498,8 @@ staticni void tui_input_drain(Tui *t) {
                                       ctx->source.port, pinfo) < 0)
           ctx->source.has = false;
       }
-      if (!ctx->source.has && osolen(t->midi_in_name))
-        (void)alsa_in_match(ctx, osoc(t->midi_in_name));
+      if (!ctx->source.has && t->prefs.midi_in[0] != '\0')
+        (void)alsa_in_match(ctx, t->prefs.midi_in);
       continue;
     }
     if (err < 0) {
@@ -3773,8 +3518,8 @@ staticni void tui_input_drain(Tui *t) {
         ctx->source.has = false;
         break;
       case Alsa_in_rematch:
-        if (osolen(t->midi_in_name))
-          (void)alsa_in_match(ctx, osoc(t->midi_in_name));
+        if (t->prefs.midi_in[0] != '\0')
+          (void)alsa_in_match(ctx, t->prefs.midi_in);
         break;
       case Alsa_in_keep:
         break;
@@ -3868,7 +3613,7 @@ staticni void tui_set_clock_source(Tui *t, Clock_source source) {
 
 // Once, at startup, after tui_apply_overrides and before auto-play.
 staticni void tui_apply_clock_source(Tui *t) {
-  tui_set_clock_source(t, t->startup_clock_source);
+  tui_set_clock_source(t, t->prefs.clock_source);
 }
 
 staticni void clock_source_menu_was_picked(Tui *t, int picked_id) {
@@ -3876,10 +3621,9 @@ staticni void clock_source_menu_was_picked(Tui *t, int picked_id) {
                             ? Clock_source_external
                             : Clock_source_internal;
   qnav_stack_pop();
-  if (source == t->ged.clock_source)
+  if (!tui_prefs_set_clock_source(&t->prefs, source))
     return; // already the source: nothing changes, nothing is saved
   tui_set_clock_source(t, source);
-  t->prefs_touched |= TOUCHFLAG(Confopt_clock_source);
   tui_save_prefs(t);
 }
 
@@ -3905,9 +3649,9 @@ staticni void push_alsa_input_menu(Tui *t) {
   int current = 0;
   Usz cur_client_len = 0;
   char const *cur_port = NULL;
-  bool has_cur = osolen(t->midi_in_name) &&
-                 alsa_in_split(osoc(t->midi_in_name), &cur_client_len,
-                               &cur_port);
+  char const *cur = t->prefs.midi_in;
+  bool has_cur =
+      cur[0] != '\0' && alsa_in_split(cur, &cur_client_len, &cur_port);
   while (snd_seq_query_next_client(seq, cinfo) >= 0) {
     int client = snd_seq_client_info_get_client(cinfo);
     if (client == SND_SEQ_CLIENT_SYSTEM || client == own)
@@ -3924,7 +3668,7 @@ staticni void push_alsa_input_menu(Tui *t) {
       int port = snd_seq_port_info_get_port(pinfo);
       int id = alsa_in_menu_id(client, port);
       bool is_cur = has_cur && strlen(cname) == cur_client_len &&
-                    strncmp(cname, osoc(t->midi_in_name), cur_client_len) == 0 &&
+                    strncmp(cname, cur, cur_client_len) == 0 &&
                     strcmp(pname, cur_port) == 0;
       if (is_cur && !current)
         current = id;
@@ -3975,7 +3719,7 @@ staticni void push_portmidi_input_menu(Tui *t) {
   int num = Pm_CountDevices();
   int listed = 0;
   int current = -1;
-  char const *cur = osolen(t->midi_in_name) ? osoc(t->midi_in_name) : NULL;
+  char const *cur = t->prefs.midi_in[0] != '\0' ? t->prefs.midi_in : NULL;
   for (int i = 0; i < num; ++i) {
     PmDeviceInfo const *info = Pm_GetDeviceInfo(i);
     if (!info || !info->input)
@@ -4027,13 +3771,14 @@ staticni void midi_input_menu_was_picked(Tui *t, int picked_id) {
     osofree(name);
     return;
   }
-  bool same = osolen(t->midi_in_name) == osolen(name) &&
-              strcmp(osoc(t->midi_in_name), osoc(name)) == 0;
-  if (same) {
-    osofree(name);
-    // Already the input: nothing is saved. Under External with the input
-    // not open (its source was cleared and no PORT_START followed, or the
-    // stream failed to open), picking it again opens it again.
+  bool changed = tui_prefs_set_midi_in(&t->prefs, osoc(name));
+  osofree(name);
+  if (!changed) {
+    // Already the input (the name is not empty, and no device name nears
+    // Tui_prefs_value_cap, so that is the setter's false): nothing is saved.
+    // Under External with the input not open (its source was cleared and no
+    // PORT_START followed, or the stream failed to open), picking it again
+    // opens it again.
     bool open = false;
 #ifdef FEAT_ALSA
     open = t->alsa->source.has;
@@ -4045,20 +3790,20 @@ staticni void midi_input_menu_was_picked(Tui *t, int picked_id) {
       tui_input_restart(t);
     return;
   }
-  ososwap(&t->midi_in_name, &name);
-  osofree(name);
-  t->prefs_touched |= TOUCHFLAG(Confopt_midi_input_device);
-  tui_save_prefs(t);
   if (t->ged.clock_source == Clock_source_external)
     tui_input_restart(t);
+  tui_save_prefs(t);
 }
 #endif // BORCA_HAS_MIDI_IN
 
 staticni bool tui_restart_osc_udp_if_enabled_diderror(Tui *t) {
   bool error = false;
-  if (t->osc_output_enabled && t->osc_port) {
-    error = !ged_set_osc_udp(&t->ged, osoc(t->osc_address) /* null ok here */,
-                             osoc(t->osc_port));
+  if (t->prefs.osc_output_enabled) {
+    // An empty address goes as NULL, which getaddrinfo resolves to
+    // loopback; the port goes as held.
+    char const *address = t->prefs.osc_output_address;
+    error = !ged_set_osc_udp(&t->ged, address[0] != '\0' ? address : NULL,
+                             t->prefs.osc_output_port);
   } else {
     ged_clear_osc_udp(&t->ged);
   }
@@ -4122,8 +3867,8 @@ staticni void tui_adjust_term_size(Tui *t, WINDOW **cont_window) {
   // more than a single comparison, and we don't want to split up or
   // duplicate the math and checks for it, so this routine will calculate
   // the stuff it needs to and then early-out if there's no further work.
-  ged_set_window_size(&t->ged, content_h, content_w, t->softmargin_y,
-                      t->softmargin_x);
+  ged_set_window_size(&t->ged, content_h, content_w, t->prefs.softmargin_y,
+                      t->prefs.softmargin_x);
 }
 
 static void tui_try_save(Tui *t) {
@@ -4293,15 +4038,16 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
       case Cosmetics_menu_id:
         switch (act.picked.id) {
         case Cosmetics_soft_margins_id:
-          push_soft_margins_form(t->softmargin_y, t->softmargin_x);
+          push_soft_margins_form(t->prefs.softmargin_y,
+                                 t->prefs.softmargin_x);
           break;
         case Cosmetics_grid_dots_id:
           push_plainorfancy_menu(Set_fancy_grid_dots_menu_id, "Grid Dots",
-                                 t->fancy_grid_dots);
+                                 t->prefs.fancy_grid_dots);
           break;
         case Cosmetics_grid_rulers_id:
           push_plainorfancy_menu(Set_fancy_grid_rulers_menu_id, "Grid Rulers",
-                                 t->fancy_grid_rulers);
+                                 t->prefs.fancy_grid_rulers);
           break;
         }
         break;
@@ -4321,10 +4067,13 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           Tick_sink const sink = ged_sink(a);
           clock_out_toggle(&a->clock_out, a->clock_source, a->bpm, now, e,
                            a->is_playing, &sink);
-          t->prefs_touched |= TOUCHFLAG(Confopt_midi_beat_clock);
+          // The stored setting follows the flag the toggle flipped.
+          bool changed =
+              tui_prefs_set_midi_bclock(&t->prefs, a->clock_out.enabled);
           qnav_stack_pop();
           push_playback_menu(a->clock_out.enabled, external);
-          tui_save_prefs(t);
+          if (changed)
+            tui_save_prefs(t);
           a->is_draw_dirty = true;
           break;
         }
@@ -4353,12 +4102,12 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
         glide_rate_menu_was_picked(t, act.picked.id);
         break;
       case Set_fancy_grid_dots_menu_id:
-        plainorfancy_menu_was_picked(t, act.picked.id, &t->fancy_grid_dots,
-                                     TOUCHFLAG(Confopt_grid_dot_type));
+        plainorfancy_menu_was_picked(t, act.picked.id,
+                                     tui_prefs_set_grid_dots);
         break;
       case Set_fancy_grid_rulers_menu_id:
-        plainorfancy_menu_was_picked(t, act.picked.id, &t->fancy_grid_rulers,
-                                     TOUCHFLAG(Confopt_grid_ruler_type));
+        plainorfancy_menu_was_picked(t, act.picked.id,
+                                     tui_prefs_set_grid_rulers);
         break;
       case Dialect_menu_id:
         dialect_menu_was_picked(t, act.picked.id);
@@ -4366,24 +4115,29 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
       case Osc_menu_id:
         switch (act.picked.id) {
         case Osc_menu_output_enabledisable: {
+          // Not an early return on the same value: with the flag held on and
+          // UDP not in use (a failed start or address change, which reset
+          // nothing), the toggle tries the restart again.
           qnav_stack_pop();
-          t->osc_output_enabled = !ged_is_using_osc_udp(&t->ged);
+          bool on = !ged_is_using_osc_udp(&t->ged);
+          bool changed = tui_prefs_set_osc_output_enabled(&t->prefs, on);
           // Funny dance to keep the qnav stack in good order
           bool diderror = tui_restart_osc_udp_if_enabled_diderror(t);
           push_osc_menu(ged_is_using_osc_udp(&t->ged));
           if (diderror) {
-            t->osc_output_enabled = false;
+            if (tui_prefs_set_osc_output_enabled(&t->prefs, false))
+              changed = true;
             tui_restart_osc_udp_showerror();
           }
-          t->prefs_touched |= TOUCHFLAG(Confopt_osc_output_enabled);
-          tui_save_prefs(t);
+          if (changed)
+            tui_save_prefs(t);
           break;
         }
         case Osc_menu_output_address:
-          push_osc_output_address_form(osoc(t->osc_address) /* null ok */);
+          push_osc_output_address_form(t->prefs.osc_output_address);
           break;
         case Osc_menu_output_port:
-          push_osc_output_port_form(osoc(t->osc_port) /* null ok */);
+          push_osc_output_port_form(t->prefs.osc_output_port);
           break;
         }
         break;
@@ -4480,16 +4234,16 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
         }
         case Osc_output_address_form_id: {
           oso *addr = NULL;
-          // Empty string is OK here
+          // Empty string is OK here. The restart runs whether or not the
+          // address changed (it retries a failed one); the save only on a
+          // change.
           if (qform_get_single_text_line(qf, &addr)) {
-            if (osolen(addr))
-              ososwap(&t->osc_address, &addr);
-            else
-              osowipe(&t->osc_address);
             qnav_stack_pop();
+            bool changed = tui_prefs_set_osc_output_address(
+                &t->prefs, osolen(addr) ? osoc(addr) : "");
             tui_restart_osc_udp_if_enabled(t);
-            t->prefs_touched |= TOUCHFLAG(Confopt_osc_output_address);
-            tui_save_prefs(t);
+            if (changed)
+              tui_save_prefs(t);
           }
           osofree(addr);
           break;
@@ -4499,11 +4253,13 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           if (!portstr)
             break;
           qnav_stack_pop();
-          ososwap(&t->osc_port, &portstr);
-          tui_restart_osc_udp_if_enabled(t);
+          // As the address: the restart always, the save on a change.
+          bool changed =
+              tui_prefs_set_osc_output_port(&t->prefs, osoc(portstr));
           osofree(portstr);
-          t->prefs_touched |= TOUCHFLAG(Confopt_osc_output_port);
-          tui_save_prefs(t);
+          tui_restart_osc_udp_if_enabled(t);
+          if (changed)
+            tui_save_prefs(t);
           break;
         }
         case Set_grid_dims_form_id: {
@@ -4534,21 +4290,14 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           oso *tmpstr = qform_get_nonempty_single_line_input(qf);
           if (!tmpstr)
             break;
-          bool do_save = false;
-          int newy, newx;
-          if (read_nxn_or_n(osoc(tmpstr), &newx, &newy) && newy >= 0 &&
-              newx >= 0 &&
-              (newy != t->softmargin_y || newx != t->softmargin_x)) {
-            t->prefs_touched |= TOUCHFLAG(Confopt_margins);
-            t->softmargin_y = newy;
-            t->softmargin_x = newx;
-            ungetch(KEY_RESIZE); // kinda lame but whatever
-            do_save = true;
-          }
-          qnav_stack_pop();
           // Might push message, so gotta pop old guy first
-          if (do_save)
+          qnav_stack_pop();
+          int newy, newx;
+          if (tui_prefs_read_nxn_or_n(osoc(tmpstr), &newx, &newy) &&
+              tui_prefs_set_margins(&t->prefs, newx, newy)) {
+            ungetch(KEY_RESIZE); // kinda lame but whatever
             tui_save_prefs(t);
+          }
           osofree(tmpstr);
           break;
         }
@@ -4611,11 +4360,15 @@ int main(int argc, char **argv) {
 
   Tui t = {.file_name = NULL}; // Weird because of clang warning
   t.undo_history_limit = 100;
-  t.softmargin_y = 1;
-  t.softmargin_x = 2;
   t.use_gui_cboard = true;
-  t.fancy_grid_dots = true;
-  t.fancy_grid_rulers = true;
+  // The settings' defaults, before the flags and orca.conf. Without a reader
+  // the input key is ignored, so Confoptslen stands in for the alias, which
+  // has no #else arm.
+#ifdef BORCA_HAS_MIDI_IN
+  tui_prefs_init(&t.prefs, true, Confopt_midi_input_device);
+#else
+  tui_prefs_init(&t.prefs, false, Confoptslen);
+#endif
 
   int longindex = 0;
   for (;;) {
@@ -4638,7 +4391,7 @@ int main(int argc, char **argv) {
     exit(1);                                                                   \
   }
     case Argopt_hardmargins:
-      if (read_nxn_or_n(optarg, &t.hardmargin_x, &t.hardmargin_y) &&
+      if (tui_prefs_read_nxn_or_n(optarg, &t.hardmargin_x, &t.hardmargin_y) &&
           t.hardmargin_x >= 0 && t.hardmargin_y >= 0)
         break;
       OPTFAIL("Must be 0 or positive integer.");
@@ -4671,10 +4424,14 @@ int main(int argc, char **argv) {
       OPTFAIL("Must be internal or external.");
     case Argopt_midi_in:
 #ifdef BORCA_HAS_MIDI_IN
-      // Any non-empty name is accepted here and resolved after initscr, as
-      // the conf key is; one that does not match shows a message then.
+      // Any non-empty name that fits is accepted here and resolved after
+      // initscr, as the conf key is; one that does not match shows a message
+      // then.
       if (optarg[0] != '\0') {
-        osoput(&t.overrides.midi_in, optarg);
+        Usz len = strlen(optarg);
+        if (len >= sizeof t.overrides.midi_in)
+          OPTFAIL("Must be shorter than %d bytes.", (int)Tui_prefs_value_cap);
+        memcpy(t.overrides.midi_in, optarg, len + 1);
         t.overrides.keys |= TOUCHFLAG(Confopt_midi_input_device);
         break;
       }
@@ -4734,7 +4491,6 @@ int main(int argc, char **argv) {
               alsa_client_name(), snd_strerror(err));
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
-      osofree(t.overrides.midi_in);
       return 1;
     }
     if (err == -EEXIST) {
@@ -4744,7 +4500,6 @@ int main(int argc, char **argv) {
               alsa_client_name());
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
-      osofree(t.overrides.midi_in);
       return 1;
     }
     if (err < 0) {
@@ -4752,7 +4507,6 @@ int main(int argc, char **argv) {
               snd_strerror(err));
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
-      osofree(t.overrides.midi_in);
       return 1;
     }
     t.alsa = &alsa_ctx; // the input reader's own pointer
@@ -4773,7 +4527,6 @@ int main(int argc, char **argv) {
       alsa_ctx_close(&alsa_ctx);
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
-      osofree(t.overrides.midi_in);
       return 1;
     }
   }
@@ -4826,7 +4579,6 @@ int main(int argc, char **argv) {
       alsa_ctx_close(&alsa_ctx);
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
-      osofree(t.overrides.midi_in);
       return 1;
     }
   }
@@ -4979,8 +4731,8 @@ event_loop:;
     bool drew_any = false;
     if (ged_is_draw_dirty(&t.ged) || qnav_stack.occlusion_dirty) {
       werase(cont_window);
-      ged_draw(&t.ged, cont_window, osoc(t.file_name), t.fancy_grid_dots,
-               t.fancy_grid_rulers);
+      ged_draw(&t.ged, cont_window, osoc(t.file_name), t.prefs.fancy_grid_dots,
+               t.prefs.fancy_grid_rulers);
       wnoutrefresh(cont_window);
       drew_any = true;
     }
@@ -5488,16 +5240,11 @@ quit:
   alsa_ctx_close(&alsa_ctx); // after ged_deinit, which frees the encoder
 #endif
   osofree(t.file_name);
-  osofree(t.osc_address);
-  osofree(t.osc_port);
   osofree(t.osc_midi_bidule_path);
-  osofree(t.midi_in_name);
-  osofree(t.overrides.midi_in);
 #ifdef FEAT_PORTMIDI
   if (portmidi_is_initialized)
     Pm_Terminate();
 #endif
 }
 
-#undef TOUCHFLAG
 #undef staticni

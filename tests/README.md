@@ -387,15 +387,19 @@ without `UBSAN_OPTIONS`. CI and the commands above still set
 runner's defaults.
 
 `tool` defines the CORE list once (today `gbuffer.c vmio.c sim.c
-opstate.c ccout.c music.c transport.c tick.c tooltips.c`).
-`tick.c` and `tooltips.c` are shell code held to the core rules, the
-testable shell (spine AD-1, AD-2, AD-21): `tick.c` is the tick body, the
-sustained-note list and the shell's pause, stop and patch-forget sequences
-(`tick_pause`, `tick_stop`, `tick_forget_patch`; AD-14), which the unit tests
-drive through a recording sink that logs every call in order, and
+opstate.c ccout.c music.c transport.c tick.c tooltips.c tui_prefs.c`).
+`tick.c`, `tooltips.c` and `tui_prefs.c` are shell code held to the core
+rules, the testable shell (spine AD-1, AD-2, AD-21): `tick.c` is the tick
+body, the sustained-note list and the shell's pause, stop and patch-forget
+sequences (`tick_pause`, `tick_stop`, `tick_forget_patch`; AD-14), which the
+unit tests drive through a recording sink that logs every call in order,
 `tooltips.c` the tooltip text and placement (I5), which reads the
 label buffer the VM fills (`portlabel.h`) and formats its integers itself,
-with no `<stdio.h>`.
+with no `<stdio.h>`, and `tui_prefs.c` the `orca.conf` settings (P3-4b,
+AD-20): the key table and its order, the reading of one conf line into a
+value and a touched bit, the flags over the conf, the menus' setters with
+their same-value no-op, and the text saved after each `key = `, while
+`tui_main.c` keeps the file, curses, the menus and every engine call.
 `cli`, `orca` and `test` link all of it, and
 `./tool sources <core|cli|orca|test>` prints a list, one file per line, so
 the checks below and the CI `armhf` job read the same lists.
@@ -403,12 +407,21 @@ the checks below and the CI `armhf` job read the same lists.
 CORE list: `test_transport.c` covers `rearm_compute` and the HUD text, and
 also `Clock_out` (the clock-out gate, span, start, F8 gate and re-arms;
 AD-16) on a recording sink that snapshots the state at each byte.
+`tests/unit/test_tui_prefs.c` covers `tui_prefs.c` on settings built on the
+stack, one row per key's parse and saved text, the key order, the flags
+over the conf and the setters' no-op; what it cannot reach,
+`ged_set_dialect`'s clear, cancel and re-mark and the file itself, the
+P3-4b tmux smoke checked.
 
 Adapter `FEAT_` flags apply to `test` as they do to `orca`: `--portmidi`
 builds the PortMidi adapter tests, `--alsa` builds the ALSA adapter tests,
 and `--no-mouse`, which has no adapter, is ignored. A build that sets a flag
 but registers no test for it fails at run time with a message naming the
-flag. The adapter lists in `tests/unit/tests.h` today:
+flag. What `orca.conf` does per backend (the input key each reads, External
+refused without a reader) is no adapter test: `tests/unit/test_tui_prefs.c`
+builds each backend's shape through `tui_prefs_init`'s reader flag and key,
+so every runner runs those rows. The adapter lists in `tests/unit/tests.h`
+today:
 
 | Flag | List | Tests |
 | --- | --- | --- |
@@ -519,7 +532,8 @@ sounds without an entry to release it.
 4. An adapter test sits inside `#ifdef FEAT_<flag>` in its file and may
    include that backend's header; a hook test inside
    `#ifdef UNIT_TESTS_REALLOC_HOOK`; a core test includes only core headers
-   and libc. The declarations in `tests.h` keep a file whose flag is off
+   (the testable shell's among them, as `test_tui_prefs.c` includes
+   `tui_prefs.h`) and libc. The declarations in `tests.h` keep a file whose flag is off
    from being an empty translation unit, which `-Wpedantic` rejects.
 5. Free whatever the test allocates: the debug runner also runs
    LeakSanitizer.
@@ -538,16 +552,16 @@ canary is detected and every result is PASS or XFAIL.
   `music.h` and `portlabel.h`, which `sim.h` includes) and the system
   headers `<assert.h>`, `<limits.h>`, `<stdbool.h>`, `<stddef.h>`,
   `<stdint.h>`, `<stdlib.h>` and `<string.h>` are allowed everywhere.
-  `shell_headers` (`tick.h`, `tooltips.h`, the testable shell's) are
-  allowed only when the CORE file under scan is in `shell_files` (`tick.c`,
-  `tooltips.c`): the tier is the CORE file's, whichever header is being
-  read, so `sim.c` including `tooltips.h` fails as `FAIL  sim.c
-  "tooltips.h"`, and `tick.h` reached through `music.h` fails every CORE
-  file outside the shell tier that includes `music.h`, naming `music.h`,
-  while `tick.c` and `tooltips.c` pass. A testable-shell module adds its
-  `.c` to `shell_files` and its header to `shell_headers`, never to
-  `core_headers`, where any core file could include it (next: `tui_prefs.c`
-  and `tui_prefs.h`, P3-4b). It also reports each of AD-1's banned names,
+  `shell_headers` (`tick.h`, `tooltips.h`, `tui_prefs.h`, the testable
+  shell's) are allowed only when the CORE file under scan is in
+  `shell_files` (`tick.c`, `tooltips.c`, `tui_prefs.c`): the tier is the
+  CORE file's, whichever header is being read, so `sim.c` including
+  `tooltips.h` fails as `FAIL  sim.c "tooltips.h"`, and `tick.h` reached
+  through `music.h` fails every CORE file outside the shell tier that
+  includes `music.h`, naming `music.h`, while the shell tier's files pass. A
+  testable-shell module adds its `.c` to `shell_files` and its header to
+  `shell_headers`, never to `core_headers`, where any core file could
+  include it (P3-4b's `tui_prefs.c` and `tui_prefs.h` were the latest). It also reports each of AD-1's banned names,
   `rand`, `srand`, `srandom`, `drand48`, `lrand48` and `getenv`, found as a
   whole word in code, each as its own pattern; `random` is not banned, and
   the whole-word grep never matches it. `base.h` is shared foundation,
@@ -605,10 +619,11 @@ PASS  music.c
 PASS  transport.c
 PASS  tick.c
 PASS  tooltips.c
-include check: 9 files, 9 pass, 0 xfail, 0 fail, 0 xpass; canary detected
+PASS  tui_prefs.c
+include check: 10 files, 10 pass, 0 xfail, 0 fail, 0 xpass; canary detected
 $ tests/check-nm.sh
-PASS  canary -O2 (detected: D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; marker path: canary_extern_zero unmarked, canary_absent matches none)
-PASS  canary -O0 (detected: D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; marker path: canary_extern_zero unmarked, canary_absent matches none)
+PASS  canary -O2 (detected: D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; canary_O0_only not writable; marker path: canary_extern_zero unmarked, canary_absent matches none)
+PASS  canary -O0 (detected: d canary_O0_only, D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; canary_O0_only d; marker path: canary_extern_zero unmarked, canary_absent matches none)
 PASS  gbuffer.c (-O2, -O0)
 PASS  vmio.c (-O2, -O0)
 PASS  sim.c (-O2, -O0)
@@ -618,7 +633,8 @@ PASS  music.c (-O2, -O0)
 PASS  transport.c (-O2, -O0)
 PASS  tick.c (-O2, -O0)
 PASS  tooltips.c (-O2, -O0)
-nm check: 9 files, 9 pass, 0 xfail, 0 fail, 0 xpass; canary detected in every pass
+PASS  tui_prefs.c (-O2, -O0)
+nm check: 10 files, 10 pass, 0 xfail, 0 fail, 0 xpass; canary detected in every pass
 ```
 
 In the summaries, `pass` counts clean files, and `xfail`, `fail` and `xpass`

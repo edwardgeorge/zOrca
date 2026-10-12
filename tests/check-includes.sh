@@ -15,15 +15,15 @@
 #     count, and random is not banned: the whole-word grep never matches it.
 #
 # Two tiers. core_headers is allowed in every CORE file. shell_headers (the
-# testable shell's: tick.h, tooltips.h) is allowed only when the CORE file
-# under scan is in shell_files (tick.c, tooltips.c); anywhere else a shell
-# header is a violation, so a core module cannot include tick.h or tooltips.h,
-# nor reach one through a core header. The tier is decided by the CORE file,
-# not by the header being read: a shell header pulled in through a core
-# header is reported against the CORE file and names that header, as every
-# violation found in a header is. A testable-shell module adds its .c to
-# shell_files and its header to shell_headers, never to core_headers (next:
-# tui_prefs.c and tui_prefs.h, P3-4b). base.h is shared foundation: it is
+# testable shell's: tick.h, tooltips.h, tui_prefs.h) is allowed only when
+# the CORE file under scan is in shell_files (tick.c, tooltips.c,
+# tui_prefs.c); anywhere else a shell header is a violation, so a core module
+# cannot include tick.h, tooltips.h or tui_prefs.h, nor reach one through a
+# core header. The tier is decided by the CORE file, not by the header being
+# read: a shell header pulled in through a core header is reported against
+# the CORE file and names that header, as every violation found in a header
+# is. A testable-shell module adds its .c to shell_files and its header to
+# shell_headers, never to core_headers. base.h is shared foundation: it is
 # allowed whole and not scanned. portlabel.h is core: sim.h includes it.
 #
 # Known edges: a banned name inside a string literal or an #if 0 block is
@@ -65,8 +65,8 @@ canary_rel=tests/includes/canary.c
 # headers only for the testable shell's files.
 allowed_system='<assert.h> <limits.h> <stdbool.h> <stddef.h> <stdint.h> <stdlib.h> <string.h>'
 core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h music.h portlabel.h'
-shell_headers='tick.h tooltips.h'
-shell_files='tick.c tooltips.c'
+shell_headers='tick.h tooltips.h tui_prefs.h'
+shell_files='tick.c tooltips.c tui_prefs.c'
 # AD-1's banned names, each a pattern of its own.
 banned_names='rand srand srandom drand48 lrand48 getenv'
 

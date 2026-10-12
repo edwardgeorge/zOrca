@@ -235,7 +235,14 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(labels_per_operator)                                                       \
   X(tooltip_place)                                                             \
   X(labels_tick_run_vm_clears)                                                 \
-  X(labels_tick_body)
+  X(labels_tick_body)                                                          \
+  X(prefs_key_table)                                                           \
+  X(prefs_read_line)                                                           \
+  X(prefs_bad_values)                                                          \
+  X(prefs_input_keys)                                                          \
+  X(prefs_flag_over_conf)                                                      \
+  X(prefs_menu_noop)                                                           \
+  X(prefs_saved_value)
 
 // The full list for the realloc hook, for each adapter FEAT_ flag, and for
 // the runner's failure canary, whatever the flags.
