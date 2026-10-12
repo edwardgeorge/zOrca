@@ -19,14 +19,16 @@
 // The touched bits. A key's bit is set when its line was read from the file
 // with a value taken, or when a setter changed its value; tui_save_prefs
 // writes the touched keys and ezconf copies every other line verbatim. An
-// override clears its key's bit, so a flag lasts for the session and the
-// stored line is kept until a menu change touches the key again (AD-20).
-// portmidi_output_device and the input key are never touched by a read.
+// override clears its key's bit, whether or not the override took effect
+// (External without a reader; an input name that does not fit), so a flag
+// lasts for the session and the stored line is kept until a menu change
+// touches the key again (AD-20). portmidi_output_device and the input key
+// are never touched by a read.
 
-// The keys, in the order ezconf appends missing keys (CONFOPTS order is
-// behaviour: a key absent from the file is appended in this order). A new
-// key is appended in snake_case (AD-20).
-#define CONFOPTS(_)                                                            \
+// The keys, in the order ezconf appends missing keys (TUI_PREFS_KEYS order
+// is behaviour: a key absent from the file is appended in this order). A
+// new key is appended in snake_case (AD-20).
+#define TUI_PREFS_KEYS(_)                                                      \
   _(portmidi_output_device)                                                    \
   _(osc_output_address)                                                        \
   _(osc_output_port)                                                           \
@@ -42,7 +44,7 @@
   _(alsa_input_device)
 
 #define CONFOPT_ENUM(x) Confopt_##x,
-typedef enum { CONFOPTS(CONFOPT_ENUM) Confoptslen } Confopt;
+typedef enum { TUI_PREFS_KEYS(CONFOPT_ENUM) Confoptslen } Confopt;
 #undef CONFOPT_ENUM
 
 // The key names, in Confopt order, for ezconf_r_step and ezconf_w_addopt.
@@ -84,13 +86,24 @@ typedef struct {
 // a pending override before curses starts: it sets the key's TOUCHFLAG in
 // keys and its value below. tui_prefs_apply_overrides applies them after
 // the conf has loaded, so a flag beats orca.conf. A new override adds its
-// value here and one branch to tui_prefs_apply_overrides.
+// value here, its key to Tui_overrides_keys and one branch to
+// tui_prefs_apply_overrides.
 typedef struct {
   U32 keys;                           // TOUCHFLAG(Confopt_...) of each key
   Orca_dialect dialect;               // --dialect
   Clock_source clock_source;          // --clock-source
   char midi_in[Tui_prefs_value_cap];  // --midi-in, the backend's input key
 } Tui_overrides;
+
+// The keys an override may name: tui_prefs_apply_overrides asserts keys
+// holds no other, since a key without a branch there would be cleared and
+// keep the conf's value.
+enum {
+  Tui_overrides_keys = TOUCHFLAG(Confopt_dialect) |
+                       TOUCHFLAG(Confopt_clock_source) |
+                       TOUCHFLAG(Confopt_portmidi_input_device) |
+                       TOUCHFLAG(Confopt_alsa_input_device)
+};
 
 // The defaults: margins 1 (y) and 2 (x), fancy grid dots and rulers, OSC
 // output off to an empty address (loopback) on port 49162, beat clock off,
@@ -102,23 +115,28 @@ void tui_prefs_init(Tui_prefs *p, bool has_midi_in, Confopt midi_in_key);
 
 // Reads "5x3" or "5" as %dx%d did: leading blanks and a sign, a number,
 // then 'x' and a second number; one number, or anything but 'x' and a
-// number after it, gives both the first. Trailing text is ignored. False,
-// leaving both alone, when there is no leading number (or it is outside
-// int).
+// number after it, gives both the first. A number outside int is none: as
+// the first it is false, as the second it gives both the first (where the
+// %dx%d form differed, on overflow only). Trailing text is ignored. False,
+// leaving both alone, when there is no leading number.
 bool tui_prefs_read_nxn_or_n(char const *str, int *out_a, int *out_b);
 
 // Takes one conf line's value for key, as tui_load_conf read it before
 // P3-4b. True when the value is taken: it is stored and the key touched (but
-// for portmidi_output_device and the input key, stored only). False, with
-// nothing changed, for a value that is not one of the key's (an unknown
-// line is then kept verbatim on save), for External or an input key
-// without a reader, for the other backend's input key, and for a value of
+// for portmidi_output_device and the input key, stored only). The two OSC
+// strings are stored as given, empty included: the port line too, which
+// tui_prefs_set_osc_output_port alone refuses empty. False, with nothing
+// changed, for a value that is not one of the key's (an unknown line is
+// then kept verbatim on save), for External or an input key without a
+// reader, for the other backend's input key, and for a value of
 // Tui_prefs_value_cap bytes or more.
 bool tui_prefs_read_line(Tui_prefs *p, Confopt key, char const *value);
 
-// Applies each key in o->keys over the conf's value (the dialect; the clock
-// source, dropping External without a reader; midi_in only with a reader),
-// then clears those keys' touched bits.
+// Applies each key in o->keys (Tui_overrides_keys only, asserted) over the
+// conf's value (the dialect; the clock source, dropping External without a
+// reader; midi_in only with a reader and when the array holds a terminated
+// name), then clears those keys' touched bits, whether or not each override
+// took effect.
 void tui_prefs_apply_overrides(Tui_prefs *p, Tui_overrides const *o);
 
 // The setters, one per setting a menu or form changes. Each returns false

@@ -550,7 +550,7 @@ canary is detected and every result is PASS or XFAIL.
   file. The allow-list has two tiers. `core_headers` (`base.h`, `vmio.h`,
   `gbuffer.h`, `sim.h`, `opstate.h`, `prng.h`, `ccout.h`, `transport.h`,
   `music.h` and `portlabel.h`, which `sim.h` includes) and the system
-  headers `<assert.h>`, `<limits.h>`, `<stdbool.h>`, `<stddef.h>`,
+  headers `<assert.h>`, `<errno.h>`, `<limits.h>`, `<stdbool.h>`, `<stddef.h>`,
   `<stdint.h>`, `<stdlib.h>` and `<string.h>` are allowed everywhere.
   `shell_headers` (`tick.h`, `tooltips.h`, `tui_prefs.h`, the testable
   shell's) are allowed only when the CORE file under scan is in

@@ -1,5 +1,6 @@
 #include "tui_prefs.h"
 #include "ccout.h"
+#include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,7 +10,7 @@
 // unit runner links this file (spine AD-1, AD-2, AD-21). See tui_prefs.h.
 
 #define CONFOPT_STRING(x) #x,
-char const *const confopts[Confoptslen] = {CONFOPTS(CONFOPT_STRING)};
+char const *const confopts[Confoptslen] = {TUI_PREFS_KEYS(CONFOPT_STRING)};
 #undef CONFOPT_STRING
 
 static char const *const prefval_plain = "plain";
@@ -59,10 +60,13 @@ static void put_value(char *dst, char const *s) {
 // when there is none, or it is outside int; otherwise *end is just past it.
 static bool read_int_prefix(char const *s, int *out, char const **end) {
   char *e;
+  errno = 0;
   long v = strtol(s, &e, 10);
-  // Compared as long long, which is wider than int wherever long is not.
+  // Outside int is seen two ways: compared as long long where long is wider
+  // than int, and by ERANGE where long is int (armhf), since strtol then
+  // clamps an overflow to LONG_MAX == INT_MAX, which the compare passes.
   long long w = v;
-  if (e == s || w < INT_MIN || w > INT_MAX)
+  if (e == s || errno == ERANGE || w < INT_MIN || w > INT_MAX)
     return false;
   *out = (int)v;
   *end = e;
@@ -194,13 +198,19 @@ bool tui_prefs_read_line(Tui_prefs *p, Confopt key, char const *value) {
 }
 
 void tui_prefs_apply_overrides(Tui_prefs *p, Tui_overrides const *o) {
+  // A key with no branch here would have its bit cleared below and keep the
+  // conf's value: a new override adds a branch and joins Tui_overrides_keys.
+  assert((o->keys & ~(U32)Tui_overrides_keys) == 0);
   if (o->keys & TOUCHFLAG(Confopt_dialect))
     p->dialect = o->dialect;
   if ((o->keys & TOUCHFLAG(Confopt_clock_source)) &&
       (o->clock_source != Clock_source_external || p->has_midi_in))
     p->clock_source = o->clock_source;
+  // The override's array fits when it holds a terminator (main() refuses a
+  // --midi-in that does not, so this is belt and braces): a bounded scan,
+  // never strlen over an array that may hold none.
   if (p->has_midi_in && (o->keys & TOUCHFLAG(p->midi_in_key)) &&
-      fits(o->midi_in))
+      memchr(o->midi_in, '\0', sizeof o->midi_in))
     put_value(p->midi_in, o->midi_in);
   p->touched &= ~o->keys;
 }

@@ -1481,6 +1481,8 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   field_init(&a->scratch_field);
   opstate_init(&a->opstate);
   opstate_init(&a->scratch_opstate);
+  // tui_apply_overrides overwrites this from the prefs; the default that
+  // counts is tui_prefs_init's.
   a->dialect = Orca_dialect_borca;
   field_init(&a->clipboard_field);
   mbuf_reusable_init(&a->mbuf_r);
@@ -1495,6 +1497,8 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   // No clock here: ged_init runs before stm_setup().
   ccout_init(&a->ccout);
   // glide_hz, until orca.conf's glide_hz key or the Glide Rate menu sets it.
+  // tui_apply_overrides overwrites it from the prefs; the default that
+  // counts is tui_prefs_init's.
   ccout_configure(&a->ccout, Ccout_glide_hz_default);
   susnote_list_init(&a->susnote_list);
   ged_cursor_init(&a->ged_cursor);
@@ -1507,6 +1511,8 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   a->clock_out.clock = 0;
   a->clock_out.accum_secs = 0.0;
   a->clock_out.sixths = 0;
+  // tui_apply_overrides overwrites this from the prefs; the default that
+  // counts is tui_prefs_init's.
   a->clock_out.enabled = false;
   a->oosc_dev = NULL;
   midi_mode_init_null(&a->midi_mode);
@@ -4244,6 +4250,8 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
             tui_restart_osc_udp_if_enabled(t);
             if (changed)
               tui_save_prefs(t);
+            else if (osolen(addr) >= Tui_prefs_value_cap)
+              qmsg_printf_push("OSC Output Address", "Value too long");
           }
           osofree(addr);
           break;
@@ -4256,10 +4264,13 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           // As the address: the restart always, the save on a change.
           bool changed =
               tui_prefs_set_osc_output_port(&t->prefs, osoc(portstr));
+          bool too_long = osolen(portstr) >= Tui_prefs_value_cap;
           osofree(portstr);
           tui_restart_osc_udp_if_enabled(t);
           if (changed)
             tui_save_prefs(t);
+          else if (too_long)
+            qmsg_printf_push("OSC Output Port", "Value too long");
           break;
         }
         case Set_grid_dims_form_id: {

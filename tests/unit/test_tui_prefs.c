@@ -122,6 +122,16 @@ void test_prefs_read_line(void) {
   CHECK(tui_prefs_read_line(&p, Confopt_osc_output_port, "7000"));
   touched |= TOUCHFLAG(Confopt_osc_output_port);
   CHECK(strcmp(p.osc_output_port, "7000") == 0 && p.touched == touched);
+  // The port line is stored as given, empty included, and saves back as ""
+  // (the pre-P3-4b load did the same); only the form's setter refuses empty.
+  {
+    char buf[Tui_prefs_number_cap];
+    CHECK(tui_prefs_read_line(&p, Confopt_osc_output_port, ""));
+    CHECK(p.osc_output_port[0] == '\0' && p.touched == touched);
+    CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_osc_output_port, buf),
+                 "") == 0);
+    CHECK(tui_prefs_read_line(&p, Confopt_osc_output_port, "7000"));
+  }
 
   // The boolish set, each word flipping the value it names.
   static char const *const words[] = {"1", "0", "true", "false", "yes", "no"};
@@ -333,6 +343,16 @@ void test_prefs_bad_values(void) {
   check_nxn("2x1x9", true, 2, 1);
   check_nxn("0x0", true, 0, 0);
   check_nxn("5x-", true, 5, 5);
+  // The int bounds, on every target (where long is int, strtol clamps the
+  // overflow to INT_MAX and only ERANGE tells): the bounds themselves are
+  // taken, past them is refused as the first number and none as the second,
+  // so b falls back to a (where this parser differs from %dx%d, on overflow
+  // only).
+  check_nxn("2147483647", true, 2147483647, 2147483647);
+  check_nxn("-2147483648", true, -2147483647 - 1, -2147483647 - 1);
+  check_nxn("2147483648", false, 0, 0);
+  check_nxn("-2147483649", false, 0, 0);
+  check_nxn("1x2147483648", true, 1, 1);
   check_nxn("x3", false, 0, 0);
   check_nxn("abc", false, 0, 0);
   check_nxn("-", false, 0, 0);
@@ -479,6 +499,19 @@ void test_prefs_flag_over_conf(void) {
     tui_prefs_apply_overrides(&q, &oq);
     CHECK(strcmp(q.midi_in, "B:0") == 0);
   }
+  // An input override with no terminator in its array (it does not fit) is
+  // dropped: midi_in keeps the held name, and the key's bit is cleared all
+  // the same, as every overridden key's is.
+  {
+    Tui_prefs q;
+    init_alsa(&q);
+    CHECK(tui_prefs_set_midi_in(&q, "A:0"));
+    CHECK(q.touched == TOUCHFLAG(Confopt_alsa_input_device));
+    Tui_overrides oq = {.keys = TOUCHFLAG(Confopt_alsa_input_device)};
+    memset(oq.midi_in, 'a', sizeof oq.midi_in);
+    tui_prefs_apply_overrides(&q, &oq);
+    CHECK(strcmp(q.midi_in, "A:0") == 0 && q.touched == 0);
+  }
 }
 
 // Calls setter k (0..10) with the value prefs init holds when same is
@@ -597,7 +630,7 @@ void test_prefs_menu_noop(void) {
 }
 
 // The text after `key = ` for every key, then the save loop simulated: the
-// touched keys in CONFOPTS order, which is the order ezconf appends missing
+// touched keys in TUI_PREFS_KEYS order, which is the order ezconf appends
 // keys in.
 void test_prefs_saved_value(void) {
   char buf[Tui_prefs_number_cap];
