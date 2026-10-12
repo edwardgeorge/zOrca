@@ -453,8 +453,7 @@ void test_labels_no_buffer(void) {
              ++k) {
           Oevent const *a = with.events.buffer + k;
           Oevent const *b = without.events.buffer + k;
-          CHECK(a->any.oevent_type == b->any.oevent_type &&
-                memcmp(a, b, oevent_size(a->any.oevent_type)) == 0);
+          CHECK(oevent_equal(a, b));
         }
       }
       // The buffer that was never passed keeps its stale fill.

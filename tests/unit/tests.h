@@ -3,6 +3,7 @@
 #pragma once
 #include "../../vmio.h"
 #include "check.h"
+#include <string.h>
 
 // The bytes an event of this type occupies: its own struct's size, not the
 // union's. oevent_list_alloc_item never zeroes a slot's tail, so a test that
@@ -23,6 +24,31 @@ static inline Usz oevent_size(U8 type) {
     return sizeof(Oevent_udp_string);
   default:
     return sizeof(Oevent);
+  }
+}
+
+// Two events are equal when their types match and the bytes the writer
+// filled match: a struct's own fields, and for OSC and UDP only the first
+// count numbers or characters, since sim.c writes no more and the slot's tail
+// holds whatever the allocator left (found by the armhf run under qemu, where
+// the two lists' tails differ; P3-6).
+static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
+  if (a->any.oevent_type != b->any.oevent_type)
+    return false;
+  switch ((Oevent_types)a->any.oevent_type) {
+  case Oevent_type_osc_ints:
+    return a->osc_ints.glyph == b->osc_ints.glyph &&
+           a->osc_ints.count == b->osc_ints.count &&
+           a->osc_ints.count <= Oevent_osc_int_count &&
+           memcmp(a->osc_ints.numbers, b->osc_ints.numbers,
+                  a->osc_ints.count) == 0;
+  case Oevent_type_udp_string:
+    return a->udp_string.count == b->udp_string.count &&
+           a->udp_string.count <= Oevent_udp_string_count &&
+           memcmp(a->udp_string.chars, b->udp_string.chars,
+                  a->udp_string.count) == 0;
+  default:
+    return memcmp(a, b, oevent_size(a->any.oevent_type)) == 0;
   }
 }
 
