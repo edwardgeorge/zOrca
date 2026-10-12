@@ -54,6 +54,31 @@
 // change of validity also sets shown_changed, so the HUD redraws. That band
 // keeps the jitter of a BLE link from flickering the HUD.
 
+// The clock source (AD-15, AD-20). Internal is the default and the 4f349cd
+// timing path; External follows a MIDI clock through the transport machine.
+typedef enum {
+  Clock_source_internal = 0,
+  Clock_source_external = 1,
+} Clock_source;
+
+// The names orca.conf's clock_source key and --clock-source take: "internal"
+// and "external", exactly. False, leaving *out alone, for anything else.
+static inline bool clock_source_from_name(char const *name, Clock_source *out) {
+  if (strcmp(name, "internal") == 0) {
+    *out = Clock_source_internal;
+    return true;
+  }
+  if (strcmp(name, "external") == 0) {
+    *out = Clock_source_external;
+    return true;
+  }
+  return false;
+}
+
+static inline char const *clock_source_name(Clock_source s) {
+  return s == Clock_source_external ? "external" : "internal";
+}
+
 typedef enum {
   Transport_clock,    // F8
   Transport_start,    // FA

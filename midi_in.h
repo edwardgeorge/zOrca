@@ -20,31 +20,6 @@
 #define BORCA_HAS_MIDI_IN 1
 #endif
 
-// The clock source (AD-15, AD-20). Internal is the default and the 4f349cd
-// timing path; External follows a MIDI clock through the transport machine.
-typedef enum {
-  Clock_source_internal = 0,
-  Clock_source_external = 1,
-} Clock_source;
-
-// The names orca.conf's clock_source key and --clock-source take: "internal"
-// and "external", exactly. False, leaving *out alone, for anything else.
-static inline bool clock_source_from_name(char const *name, Clock_source *out) {
-  if (strcmp(name, "internal") == 0) {
-    *out = Clock_source_internal;
-    return true;
-  }
-  if (strcmp(name, "external") == 0) {
-    *out = Clock_source_external;
-    return true;
-  }
-  return false;
-}
-
-static inline char const *clock_source_name(Clock_source s) {
-  return s == Clock_source_external ? "external" : "internal";
-}
-
 // The HUD's BPM field under External, at most 8 characters: "ext lost" while
 // the clock is lost, otherwise "ext <shown>" while the estimate is valid and
 // "ext --" when it is not. out holds at least 9 bytes.
