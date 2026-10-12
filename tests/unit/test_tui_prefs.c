@@ -188,8 +188,8 @@ void test_prefs_read_line(void) {
   touched |= TOUCHFLAG(Confopt_clock_source);
   CHECK(p.clock_source == Clock_source_external && p.touched == touched);
 
-  // The backend's input key: stored, never touched, so its line is copied
-  // verbatim until the MIDI Input menu changes it.
+  // The backend's input key: stored, never touched, so its line is written
+  // back with its value unchanged until the MIDI Input menu changes it.
   CHECK(tui_prefs_read_line(&p, Confopt_alsa_input_device, "MidiHub:0"));
   CHECK(strcmp(p.midi_in, "MidiHub:0") == 0 && p.touched == touched);
 
@@ -219,7 +219,8 @@ static void check_nxn(char const *s, bool ok, int a, int b) {
 }
 
 // A bad value is refused: false, the field and the touched bits unchanged,
-// so the save loop never rewrites the line and ezconf copies it verbatim.
+// so the save loop never rewrites the line and ezconf writes its value back
+// unchanged.
 void test_prefs_bad_values(void) {
   struct {
     Confopt key;
@@ -432,7 +433,8 @@ void test_prefs_input_keys(void) {
 }
 
 // A flag beats the conf for the session, and clears its key's touched bit
-// so the stored line is copied verbatim until a menu touches the key again
+// so the stored line's value is written back unchanged until a menu touches
+// the key again
 // (AD-20); keys the flags do not name keep their bits.
 void test_prefs_flag_over_conf(void) {
   Tui_prefs p;

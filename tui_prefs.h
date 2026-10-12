@@ -20,10 +20,11 @@
 // with a value taken, or when a setter changed its value; tui_save_prefs
 // writes the touched keys, and ezconf writes every other key line back with
 // its value unchanged (as `key = value`: ezconf normalises the spacing, as it
-// always has) and every comment line as it was. An override clears its key's
-// bit, whether or not the override took effect (External without a reader; an
-// input name that does not fit), so a flag lasts for the session and the
-// stored line is kept until a menu change touches the key again (AD-20).
+// always has) and every comment line as it was (but for an unterminated last
+// line, whose last byte ezconf drops). An override clears its key's bit,
+// whether or not the override took effect (External without a reader; an input
+// name that does not fit), so a flag lasts for the session and the stored line
+// is kept until a menu change touches the key again (AD-20).
 // portmidi_output_device and the input key are never touched by a read.
 
 // The keys, in the order ezconf appends missing keys (TUI_PREFS_KEYS order
