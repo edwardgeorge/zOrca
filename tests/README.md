@@ -399,6 +399,10 @@ with no `<stdio.h>`.
 `cli`, `orca` and `test` link all of it, and
 `./tool sources <core|cli|orca|test>` prints a list, one file per line, so
 the checks below and the CI `armhf` job read the same lists.
+`midi_in.h`'s static inlines are shell code under test too, outside the
+CORE list: `test_transport.c` covers `rearm_compute` and the HUD text, and
+also `Clock_out` (the clock-out gate, span, start, F8 gate and re-arms;
+AD-16) on a recording sink that snapshots the state at each byte.
 
 Adapter `FEAT_` flags apply to `test` as they do to `orca`: `--portmidi`
 builds the PortMidi adapter tests, `--alsa` builds the ALSA adapter tests,

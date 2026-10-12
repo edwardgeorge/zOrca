@@ -197,6 +197,11 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(transport_hysteresis)                                                      \
   X(transport_reset)                                                           \
   X(transport_rearm)                                                           \
+  X(clock_out_external_silent)                                                 \
+  X(clock_out_internal_wire)                                                   \
+  X(clock_out_return_internal)                                                 \
+  X(clock_out_toggle)                                                          \
+  X(clock_out_span)                                                            \
   X(transport_parse)                                                           \
   X(transport_hud_text)                                                        \
   X(transport_stale_stamp_refill)                                              \

@@ -2,8 +2,9 @@
 // machine driven by synthetic events, a model shell that applies each
 // event's actions in the shell's order over a real tick_body, the estimate
 // with its refills and drops, the display value's hysteresis, the deadline
-// query, the parser, and the re-arm and HUD helpers of midi_in.h. Stamps are
-// U64 us, as the shell's now_us(); a pulse is 20 833 us, one F8 at 120 BPM.
+// query, the parser, and the re-arm, clock-out (Clock_out) and HUD helpers
+// of midi_in.h. Stamps are U64 us, as the shell's now_us(); a pulse is
+// 20 833 us, one F8 at 120 BPM.
 // The sink and the model are this file's own (test_tick.c's are static).
 #include "../../ccout.h"
 #include "../../gbuffer.h"
@@ -23,13 +24,17 @@ typedef struct {
 } Triple;
 
 // One call to the sink, in the combined log: a midi3 with its triple, a
-// midi1 with its byte in status, an osc, or a control with its address.
+// midi1 with its byte in status, an osc, or a control with its address. A
+// midi1 also carries a copy of the watched Clock_out as it was at the call,
+// when the recording watches one.
 typedef enum { Log_midi3, Log_midi1, Log_osc, Log_control } Log_kind;
 
 typedef struct {
   Log_kind kind;
   int status, d1, d2;
   char const *address;
+  bool has_snap;
+  Clock_out snap;
 } Log_entry;
 
 // A sink that records every MIDI triple in order and counts the rest. The
@@ -43,6 +48,7 @@ typedef struct {
   Log_entry log[Log_capacity];
   Usz log_count;
   bool log_overflow;
+  Clock_out const *watch; // snapshotted at each midi1 when set
 } Recording;
 
 static void rec_log(Recording *r, Log_entry e) {
@@ -66,7 +72,12 @@ static void rec_midi3(void *u, int status, int d1, int d2) {
 
 static void rec_midi1(void *u, int byte) {
   Recording *r = u;
-  rec_log(r, (Log_entry){.kind = Log_midi1, .status = byte});
+  Log_entry e = {.kind = Log_midi1, .status = byte};
+  if (r->watch) {
+    e.has_snap = true;
+    e.snap = *r->watch;
+  }
+  rec_log(r, e);
   ++r->midi1_count;
 }
 
@@ -81,6 +92,16 @@ static void rec_control(void *u, char const *osc_address) {
   Recording *r = u;
   rec_log(r, (Log_entry){.kind = Log_control, .address = osc_address});
   ++r->control_count;
+}
+
+// Empties r and returns a sink that records into it, watching nothing.
+static Tick_sink rec_sink(Recording *r) {
+  memset(r, 0, sizeof *r);
+  return (Tick_sink){.u = r,
+                     .midi3 = rec_midi3,
+                     .midi1 = rec_midi1,
+                     .osc = rec_osc,
+                     .control = rec_control};
 }
 
 static bool triple_is(Triple t, int status, int d1, int d2) {
@@ -813,6 +834,249 @@ void test_transport_rearm(void) {
         CHECK(near(m.first_f8, 1.0 + S, tol));
     }
   }
+}
+
+// Clock-out (midi_in.h, Clock_out; spine AD-16): the gate, the span, the
+// start, the F8 gate at each deadline, the re-arms and the stop's FC, on a
+// recording sink whose midi1 snapshots the Clock_out it watches, so a row
+// can tell the state a byte went out with. Every row starts from a stale
+// Clock_out (clock 7, accum_secs 9.0, sixths 3 unless the row sweeps it), so
+// a dropped assignment shows. 120 BPM: one tick, S, is 0.125 s.
+enum { Co_bpm = 120 };
+
+static Clock_out stale_clock_out(bool enabled, U8 sixths) {
+  return (Clock_out){
+      .clock = 7, .accum_secs = 9.0, .sixths = sixths, .enabled = enabled};
+}
+
+// The Internal span at Co_bpm, as the shell's expression computes it.
+static double co_tick_span(void) { return 60.0 / (double)Co_bpm / 4.0; }
+
+static bool clock_out_is(Clock_out const *co, U64 clock, double accum_secs,
+                         U8 sixths, bool enabled) {
+  return co->clock == clock && co->accum_secs == accum_secs &&
+         co->sixths == sixths && co->enabled == enabled;
+}
+
+// The log holds exactly one call, a midi1 of byte, with a snapshot.
+static bool log_one_midi1(Recording const *r, int byte) {
+  return !r->log_overflow && r->log_count == 1 &&
+         r->log[0].kind == Log_midi1 && r->log[0].status == byte &&
+         r->log[0].has_snap;
+}
+
+// The stop fixture: two sustained notes (ch 0 note 36, ch 9 note 127).
+static void co_seed_notes(Susnote_list *susnotes) {
+  susnote_list_init(susnotes);
+  Susnote const seeded[] = {
+      {.remaining = 3, .chan_note = 0 << 8 | 36},
+      {.remaining = 20, .chan_note = 9 << 8 | 127},
+  };
+  Usz start_removed, end_removed;
+  CHECK(susnote_list_add_notes(susnotes, seeded, ORCA_ARRAY_COUNTOF(seeded),
+                               &start_removed, &end_removed));
+}
+
+// The log's entries from `from` are the fixture's two note-offs then
+// /orca/stopped, then FC when fc is set, and nothing else.
+static bool log_tail_is_stop(Recording const *r, Usz from, bool fc) {
+  Usz want = from + 3 + (fc ? 1 : 0);
+  if (r->log_overflow || r->log_count != want)
+    return false;
+  Log_entry const *e = r->log + from;
+  return e[0].kind == Log_midi3 && e[0].status == 0x80 && e[0].d1 == 36 &&
+         e[0].d2 == 0 && e[1].kind == Log_midi3 && e[1].status == 0x89 &&
+         e[1].d1 == 127 && e[1].d2 == 0 && e[2].kind == Log_control &&
+         e[2].address && strcmp(e[2].address, "/orca/stopped") == 0 &&
+         (!fc || (e[3].kind == Log_midi1 && e[3].status == 0xFC));
+}
+
+// Under External clock-out is suspended: the gate is shut whatever the
+// setting, the span is a whole tick, the start, the deadlines and the
+// toggle send nothing, and the toggle flips only the setting.
+void test_clock_out_external_silent(void) {
+  Clock_source const ext = Clock_source_external;
+  double const S = co_tick_span();
+  Clock_out co = stale_clock_out(true, 3);
+  CHECK(!clock_out_active(&co, ext));
+  CHECK(clock_out_span(&co, ext, Co_bpm) == S);
+
+  Recording rec;
+  Tick_sink const sink = rec_sink(&rec);
+  rec.watch = &co;
+  clock_out_on_start(&co, ext, Co_bpm, 1000, &sink);
+  double accum = S;
+  accum -= 0.0001;
+  CHECK(clock_out_is(&co, 1000, accum, 0, true));
+  CHECK(rec.log_count == 0);
+
+  co = stale_clock_out(true, 3);
+  for (int i = 0; i < 12; ++i)
+    CHECK(clock_out_on_deadline(&co, ext, &sink));
+  CHECK(rec.log_count == 0);
+  CHECK(clock_out_is(&co, 7, 9.0, 3, true)); // no sixths advance
+
+  co = stale_clock_out(true, 3);
+  clock_out_toggle(&co, ext, Co_bpm, 5000, 0.01, true, &sink);
+  CHECK(clock_out_is(&co, 7, 9.0, 3, false));
+  clock_out_toggle(&co, ext, Co_bpm, 6000, 0.01, true, &sink);
+  CHECK(clock_out_is(&co, 7, 9.0, 3, true));
+  CHECK(rec.log_count == 0);
+}
+
+// Internal with beat clock: FA at the start, with the clock, the sixths
+// counter and the start's accum_secs set; 12 deadlines send 12 F8s and run
+// the tick body on the 1st and 7th only; the stop then sends the note-offs,
+// /orca/stopped and FC, after the 12th F8. Without beat clock nothing is
+// sent but the stop's note-offs and /orca/stopped, and every deadline runs
+// the body.
+void test_clock_out_internal_wire(void) {
+  Clock_source const in = Clock_source_internal;
+  double const S = co_tick_span();
+  for (int on = 1; on >= 0; --on) {
+    Clock_out co = stale_clock_out(on == 1, 3);
+    Recording rec;
+    Tick_sink const sink = rec_sink(&rec);
+    rec.watch = &co;
+    CHECK(clock_out_active(&co, in) == (on == 1));
+    clock_out_on_start(&co, in, Co_bpm, 1000, &sink);
+    double accum = 60.0 / (double)Co_bpm / 4.0; // the start's arithmetic
+    if (on)
+      accum /= 6.0;
+    accum -= 0.0001;
+    CHECK(clock_out_is(&co, 1000, accum, 0, on == 1));
+    if (on) {
+      CHECK(log_one_midi1(&rec, 0xFA));
+      CHECK(accum == S / 6.0 - 0.0001);
+    } else {
+      CHECK(rec.log_count == 0);
+      CHECK(accum == S - 0.0001);
+    }
+
+    Usz bodies = 0;
+    bool body_on[13] = {false};
+    for (int call = 1; call <= 12; ++call) {
+      bool body = clock_out_on_deadline(&co, in, &sink);
+      body_on[call] = body;
+      bodies += body;
+    }
+    if (on) {
+      CHECK(bodies == 2 && body_on[1] && body_on[7]);
+      CHECK(rec.log_count == 13 && rec.midi1_count == 13);
+      Usz f8s = 0;
+      for (Usz i = 1; i < rec.log_count; ++i)
+        f8s += rec.log[i].kind == Log_midi1 && rec.log[i].status == 0xF8;
+      CHECK(f8s == 12);
+      CHECK(co.sixths == 0);
+    } else {
+      CHECK(bodies == 12);
+      CHECK(rec.log_count == 0);
+    }
+    CHECK(co.clock == 1000 && co.accum_secs == accum); // deadlines leave them
+
+    Susnote_list susnotes;
+    co_seed_notes(&susnotes);
+    Ccout_engine ccout;
+    ccout_init(&ccout);
+    Usz before = rec.log_count;
+    tick_stop(&sink, &susnotes, &ccout, clock_out_active(&co, in));
+    CHECK(log_tail_is_stop(&rec, before, on == 1));
+    CHECK(rec.midi1_count == (on ? 14u : 0u));
+    CHECK(susnotes.count == 0);
+    susnote_list_deinit(&susnotes);
+  }
+}
+
+// The switch to Internal while playing: with beat clock, exactly one FB,
+// never FA, sent after the re-arm (the snapshot holds it), with the clock
+// at now, the sixths counter at 0 and accum_secs from rearm_compute (S / 6 -
+// S); without it, nothing is sent and accum_secs is 0; while stopped,
+// nothing is sent and nothing changes.
+void test_clock_out_return_internal(void) {
+  double const S = co_tick_span();
+  Recording rec;
+  Tick_sink const sink = rec_sink(&rec);
+
+  Clock_out co = stale_clock_out(true, 3);
+  rec.watch = &co;
+  clock_out_return_internal(&co, Co_bpm, 2000, true, &sink);
+  Rearm const r_on = rearm_compute(Rearm_internal, S, 0.0, 0, true);
+  CHECK(r_on.accum_secs == S / 6.0 - S);
+  CHECK(clock_out_is(&co, 2000, r_on.accum_secs, 0, true));
+  CHECK(log_one_midi1(&rec, 0xFB));
+  CHECK(clock_out_is(&rec.log[0].snap, 2000, r_on.accum_secs, 0, true));
+
+  Tick_sink const sink_off = rec_sink(&rec);
+  co = stale_clock_out(false, 3);
+  rec.watch = &co;
+  clock_out_return_internal(&co, Co_bpm, 2000, true, &sink_off);
+  CHECK(rec.log_count == 0);
+  CHECK(clock_out_is(&co, 2000, 0.0, 0, false));
+
+  for (int on = 0; on < 2; ++on) {
+    co = stale_clock_out(on == 1, 3);
+    clock_out_return_internal(&co, Co_bpm, 2000, false, &sink_off);
+    CHECK(rec.log_count == 0);
+    CHECK(clock_out_is(&co, 7, 9.0, 3, on == 1));
+  }
+}
+
+// The Send MIDI Beat Clock toggle while playing on Internal, for each e and
+// sixths value: off -> on sends one FB and on -> off one FC, each after the
+// setting flips and the re-arm lands (the snapshot at the byte holds both),
+// with the fields from rearm_compute and the clock at now. While stopped,
+// or under External, only the setting flips.
+void test_clock_out_toggle(void) {
+  double const S = co_tick_span();
+  double const es[] = {0.0, 0.01, 0.07};
+  U64 const now = 3000;
+  for (U8 sixths = 0; sixths < 6; ++sixths) {
+    for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(es); ++i) {
+      double e = es[i];
+      for (int was_on = 0; was_on < 2; ++was_on) {
+        bool on = was_on == 0;
+        Clock_out co = stale_clock_out(was_on == 1, sixths);
+        Recording rec;
+        Tick_sink const sink = rec_sink(&rec);
+        rec.watch = &co;
+        clock_out_toggle(&co, Clock_source_internal, Co_bpm, now, e, true,
+                         &sink);
+        Rearm const r = rearm_compute(
+            on ? Rearm_clock_out_on : Rearm_clock_out_off, S, e, sixths, on);
+        CHECK(clock_out_is(&co, now, r.accum_secs, r.sixths, on));
+        CHECK(log_one_midi1(&rec, on ? 0xFB : 0xFC));
+        CHECK(clock_out_is(&rec.log[0].snap, now, r.accum_secs, r.sixths, on));
+
+        // Stopped on Internal, then playing under External.
+        for (int k = 0; k < 2; ++k) {
+          Clock_source src =
+              k == 0 ? Clock_source_internal : Clock_source_external;
+          co = stale_clock_out(was_on == 1, sixths);
+          Tick_sink const quiet = rec_sink(&rec);
+          clock_out_toggle(&co, src, Co_bpm, now, e, k == 1, &quiet);
+          CHECK(rec.log_count == 0);
+          CHECK(clock_out_is(&co, 7, 9.0, sixths, on));
+        }
+      }
+    }
+  }
+}
+
+// The deadline span at 120 BPM: a sixth of a tick with the gate open, a
+// whole tick with it shut or under External, equal to the shell's
+// expression.
+void test_clock_out_span(void) {
+  double tick = 60.0 / (double)Co_bpm / 4.0;
+  double sixth = tick;
+  sixth /= 6.0;
+  CHECK(tick == 0.125);
+  Clock_out on = stale_clock_out(true, 3);
+  Clock_out off = stale_clock_out(false, 3);
+  CHECK(clock_out_span(&on, Clock_source_internal, Co_bpm) == sixth);
+  CHECK(clock_out_span(&off, Clock_source_internal, Co_bpm) == tick);
+  CHECK(clock_out_span(&on, Clock_source_external, Co_bpm) == tick);
+  CHECK(clock_out_span(&off, Clock_source_external, Co_bpm) == tick);
+  CHECK(clock_out_is(&on, 7, 9.0, 3, true)); // a query changes nothing
 }
 
 // A stamp earlier than the last empties the ring as a refill does: the

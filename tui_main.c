@@ -1425,8 +1425,10 @@ typedef struct {
   // it is the transport machine's estimate while that is valid, and bpm's
   // otherwise, so glide lengths follow the master's tempo.
   U64 tick_len;
-  U64 clock;
-  double accum_secs;
+  // The internal deadline and the beat clock (midi_in.h, AD-16): the
+  // deadline's clock and carry, the sixths counter and the stored Send MIDI
+  // Beat Clock setting.
+  Clock_out clock_out;
   Oosc_dev *oosc_dev;
   Midi_mode midi_mode;
   Usz activity_counter;
@@ -1436,11 +1438,9 @@ typedef struct {
   int softmargin_y, softmargin_x;
   int grid_h;
   int grid_scroll_y, grid_scroll_x; // not sure if i like this being int
-  U8 midi_bclock_sixths;            // 0..5, holds 6th of the quarter note step
   bool needs_remarking : 1;
   bool is_draw_dirty : 1;
   bool is_playing : 1;
-  bool midi_bclock : 1;
   bool draw_event_list : 1;
   bool is_mouse_down : 1;
   bool is_mouse_dragging : 1;
@@ -1456,15 +1456,6 @@ typedef struct {
 static void ged_set_bpm(Ged *a, Usz bpm) {
   a->bpm = bpm;
   a->tick_len = tick_len_us(bpm);
-}
-
-// Clock-out (AD-16): every F8, FA, FB and FC bOrca sends is gated by this one
-// predicate, the stored Send MIDI Beat Clock setting while the clock source
-// is Internal. External suspends clock-out for the session without clearing
-// the setting, so nothing echoes transport back to a master. No other code
-// reads midi_bclock to decide a send.
-static bool clock_out_active(Ged const *a) {
-  return a->midi_bclock && a->clock_source == Clock_source_internal;
 }
 
 // Every change of the operator dialect goes through here (spine AD-6), from
@@ -1512,8 +1503,10 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   a->ruler_spacing_y = a->ruler_spacing_x = 8;
   a->input_mode = Ged_input_mode_normal;
   ged_set_bpm(a, init_bpm);
-  a->clock = 0;
-  a->accum_secs = 0.0;
+  a->clock_out.clock = 0;
+  a->clock_out.accum_secs = 0.0;
+  a->clock_out.sixths = 0;
+  a->clock_out.enabled = false;
   a->oosc_dev = NULL;
   midi_mode_init_null(&a->midi_mode);
   a->activity_counter = 0;
@@ -1523,11 +1516,9 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   a->softmargin_y = a->softmargin_x = 0;
   a->grid_h = 0;
   a->grid_scroll_y = a->grid_scroll_x = 0;
-  a->midi_bclock_sixths = 0;
   a->needs_remarking = true;
   a->is_draw_dirty = false;
   a->is_playing = false;
-  a->midi_bclock = false;
   a->draw_event_list = false;
   a->is_mouse_down = false;
   a->is_mouse_dragging = false;
@@ -1620,7 +1611,8 @@ staticni void send_midi_3bytes(Oosc_dev *oosc_dev, Midi_mode const *midi_mode,
 }
 
 // The send sink (AD-14) over the backend dispatch above. tick.c sends every
-// event through it, and the shell sends its own F8, FA, FB and FC through it.
+// event through it, and midi_in.h's clock-out inlines send the shell's F8,
+// FA, FB and FC through it.
 // Each call reads the OSC device and the MIDI mode as they are at that
 // moment: both change at runtime (the PortMidi output menu, the OSC form,
 // ged_clear_osc_udp).
@@ -1692,13 +1684,6 @@ static Tick_sink ged_sink(Ged *a) {
                      .control = ged_sink_control};
 }
 
-// Sends one byte, the beat clock's F8, FA, FB or FC, through the sink. Every
-// caller is gated by clock_out_active() (AD-16).
-static void ged_send_midi_byte(Ged *a, int byte) {
-  Tick_sink const sink = ged_sink(a);
-  sink.midi1(sink.u, byte);
-}
-
 // The sub-tick poll (spine AD-14, AD-16): the wait point runs it between
 // ticks whenever the CC engine's deadline has passed, so glides step on
 // wall-clock time at glide_hz. now is a now_us() read made after the tick's.
@@ -1753,14 +1738,13 @@ static ORCA_FORCEINLINE double ms_to_sec(double ms) { return ms / 1000.0; }
 static double ged_secs_to_deadline(Ged const *a) {
   if (!a->is_playing || a->clock_source == Clock_source_external)
     return 1.0;
-  double secs_span = 60.0 / (double)a->bpm / 4.0;
   // If MIDI beat clock output is enabled, we need to send an event every 24
   // parts per quarter note. Since we've already divided quarter notes into 4
-  // for ORCA's timing semantics, divide it by a further 6. This same logic is
-  // mirrored in ged_do_stuff().
-  if (clock_out_active(a))
-    secs_span /= 6.0;
-  double rem = secs_span - (stm_sec(stm_since(a->clock)) + a->accum_secs);
+  // for ORCA's timing semantics, divide it by a further 6 (clock_out_span).
+  // ged_do_stuff() uses the same span.
+  double secs_span = clock_out_span(&a->clock_out, a->clock_source, a->bpm);
+  double rem = secs_span - (stm_sec(stm_since(a->clock_out.clock)) +
+                            a->clock_out.accum_secs);
   if (rem < 0.0)
     rem = 0.0;
   return rem;
@@ -1827,9 +1811,7 @@ staticni void ged_do_stuff(Ged *a) {
   // The span to the next deadline: one tick, or a sixth of a tick under beat
   // clock. It only times the deadlines: sustained notes age by one tick per
   // tick body (tick.c), so they keep their length under beat clock.
-  double secs_span = 60.0 / (double)a->bpm / 4.0;
-  if (clock_out_active(a)) // see also ged_secs_to_deadline()
-    secs_span /= 6.0;
+  double secs_span = clock_out_span(&a->clock_out, a->clock_source, a->bpm);
   bool crossed_deadline = false;
 #if TIME_DEBUG
   Usz spins = 0;
@@ -1838,15 +1820,16 @@ staticni void ged_do_stuff(Ged *a) {
 #endif
   for (;;) {
     U64 now = stm_now();
-    U64 diff = stm_diff(now, a->clock);
-    double sdiff = stm_sec(diff) + a->accum_secs;
+    U64 diff = stm_diff(now, a->clock_out.clock);
+    double sdiff = stm_sec(diff) + a->clock_out.accum_secs;
     if (sdiff >= secs_span) {
-      a->clock = now;
-      a->accum_secs = sdiff - secs_span;
+      a->clock_out.clock = now;
+      a->clock_out.accum_secs = sdiff - secs_span;
 #if TIME_DEBUG
-      if (a->accum_secs > 0.000001) {
-        fprintf(stderr, "late: %.2f u-secs\n", a->accum_secs * 1000 * 1000);
-        if (a->accum_secs > 0.00005) {
+      if (a->clock_out.accum_secs > 0.000001) {
+        fprintf(stderr, "late: %.2f u-secs\n",
+                a->clock_out.accum_secs * 1000 * 1000);
+        if (a->clock_out.accum_secs > 0.00005) {
           fprintf(stderr, "guilty timeout: %d\n", spin_track_timeout);
         }
       }
@@ -1868,13 +1851,11 @@ staticni void ged_do_stuff(Ged *a) {
 #endif
   if (!crossed_deadline)
     return;
-  if (clock_out_active(a)) {
-    ged_send_midi_byte(a, 0xF8); // MIDI beat clock
-    Usz sixths = a->midi_bclock_sixths;
-    a->midi_bclock_sixths = (U8)((sixths + 1) % 6);
-    if (sixths != 0)
-      return;
-  }
+  // The F8 gate: with clock-out active, an F8 at every sixth of a tick and
+  // the tick body on every sixth one (midi_in.h).
+  Tick_sink const sink = ged_sink(a);
+  if (!clock_out_on_deadline(&a->clock_out, a->clock_source, &sink))
+    return;
   ged_run_tick_body(a);
 }
 
@@ -2397,21 +2378,16 @@ staticni void ged_set_playing(Ged *a, bool playing) {
   if (playing) {
     undo_history_push(&a->undo_hist, &a->field, a->tick_num);
     a->is_playing = true;
-    a->clock = stm_now();
-    a->midi_bclock_sixths = 0;
-    // dumb'n'dirty, get us close to the next step time, but not quite
-    a->accum_secs = 60.0 / (double)a->bpm / 4.0;
-    if (clock_out_active(a)) {
-      ged_send_midi_byte(a, 0xFA); // "start"
-      a->accum_secs /= 6.0;
-    }
-    a->accum_secs -= 0.0001;
+    // The deadline armed, and FA when clock-out is active (midi_in.h).
+    Tick_sink const sink = ged_sink(a);
+    clock_out_on_start(&a->clock_out, a->clock_source, a->bpm, stm_now(),
+                       &sink);
     send_control_message(a->oosc_dev, "/orca/started");
   } else {
     // Pause, and quit through it (tick.h, tick_stop): the note-offs, every
     // glide ended with the last values sent kept, so the next glide starts
     // from them (AD-9), /orca/stopped, then FC only through the gate.
-    bool clock_out = clock_out_active(a);
+    bool clock_out = clock_out_active(&a->clock_out, a->clock_source);
     a->is_playing = false;
     Tick_sink const sink = ged_sink(a);
     tick_stop(&sink, &a->susnote_list, &a->ccout, clock_out);
@@ -3371,7 +3347,7 @@ staticni void tui_load_conf(Tui *t) {
     case Confopt_midi_beat_clock: {
       bool enabled;
       if (conf_read_boolish(ez.value, &enabled)) {
-        t->ged.midi_bclock = enabled;
+        t->ged.clock_out.enabled = enabled;
         touched |= TOUCHFLAG(Confopt_midi_beat_clock);
       }
       break;
@@ -3564,7 +3540,7 @@ staticni void tui_save_prefs(Tui *t) {
       break;
 #endif
     case Confopt_midi_beat_clock:
-      fputc(t->ged.midi_bclock ? '1' : '0', ez.file);
+      fputc(t->ged.clock_out.enabled ? '1' : '0', ez.file);
       break;
     case Confopt_margins:
       fprintf(ez.file, "%dx%d", t->softmargin_x, t->softmargin_y);
@@ -3897,16 +3873,9 @@ staticni void tui_set_clock_source(Tui *t, Clock_source source) {
     ged_set_bpm(a, est_valid ? (Usz)shown : a->bpm);
     if (a->bpm != old_bpm)
       ged_send_osc_bpm(a, (I32)a->bpm);
-    if (a->is_playing) {
-      double S = 60.0 / (double)a->bpm / 4.0;
-      Rearm r =
-          rearm_compute(Rearm_internal, S, 0.0, 0, clock_out_active(a));
-      a->clock = stm_now();
-      a->accum_secs = r.accum_secs;
-      a->midi_bclock_sixths = r.sixths;
-      if (clock_out_active(a))
-        ged_send_midi_byte(a, 0xFB); // "continue"
-    }
+    Tick_sink const sink = ged_sink(a);
+    clock_out_return_internal(&a->clock_out, a->bpm, stm_now(), a->is_playing,
+                              &sink);
     a->is_draw_dirty = true;
   }
 }
@@ -4225,8 +4194,8 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
         case Main_menu_quit:
           return Tui_menus_quit;
         case Main_menu_playback:
-          push_playback_menu(t->ged.midi_bclock, t->ged.clock_source ==
-                                                     Clock_source_external);
+          push_playback_menu(t->ged.clock_out.enabled,
+                             t->ged.clock_source == Clock_source_external);
           break;
         case Main_menu_cosmetics:
           push_cosmetics_menu();
@@ -4356,30 +4325,19 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           // The stored setting flips and is saved whatever the source.
           // While playing on Internal, clock-out resumes with FB and the
           // sixths counter at 0, or stops with FC; either way the next tick
-          // keeps its due time (midi_in.h, rearm_compute). Under External
+          // keeps its due time (midi_in.h, clock_out_toggle). Under External
           // nothing is sent: clock-out stays suspended (AD-16).
           Ged *a = &t->ged;
-          bool new_enabled = !a->midi_bclock;
-          a->midi_bclock = new_enabled;
           bool external = a->clock_source == Clock_source_external;
-          if (a->is_playing && !external) {
-            double S = 60.0 / (double)a->bpm / 4.0;
-            U64 now = stm_now();
-            double e = stm_sec(stm_diff(now, a->clock)) + a->accum_secs;
-            Rearm r = rearm_compute(new_enabled ? Rearm_clock_out_on
-                                                : Rearm_clock_out_off,
-                                    S, e, a->midi_bclock_sixths, new_enabled);
-            a->clock = now;
-            a->accum_secs = r.accum_secs;
-            a->midi_bclock_sixths = r.sixths;
-            if (clock_out_active(a))
-              ged_send_midi_byte(a, 0xFB); // "continue"
-            else
-              ged_send_midi_byte(a, 0xFC); // "stop"
-          }
+          U64 now = stm_now();
+          double e = stm_sec(stm_diff(now, a->clock_out.clock)) +
+                     a->clock_out.accum_secs;
+          Tick_sink const sink = ged_sink(a);
+          clock_out_toggle(&a->clock_out, a->clock_source, a->bpm, now, e,
+                           a->is_playing, &sink);
           t->prefs_touched |= TOUCHFLAG(Confopt_midi_beat_clock);
           qnav_stack_pop();
-          push_playback_menu(new_enabled, external);
+          push_playback_menu(a->clock_out.enabled, external);
           tui_save_prefs(t);
           a->is_draw_dirty = true;
           break;
