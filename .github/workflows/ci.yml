@@ -9,7 +9,8 @@
 # build/unit_tests and tests/check-*.sh commands a developer runs locally
 # (tests/README.md lists them for the uConsole). Three kinds of step need
 # what the uConsole lacks: the --portmidi builds need libportmidi-dev, the
-# armhf job needs the armhf cross compiler, and the clang job needs clang,
+# armhf job, which runs the unit tests at a 32-bit Usz under qemu, needs the
+# armhf cross compiler, and the clang job needs clang,
 # whose UBSan reports NULL + 0 where gcc's does not. The --alsa builds need
 # libasound2-dev, which the uConsole has. The runners' gcc can also differ
 # from the device's; each job's "Toolchain versions" step prints it.
@@ -742,29 +743,47 @@ jobs:
             exit 1
           fi
 
-  # Optional compile-only check for 32-bit ARM (Pi Zero 2W), where Usz is
-  # 32-bit. It calls the cross compiler directly instead of going through
-  # tool, because tool picks -march from the host's uname -m and would hand
-  # -march=nehalem to the arm compiler. The warning flags below are copied by
-  # hand from tool's build_target (the "add cc_flags -std=c99 ..." lines),
-  # plus its release -O2 -DNDEBUG and -Werror, and must be kept in sync with
-  # it. The job ignores CFLAGS_EXTRA and leaves out the rest of tool's release
-  # flags (-g0, the fortify and stack-protector overrides, -no-pie), and
-  # Ubuntu's cross gcc enables some hardening by default, so it checks the
-  # sources' portability rather than reproducing the release build.
+  # 32-bit ARM (Pi Zero 2W), where Usz is 32-bit: the one job that runs the
+  # unit tests at that width (P3-6, deferred-work #14). prng.h promises that
+  # a 32-bit Usz gives the PRNG lowercase r draws from the same sequence as
+  # a 64-bit one (spine AD-8), and test_prng_seed_fixed_vectors pins
+  # prng_seed's first outputs, so the job builds the release unit runner
+  # statically with arm-linux-gnueabihf-gcc through tool, checks with
+  # readelf that it is a static 32-bit ARM binary, and runs it under
+  # qemu-arm-static. It runs on the arm64 image, where uname -m is aarch64,
+  # so tool adds no -march (on an x86_64 host it would hand -march=nehalem
+  # to the arm compiler) and every flag tool gives the test target, its
+  # realloc hook's included, reaches the armhf runner.
+  # Release, not debug: ASan does not run under qemu-user. The job never
+  # builds or runs cli, so the R and ; pattern c goldens, which assume a
+  # 64-bit Usz, stay out of it. The job is optional until its first green
+  # run.
+  #
+  # The compile step checks each source's portability, cli and readme-gen
+  # included, one file at a time. It calls the cross compiler directly, with
+  # the warning flags copied by hand from tool's build_target (the "add
+  # cc_flags -std=c99 ..." lines), plus its release -O2 -DNDEBUG and
+  # -Werror, which must be kept in sync with it. It ignores CFLAGS_EXTRA and
+  # leaves out the rest of tool's release flags (-g0, the fortify and
+  # stack-protector overrides, -no-pie), and Ubuntu's cross gcc enables some
+  # hardening by default, so it does not reproduce the release build; the
+  # runner build after it does.
   armhf:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
 
-      # No --no-install-recommends: libc6-dev-armhf-cross is only a Recommends.
-      - name: Install the armhf cross compiler
-        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf
+      # No --no-install-recommends: libc6-dev-armhf-cross, which holds the
+      # static libc the runner links, is only a Recommends.
+      - name: Install the armhf cross compiler and qemu-user-static
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-linux-gnueabihf qemu-user-static
 
       - name: Toolchain versions
-        run: arm-linux-gnueabihf-gcc --version | head -n 1
+        run: |
+          arm-linux-gnueabihf-gcc --version | head -n 1
+          qemu-arm-static --version | head -n 1
 
       # The files are the union of tool's cli, test and readme-gen source
       # lists, so they follow the shared CORE list. The lists are read before
@@ -789,3 +808,73 @@ jobs:
               -c "$f" -o /dev/null || status=1
           done
           exit "$status"
+
+      # The release runner, statically linked, so qemu-arm-static needs no
+      # armhf sysroot. tool detects the cross gcc through -E and gives it the
+      # test target's full release flags (-O2 -DNDEBUG -flto -s -no-pie, the
+      # realloc hook's -Wl,--wrap=realloc) plus -static. If the cross LTO
+      # link ever fails, CFLAGS_EXTRA="-Werror -fno-lto" is the fallback. -v
+      # prints the compiler line.
+      - name: Build the release unit runner for armhf
+        run: CC=arm-linux-gnueabihf-gcc CFLAGS_EXTRA=-Werror ./tool build -v --static test
+
+      # Fails unless build/unit_tests is a 32-bit ARM ELF with no NEEDED
+      # entry, so a runner linked by the host's cc (ELF64, AArch64), which
+      # is what tool builds when CC is unset, or a dynamic one, stops here
+      # before the qemu run.
+      - name: The runner is a static 32-bit ARM binary
+        run: |
+          hdr="$RUNNER_TEMP/unit_tests_armhf_header.txt"
+          dyn="$RUNNER_TEMP/unit_tests_armhf_dynamic.txt"
+          readelf -h build/unit_tests >"$hdr"
+          readelf -d build/unit_tests >"$dyn"
+          grep -E 'Class:|Machine:' "$hdr"
+          cat "$dyn"
+          status=0
+          if ! grep -Eq '^[[:space:]]*Class:[[:space:]]+ELF32[[:space:]]*$' "$hdr"; then
+            echo "build/unit_tests is not ELF32"
+            status=1
+          fi
+          if ! grep -Eq '^[[:space:]]*Machine:[[:space:]]+ARM[[:space:]]*$' "$hdr"; then
+            echo "build/unit_tests is not an ARM binary"
+            status=1
+          fi
+          if grep -q NEEDED "$dyn"; then
+            echo "build/unit_tests has a NEEDED entry: it is not static"
+            status=1
+          fi
+          exit "$status"
+
+      # Fails unless the runner exits 0 under qemu and its log holds
+      # ok prng_seed_fixed_vectors, so the fixed vectors are proven to have
+      # run on this binary at a 32-bit Usz; a mismatch prints the observed
+      # values before its FAIL line. It also fails unless the realloc-hook
+      # test ran, as in the other jobs, so the hook's 32-bit -Werror build
+      # and its static --wrap link are proven here too, and unless the log
+      # ends with "<n> tests, 0 failed". A hung run stops after 300 s.
+      - name: Unit tests under qemu
+        run: |
+          log="$RUNNER_TEMP/unit_tests_armhf.log"
+          status=0
+          timeout 300 qemu-arm-static build/unit_tests >"$log" 2>&1 || status=$?
+          cat "$log"
+          if [ "$status" = 124 ]; then
+            echo "unit_tests timed out after 300 s under qemu-arm-static"
+            exit 1
+          fi
+          if [ "$status" != 0 ]; then
+            echo "unit_tests exited $status under qemu-arm-static"
+            exit 1
+          fi
+          if ! grep -Ex '[0-9]+ tests, 0 failed' "$log"; then
+            echo "the log has no \"<n> tests, 0 failed\" line"
+            exit 1
+          fi
+          if ! grep -qx 'ok prng_seed_fixed_vectors' "$log"; then
+            echo "the fixed-vector test did not run"
+            exit 1
+          fi
+          if ! grep -qx 'ok tick_note_alloc_fail' "$log"; then
+            echo "the realloc-hook test did not run in the static armhf link"
+            exit 1
+          fi

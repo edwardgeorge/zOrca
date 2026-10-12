@@ -142,7 +142,8 @@ change is in `tick.c` and `cli` never runs `tick.c`. The unit test
 `tick_note_same_batch` in `tests/unit/test_tick.c` checks the wire.
 
 The `R` and `;` pattern `c` goldens assume a 64-bit `Usz`: their hashes
-differ where `Usz` is 32-bit, as on armhf, whose CI job only compiles.
+differ where `Usz` is 32-bit, as on armhf, whose CI job runs the unit tests
+but never `cli`.
 
 `j_banged_under_j` and `y_banged_right_of_y` were captured before the
 upstream "Allow wires to grow" cherry-pick (P0.1) and replaced by it; together
@@ -466,7 +467,7 @@ the debug runner only.
 Hook tests sit in `HOOK_TESTS_ALL` in `tests/unit/tests.h`, which
 `HOOK_TESTS` runs only under the define. Elsewhere (macOS, tcc, any
 non-Linux link) the runner has those tests fewer, so CI's `build`,
-`unsigned-char` and `clang` jobs each grep their runner log for
+`unsigned-char`, `clang` and `armhf` jobs each grep their runner log for
 `ok tick_note_alloc_fail`, the `build` and `unsigned-char` jobs also for
 `ok realloc_hook_builtin_null`, and a `tool` that lost the flags on Linux
 cannot drop the tests silently. Today there are three hook tests.
@@ -818,11 +819,31 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `prng.h`'s PCG32 relies on, and neither is about UB. `check-nm.sh` and
   `check-includes.sh` call gcc by name, so the gcc legs own them, with the
   examples, doc-sync, upstream and shellcheck steps.
-- **armhf** (`ubuntu-24.04`, optional): only cross-compiles, with
-  `arm-linux-gnueabihf-gcc`, each file in the union of `./tool sources cli`,
-  `./tool sources test` and `./tool sources readme-gen`; a red result does
-  not fail the run. It compiles `tests/unit/alloc_hook.c` with no define,
-  where the file holds only `tests.h`'s declarations.
+- **armhf** (`ubuntu-24.04-arm`, optional until its first green run; P3-6,
+  deferred-work #14): the one job that runs the unit tests where `Usz` is
+  32-bit. It cross-compiles each file in the union of `./tool sources cli`,
+  `./tool sources test` and `./tool sources readme-gen` with
+  `arm-linux-gnueabihf-gcc` and the warning flags copied by hand from
+  `tool`; that step compiles `tests/unit/alloc_hook.c` with no define, where
+  the file holds only `tests.h`'s declarations. It then builds the release
+  unit runner through `tool` with `CC=arm-linux-gnueabihf-gcc` and
+  `--static`; on the arm64 image `tool` adds no `-march`, so the runner gets
+  every flag `tool` gives `test`, the realloc hook's included, in that
+  hook's first static link. `readelf` must show `ELF32`, `ARM` and no
+  `NEEDED` entry, so a runner linked by the host's `cc` stops there, and
+  `qemu-arm-static build/unit_tests` must exit 0 with
+  `ok prng_seed_fixed_vectors` and `ok tick_note_alloc_fail` in its log,
+  so the hook's 32-bit `-Werror` build runs too. The first test pins
+  `prng_seed`'s first eight outputs for two cells (spine AD-8) and, on a
+  mismatch, prints the observed values before its `FAIL` line. The runner
+  is release, not debug (ASan does not run under qemu-user), and the job
+  never builds `cli`, so the `R` and `;` pattern `c` goldens stay out of
+  it. A unit test whose expected values legitimately differ at 32 bits is
+  guarded with `#if SIZE_MAX == 0xffffffff` in its file (`Usz` is
+  `size_t`; the coordinator's call over the spec's `UINTPTR_MAX`, which
+  follows pointer width and is optional in C99), with a comment naming the
+  `Usz` arithmetic that differs; none does today. Until its first green
+  run a red result does not fail the run.
 
 `tool` adds `CFLAGS_EXTRA` after its own compiler flags, split on spaces. To
 reproduce a red `build` or `unsigned-char` step on the uConsole:
@@ -900,3 +921,18 @@ needs Ian's approval too), so its CI runs are the only clang evidence.
 result from the `build` leg may differ from the uConsole's aarch64 one.
 The runners' gcc can warn where the uConsole's gcc 12.2 does not; each job
 prints its compiler version in its "Toolchain versions" step.
+
+The device has `/usr/bin/qemu-arm-static` (qemu 7.2; no package owns it)
+but no `arm-linux-gnueabihf-gcc`, and its own gcc has no 32-bit ABI (`-m32`
+is unknown and `-mabi=ilp32` finds no libgcc), so the `armhf` job's runs
+are the only 32-bit evidence. Installing `gcc-arm-linux-gnueabihf` needs
+Ian's approval; with it, the job's runner build and run should reproduce
+it (untested on the device: its kernel uses 16K pages and qemu 7.2). The
+cross build replaces the native `build/unit_tests`, so rebuild it with
+`./tool build test` afterwards:
+
+```sh
+CC=arm-linux-gnueabihf-gcc CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --static test
+nice -n 19 taskset -c 0-2 qemu-arm-static build/unit_tests
+CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build test
+```

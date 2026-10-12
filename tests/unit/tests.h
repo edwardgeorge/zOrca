@@ -34,6 +34,7 @@ static inline Usz oevent_size(U8 type) {
   X(oevent_list_growth)                                                        \
   X(orca_run_smoke)                                                            \
   X(prng_pcg32_reference)                                                      \
+  X(prng_seed_fixed_vectors)                                                   \
   X(opstate_edge_keys)                                                         \
   X(opstate_growth)                                                            \
   X(opstate_retag)                                                             \

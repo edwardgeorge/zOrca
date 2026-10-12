@@ -3,6 +3,7 @@
 #include "../../opstate.h"
 #include "../../prng.h"
 #include "tests.h"
+#include <stdio.h>
 
 // True when every payload byte of the entry is zero, as a fresh or re-tagged
 // entry must be.
@@ -62,6 +63,45 @@ void test_prng_pcg32_reference(void) {
     CHECK(unseen == 0);
   }
   CHECK(prng_bounded(&ra, 0) == 0);
+}
+
+// prng_seed's first eight outputs for two cells, as fixed values that every
+// platform must reproduce (spine AD-8): lowercase r gives the same stream
+// wherever it runs, and CI's armhf job runs this test at a 32-bit Usz under
+// qemu. The values were derived on the uConsole (aarch64, gcc 12.2, 64-bit
+// Usz) and again from a scratch copy of prng.h with Usz typedef'd to
+// uint32_t; both agree. prng_seed widens its arguments to U64 before any
+// arithmetic, so no #if guards this test. A mismatch prints the observed
+// values first, so one CI log shows them; both lines come before both
+// checks, so no line falls between two FAIL lines.
+void test_prng_seed_fixed_vectors(void) {
+  static U32 const want_7_70_1[8] = {0x402dbbb8, 0x3c4b72e4, 0x94ab4a13,
+                                     0xac46e9f1, 0x592c2818, 0xf543335f,
+                                     0xe667f21d, 0xada54655};
+  static U32 const want_0_1_70[8] = {0xb287f14b, 0x44a1eb7a, 0xeb49da92,
+                                     0x9ad9d558, 0x33442eaa, 0x99700ac7,
+                                     0x162151a3, 0x328bb5c9};
+  U32 got_7_70_1[8], got_0_1_70[8];
+  Prng rng;
+  prng_seed(&rng, 7, 70, 1);
+  for (Usz i = 0; i < 8; ++i)
+    got_7_70_1[i] = prng_next_u32(&rng);
+  prng_seed(&rng, 0, 1, 70);
+  for (Usz i = 0; i < 8; ++i)
+    got_0_1_70[i] = prng_next_u32(&rng);
+
+  if (memcmp(got_7_70_1, want_7_70_1, sizeof got_7_70_1) != 0)
+    printf("prng_seed_fixed_vectors (7,70,1): %08x %08x %08x %08x %08x %08x "
+           "%08x %08x\n",
+           got_7_70_1[0], got_7_70_1[1], got_7_70_1[2], got_7_70_1[3],
+           got_7_70_1[4], got_7_70_1[5], got_7_70_1[6], got_7_70_1[7]);
+  if (memcmp(got_0_1_70, want_0_1_70, sizeof got_0_1_70) != 0)
+    printf("prng_seed_fixed_vectors (0,1,70): %08x %08x %08x %08x %08x %08x "
+           "%08x %08x\n",
+           got_0_1_70[0], got_0_1_70[1], got_0_1_70[2], got_0_1_70[3],
+           got_0_1_70[4], got_0_1_70[5], got_0_1_70[6], got_0_1_70[7]);
+  CHECK(memcmp(got_7_70_1, want_7_70_1, sizeof got_7_70_1) == 0);
+  CHECK(memcmp(got_0_1_70, want_0_1_70, sizeof got_0_1_70) == 0);
 }
 
 // Insert and read back the first and the last cell a grid can have, with no
