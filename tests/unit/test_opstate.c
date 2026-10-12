@@ -361,6 +361,33 @@ void test_opstate_copy(void) {
   opstate_free(&dest);
 }
 
+#ifdef UNIT_TESTS_REALLOC_HOOK
+// P3-2: opstate_copy into a destination that must grow, with realloc
+// failing (the runner's hook, alloc_hook.c). The store grows by calloc,
+// which is not wrapped, so the one realloc in the armed window is the
+// copy's. The copy returns false and leaves the destination empty.
+void test_opstate_copy_alloc_fail(void) {
+  Opstate_store src, dest;
+  opstate_init(&src);
+  opstate_init(&dest);
+  for (Usz i = 0; i < 4; ++i)
+    opstate_lookup(&src, i, i, 'r');
+  CHECK(opstate_copy(&src, &dest)); // dest takes src's small capacity
+  for (Usz i = 0; i < 200; ++i)
+    opstate_lookup(&src, 100 + i, 7, ';');
+  CHECK(src.capacity > dest.capacity && dest.count == 4);
+  size_t calls = unit_realloc_calls;
+  unit_realloc_fail = true;
+  bool copied = opstate_copy(&src, &dest);
+  unit_realloc_fail = false;
+  CHECK(!copied);
+  CHECK(dest.count == 0);
+  CHECK(unit_realloc_calls - calls == 1);
+  opstate_free(&src);
+  opstate_free(&dest);
+}
+#endif
+
 // Reset anchors sets the anchor of every & to 0 and touches nothing else.
 void test_opstate_reset_anchors(void) {
   Opstate_store store;

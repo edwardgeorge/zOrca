@@ -1,6 +1,8 @@
 # Expected failures of tests/check-nm.sh (architecture spine AD-1).
 # One line per (file, pattern): <file> <symbol|glob> <item>, naming the one
-# spec item the fix waits for. Each line reports XFAIL with the symbols it
-# matched, or XPASS, which fails the run, once it matches none: the series
-# that removes a symbol deletes its line in the same commit. A writable
-# symbol that no line matches fails the run. See tests/README.md.
+# spec item the fix waits for. The check compiles each file at -O2 and
+# again at -O0; a line spans both passes and reports XFAIL with the symbols
+# it matched, each with its pass, or XPASS, which fails the run, once it
+# matches none in either pass: the series that removes a symbol deletes its
+# line in the same commit. A writable symbol that no line matches fails the
+# run in the pass that lists it. See tests/README.md.

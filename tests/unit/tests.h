@@ -197,8 +197,19 @@ static inline Usz oevent_size(U8 type) {
   X(labels_tick_run_vm_clears)                                                 \
   X(labels_tick_body)
 
-// The full list for each adapter FEAT_ flag, and for the runner's failure
-// canary, whatever the flags.
+// The full list for the realloc hook, for each adapter FEAT_ flag, and for
+// the runner's failure canary, whatever the flags.
+//
+// HOOK_TESTS_ALL: tests that arm the realloc hook (tests/unit/alloc_hook.c),
+// which tool builds with -DUNIT_TESTS_REALLOC_HOOK, -Wl,--wrap=realloc and
+// -fno-builtin-realloc on Linux with gcc or clang only; elsewhere the list
+// is empty and the runner has these tests fewer. CI greps for
+// realloc_hook_builtin_null, which proves the flags, and
+// tick_note_alloc_fail.
+#define HOOK_TESTS_ALL(X)                                                      \
+  X(realloc_hook_builtin_null)                                                 \
+  X(tick_note_alloc_fail)                                                      \
+  X(opstate_copy_alloc_fail)
 #define PORTMIDI_TESTS_ALL(X)                                                  \
   X(portmidi_error_text_and_filters)                                           \
   X(portmidi_in_filter)
@@ -215,14 +226,35 @@ static inline Usz oevent_size(U8 type) {
 // never an empty translation unit (which -Wpedantic rejects).
 #define UNIT_TEST_DECLARE(name) void test_##name(void);
 CORE_TESTS(UNIT_TEST_DECLARE)
+HOOK_TESTS_ALL(UNIT_TEST_DECLARE)
 PORTMIDI_TESTS_ALL(UNIT_TEST_DECLARE)
 ALSA_TESTS_ALL(UNIT_TEST_DECLARE)
 CANARY_TESTS_ALL(UNIT_TEST_DECLARE)
 #undef UNIT_TEST_DECLARE
 
-// The lists the runner runs. An adapter list is empty unless its flag is set,
-// and the runner fails a build that sets the flag but registers nothing in
-// its list, so adapter tests cannot be compiled out silently.
+// The realloc hook. While unit_realloc_fail is set every realloc in the
+// runner returns NULL; unit_realloc_calls counts every call. A test arms
+// the hook just before the call under test and disarms it right after,
+// before any CHECK, and never where an Oevent_list can grow (vmio.c writes
+// through an unchecked realloc). Both are volatile so the release runner's
+// -flto link keeps the arming store. __wrap_realloc is what the linker
+// routes realloc to, and __real_realloc is libc's.
+#ifdef UNIT_TESTS_REALLOC_HOOK
+extern volatile bool unit_realloc_fail;
+extern volatile size_t unit_realloc_calls;
+void *__wrap_realloc(void *ptr, size_t size);
+void *__real_realloc(void *ptr, size_t size);
+#endif
+
+// The lists the runner runs. The hook list is empty unless the hook is
+// built. An adapter list is empty unless its flag is set, and the runner
+// fails a build that sets the flag but registers nothing in its list, so
+// adapter tests cannot be compiled out silently.
+#ifdef UNIT_TESTS_REALLOC_HOOK
+#define HOOK_TESTS(X) HOOK_TESTS_ALL(X)
+#else
+#define HOOK_TESTS(X)
+#endif
 #ifdef FEAT_PORTMIDI
 #define PORTMIDI_TESTS(X) PORTMIDI_TESTS_ALL(X)
 #else

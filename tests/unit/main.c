@@ -14,7 +14,7 @@ typedef struct {
 
 static Unit_test const unit_tests[] = {
 #define X(name) {#name, test_##name},
-    CORE_TESTS(X) PORTMIDI_TESTS(X) ALSA_TESTS(X) CANARY_TESTS(X)
+    CORE_TESTS(X) HOOK_TESTS(X) PORTMIDI_TESTS(X) ALSA_TESTS(X) CANARY_TESTS(X)
 #undef X
 };
 
@@ -37,6 +37,16 @@ char const *__ubsan_default_options(void) {
 void unit_check_failed(char const *file, int line, char const *expr) {
   printf("FAIL %s: %s:%d: %s\n", current_test, file, line, expr);
   ++current_failures;
+}
+
+// Disarms the realloc hook and zeroes its counter, before and after each
+// test, so a test that returns armed cannot fail another test's realloc.
+// Nothing to do in a runner built without the hook.
+static void reset_realloc_hook(void) {
+#ifdef UNIT_TESTS_REALLOC_HOOK
+  unit_realloc_fail = false;
+  unit_realloc_calls = 0;
+#endif
 }
 
 int main(void) {
@@ -62,7 +72,9 @@ int main(void) {
   for (size_t i = 0; i < count; ++i) {
     current_test = unit_tests[i].name;
     current_failures = 0;
+    reset_realloc_hook();
     unit_tests[i].run();
+    reset_realloc_hook();
     if (current_failures == 0)
       printf("ok %s\n", current_test);
     else

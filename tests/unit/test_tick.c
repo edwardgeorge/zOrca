@@ -1002,8 +1002,15 @@ void test_tick_note_same_batch(void) {
 
 // B8: with no sustained notes, release-all and the aging step send nothing
 // and touch no buffer: a list that never held a note keeps its NULL buffer.
-// The empty-list guards themselves (no NULL + 0) are checked by reading the
-// code: GCC's UBSan does not report NULL + 0, so this test cannot see them.
+// clang's UBSan (its pointer-overflow check, part of -fsanitize=undefined)
+// reports NULL + 0 and gcc's does not, so under gcc this test cannot see
+// tick_release_all's guard; CI's clang job (whose explicit
+// -fsanitize=undefined,pointer-overflow is belt and braces) can: with that
+// guard deleted, the first call below forms NULL + 0 on the fresh list and
+// aborts the runner, and the job proves that on every run by deleting the
+// guard in a copy of the tree (P3-2). age_sustained_notes' guard is only an
+// early return: with count 0, advance_tick releases nothing and no note-off
+// pointer is formed, so removing it causes no UB.
 void test_tick_note_empty_list(void) {
   Susnote_list susnotes;
   susnote_list_init(&susnotes);
@@ -1054,6 +1061,191 @@ void test_tick_note_empty_list(void) {
   opstate_free(&store);
   susnote_list_deinit(&susnotes);
 }
+
+#ifdef UNIT_TESTS_REALLOC_HOOK
+// P3-2 (deferred-work #17): the sustained-note list cannot grow. The
+// runner's realloc hook (alloc_hook.c) returns NULL from every realloc
+// while unit_realloc_fail is set. Each part arms it just before the call
+// under test, disarms right after, before any CHECK, and checks that
+// exactly one realloc ran in its window, so no other realloc entered it
+// (malloc and calloc are not wrapped): a second one would show as a
+// failure, not as a silent second NULL.
+// The tick list is pre-grown to 16 events and the grids hold no CC, OSC or
+// pitch-bend operator, so no Oevent_list can grow while armed (vmio.c
+// writes through an unchecked realloc, which would crash, not fail).
+// Part 1, an empty list through tick_body: the batch is skipped, nothing
+// goes out and the list stays NULL/0/0. Part 2, susnote_list_add_notes
+// itself on a list that must grow: it returns false and leaves the buffer
+// pointer, count, capacity, every slot and its out-params as they were.
+// Part 3, a retrigger under failure through tick_body: the seeded notes
+// keep their entries, aged by one, and neither the retriggered seed's off
+// nor any on goes out. Part 4, recovery on part 1's list, still NULL/0/0:
+// the same body unarmed sends the note and grows the list to 16; a cleared
+// list that had grown would never reach realloc.
+void test_tick_note_alloc_fail(void) {
+  enum { H = Note_h, W = Note_w, Cap = 16 };
+  Glyph grid[H * W];
+  Mark marks[H * W];
+  note_grid(grid);
+  put(grid, W, 0, 0, "D1");
+  put(grid, W, 2, 0, ":03C.2"); // note 36, 2 ticks, banged on every tick
+  Opstate_store store;
+  opstate_init(&store);
+  Oevent_list tick_list, engine_list;
+  oevent_list_init(&tick_list);
+  oevent_list_init(&engine_list);
+  // The tick list grows to 16 before anything is armed.
+  for (Usz i = 0; i < Cap; ++i)
+    (void)oevent_list_alloc_item(&tick_list);
+  oevent_list_clear(&tick_list);
+  CHECK(tick_list.capacity == Cap);
+  Susnote_list susnotes;
+  susnote_list_init(&susnotes);
+  Ccout_engine ccout;
+  ccout_init(&ccout);
+  Usz tick_num = 0;
+  Tick_ctx ctx = {.gbuffer = grid,
+                  .mbuffer = marks,
+                  .height = H,
+                  .width = W,
+                  .random_seed = 0,
+                  .opstate = &store,
+                  .tick_num = &tick_num,
+                  .tick_list = &tick_list,
+                  .engine_list = &engine_list,
+                  .susnotes = &susnotes,
+                  .ccout = &ccout,
+                  .now_us = 0,
+                  .tick_len = tick_us};
+  Recording rec;
+  Tick_sink const sink = rec_sink(&rec);
+
+  // Part 1: the empty list, through tick_body.
+  size_t calls = unit_realloc_calls;
+  unit_realloc_fail = true;
+  tick_body(&ctx, &sink);
+  unit_realloc_fail = false;
+  CHECK(unit_realloc_calls - calls == 1);
+  CHECK(tick_list.count == 1); // the VM did emit the note
+  CHECK(rec.midi3_count == 0 && rec.midi1_count == 0 && rec.osc_count == 0);
+  CHECK(susnotes.buffer == NULL && susnotes.count == 0 &&
+        susnotes.capacity == 0);
+
+  // Part 2: susnote_list_add_notes itself, on a list that must grow.
+  {
+    Susnote_list grown;
+    susnote_list_init(&grown);
+    Susnote const seed[4] = {
+        {.remaining = 20, .chan_note = 0 << 8 | 36},
+        {.remaining = 20, .chan_note = 1 << 8 | 40},
+        {.remaining = 20, .chan_note = 2 << 8 | 43},
+        {.remaining = 20, .chan_note = 3 << 8 | 48},
+    };
+    Usz start_removed = 99, end_removed = 99;
+    CHECK(susnote_list_add_notes(&grown, seed, 4, &start_removed,
+                                 &end_removed));
+    CHECK(grown.count == 4 && grown.capacity == Cap);
+    // Fill the unused slots too, so the snapshot covers all 16 exactly.
+    memset(grown.buffer + grown.count, 0x5a,
+           (grown.capacity - grown.count) * sizeof *grown.buffer);
+    Susnote *const buffer_before = grown.buffer;
+    Susnote slots_before[Cap];
+    memcpy(slots_before, grown.buffer, sizeof slots_before);
+    // 4 + 7 + 7 = 18 > 16, so the list must grow; one is a seed's chan_note.
+    Susnote const batch[7] = {
+        {.remaining = 4, .chan_note = 1 << 8 | 40},
+        {.remaining = 4, .chan_note = 4 << 8 | 50},
+        {.remaining = 4, .chan_note = 5 << 8 | 51},
+        {.remaining = 4, .chan_note = 6 << 8 | 52},
+        {.remaining = 4, .chan_note = 7 << 8 | 53},
+        {.remaining = 4, .chan_note = 8 << 8 | 54},
+        {.remaining = 4, .chan_note = 9 << 8 | 55},
+    };
+    start_removed = 99;
+    end_removed = 99;
+    calls = unit_realloc_calls;
+    unit_realloc_fail = true;
+    bool added =
+        susnote_list_add_notes(&grown, batch, 7, &start_removed, &end_removed);
+    unit_realloc_fail = false;
+    CHECK(!added);
+    CHECK(unit_realloc_calls - calls == 1);
+    CHECK(grown.buffer == buffer_before && grown.count == 4 &&
+          grown.capacity == Cap);
+    CHECK(memcmp(slots_before, grown.buffer, sizeof slots_before) == 0);
+    CHECK(start_removed == 99 && end_removed == 99); // out-params untouched
+    susnote_list_deinit(&grown);
+  }
+
+  // Part 3: a retrigger under failure, through tick_body.
+  {
+    Susnote_list seeded;
+    susnote_list_init(&seeded);
+    // 12 distinct notes in three calls of four, so the capacity stays 16;
+    // the first is the chan_note of the note operator at x = 0.
+    Susnote seed[12];
+    for (Usz i = 0; i < 12; ++i)
+      seed[i] = (Susnote){.remaining = 20,
+                          .chan_note = (U16)((i + 1) << 8 | (60 + i))};
+    seed[0].chan_note = 0 << 8 | 36;
+    for (Usz i = 0; i < 12; i += 4) {
+      Usz start_removed, end_removed;
+      CHECK(susnote_list_add_notes(&seeded, seed + i, 4, &start_removed,
+                                   &end_removed));
+      CHECK(start_removed == end_removed);
+    }
+    CHECK(seeded.count == 12 && seeded.capacity == Cap);
+    // 12 + 3 + 3 = 18 > 16, so the list must grow.
+    Glyph grid3[H * W];
+    note_grid(grid3);
+    put(grid3, W, 0, 0, "Dz");
+    put(grid3, W, 2, 0, ":03C.4"); // note 36, the seed's chan_note
+    put(grid3, W, 0, 8, "Dz");
+    put(grid3, W, 2, 8, ":03D.4");
+    put(grid3, W, 0, 16, "Dz");
+    put(grid3, W, 2, 16, ":03E.4");
+    ctx.gbuffer = grid3;
+    ctx.susnotes = &seeded;
+    tick_num = 0; // Dz bangs at tick 0
+    memset(&rec, 0, sizeof rec);
+    calls = unit_realloc_calls;
+    unit_realloc_fail = true;
+    tick_body(&ctx, &sink);
+    unit_realloc_fail = false;
+    CHECK(unit_realloc_calls - calls == 1);
+    CHECK(tick_list.count == 3); // the three notes did fire
+    CHECK(tick_num == 1);
+    // No 0x80 for the seed and no 0x90 at all.
+    CHECK(rec.midi3_count == 0 && !rec.overflow && rec.midi1_count == 0 &&
+          rec.osc_count == 0);
+    CHECK(seeded.count == 12 && seeded.capacity == Cap);
+    Usz aged = 0;
+    for (Usz i = 0; i < seeded.count; ++i) {
+      if (seeded.buffer[i].remaining == 19)
+        ++aged;
+    }
+    CHECK(aged == 12);
+    susnote_list_deinit(&seeded);
+    ctx.gbuffer = grid;
+    ctx.susnotes = &susnotes;
+  }
+
+  // Part 4: recovery on part 1's list, still NULL/0/0, unarmed.
+  memset(&rec, 0, sizeof rec);
+  calls = unit_realloc_calls;
+  tick_body(&ctx, &sink);
+  CHECK(unit_realloc_calls - calls == 1);
+  Triple const want[] = {{0x90, 36, 127}};
+  CHECK(triples_are(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  CHECK(susnotes.buffer != NULL && susnotes.count == 1 &&
+        susnotes.capacity == Cap);
+
+  susnote_list_deinit(&susnotes);
+  oevent_list_deinit(&tick_list);
+  oevent_list_deinit(&engine_list);
+  opstate_free(&store);
+}
+#endif
 
 // tick_run_vm, which step-forward (Ctrl+F) and the preview use, clears the
 // list, then fills it with one VM run's events.

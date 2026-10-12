@@ -553,6 +553,23 @@ tests/unit/main.c
       add_portmidi_dirs
       add_alsa_libs
       add_portmidi_libs
+      # The realloc hook (tests/unit/alloc_hook.c): GNU ld routes every
+      # realloc call in the runner to __wrap_realloc, which fails on demand.
+      # The three flags always travel together: the define without the wrap
+      # fails the link on __real_realloc, and without -fno-builtin-realloc
+      # any optimised build (-Og debug or -O2 -flto release) may fold a
+      # realloc whose pointer the compiler proves NULL into malloc, past the
+      # wrap. The unit test realloc_hook_builtin_null proves the flag is
+      # here. Linux with gcc or clang only; elsewhere the runner has no hook
+      # and tests.h registers no hook test.
+      if [ $os = linux ]; then
+        case $cc_id in
+          gcc|clang)
+            add cc_flags -Wl,--wrap=realloc -fno-builtin-realloc \
+              -DUNIT_TESTS_REALLOC_HOOK
+          ;;
+        esac
+      fi
     ;;
     *)
       printf 'Unknown build target %s\nValid build targets: %s\n' \

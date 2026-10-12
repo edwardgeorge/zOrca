@@ -420,6 +420,71 @@ so it builds but never runs; CI uses it to prove that
 `tests/check-debug-build.sh` names it. `./tool build test` stops with an
 error if `tests/unit/main.c`, the runner, is missing.
 
+### The realloc hook
+
+On Linux with gcc or clang, `tool` links the `test` target with
+`-Wl,--wrap=realloc -fno-builtin-realloc -DUNIT_TESTS_REALLOC_HOOK`, so
+every `realloc` call in the runner, CORE's included, reaches
+`__wrap_realloc` in `tests/unit/alloc_hook.c` (P3-2). A test arms the hook
+by setting `unit_realloc_fail` just before the call under test and disarms
+it right after, before any `CHECK`; while it is set every `realloc` returns
+NULL and touches nothing. `unit_realloc_calls` counts every call, armed or
+not: a test copies it before its window and checks that exactly one call
+ran inside, which proves no other realloc entered the window (malloc and
+calloc are not wrapped; a second realloc shows as a failure, not as a
+silent second NULL). Never arm it where an
+`Oevent_list` can grow: `oevent_list_alloc_item` and `oevent_list_copy` in
+`vmio.c` write through an unchecked `realloc`, so an armed hook there
+crashes the runner instead of failing a test. Pre-grow the tick list and
+keep CC, OSC and pitch-bend operators off the grid, as
+`tick_note_alloc_fail` does. `main.c` disarms the hook and zeroes the
+counter before and after each test, so a test that returns armed cannot
+fail another test's `realloc`.
+
+The three flags travel together. The define without the wrap fails the
+link on `__real_realloc`. Without `-fno-builtin-realloc`, any optimised
+build (the `-Og` debug runner or the `-O2 -flto` release runner) may fold a
+`realloc` whose pointer the compiler proves NULL into `malloc`, past the
+wrap, so the hook never sees it. On the uConsole's gcc 12.2 and binutils
+2.40, the P3-2 verification probe (`lto-wrap-probe/m.c` under
+`_bmad-output/test-artifacts/p3-2-verification/`, which git does not
+track), which arms the hook around `realloc(b, 64)` with `b = NULL` in a
+local, counts 0 calls at `-Og`, `-O2` and `-O2 -flto`, and 1 call at `-O0`
+or with the flag. The hook test `realloc_hook_builtin_null` makes the same
+call, `realloc(NULL, 64)`, armed, and fails unless the hook saw it and
+returned NULL, so it is what proves the flag is present: with the flag
+dropped from `tool`'s line it fails in both the debug and the release
+runner. `tick_note_alloc_fail` cannot prove it, because each of its armed
+`realloc` calls reads the list's pointer from memory, which gcc 12.2 does
+not prove NULL, so it passes with or without the flag. Only the link
+routes `realloc` to the hook, so LTO sees no reader of the armed flag and
+could delete the arming store before the disarm; `volatile` keeps it (and
+`-fno-builtin-realloc` already makes `realloc` opaque, so `volatile` is a
+second safeguard). clang's LTO link is unprobed: CI's `clang` job builds
+the debug runner only.
+
+Hook tests sit in `HOOK_TESTS_ALL` in `tests/unit/tests.h`, which
+`HOOK_TESTS` runs only under the define. Elsewhere (macOS, tcc, any
+non-Linux link) the runner has those tests fewer, so CI's `build`,
+`unsigned-char` and `clang` jobs each grep their runner log for
+`ok tick_note_alloc_fail`, the `build` and `unsigned-char` jobs also for
+`ok realloc_hook_builtin_null`, and a `tool` that lost the flags on Linux
+cannot drop the tests silently. Today there are three hook tests.
+`realloc_hook_builtin_null`, in `tests/unit/alloc_hook.c`, proves the
+flags (above). `opstate_copy_alloc_fail`, in `tests/unit/test_opstate.c`,
+fails the `realloc` of an `opstate_copy` whose destination must grow: the
+copy returns false and leaves the destination empty (the store itself
+grows by `calloc`, which is not wrapped). `tick_note_alloc_fail`, in
+`tests/unit/test_tick.c`: the sustained-note list's `realloc` fails
+under an empty list through `tick_body` (nothing goes out, the list stays
+NULL/0/0), under a direct `susnote_list_add_notes` that must grow (false,
+and buffer, count, capacity, every slot and the out-params unchanged) and
+under a retrigger through `tick_body` (the seeds keep their entries, aged
+by one; neither the retriggered seed's off nor any on goes out), then
+recovers on the same list. It pins `tick.c`'s batch skip: a batch whose
+list cannot grow sends none of its note-offs or note-ons, so no note
+sounds without an entry to release it.
+
 ### Adding a unit test
 
 1. Write `void test_<name>(void)` in a top-level `tests/unit/*.c` file that
@@ -429,8 +494,9 @@ error if `tests/unit/main.c`, the runner, is missing.
 2. Check with `CHECK(expr)`, which records the failure and lets the test
    continue. Never use `assert`: release builds define `NDEBUG`, which
    removes it.
-3. In `tests/unit/tests.h`, add `X(<name>)` to `CORE_TESTS`, or to the full
-   list for its adapter flag (`PORTMIDI_TESTS_ALL`, `ALSA_TESTS_ALL`).
+3. In `tests/unit/tests.h`, add `X(<name>)` to `CORE_TESTS`, to
+   `HOOK_TESTS_ALL` if it arms the realloc hook, or to the full list for its
+   adapter flag (`PORTMIDI_TESTS_ALL`, `ALSA_TESTS_ALL`).
    `tests.h` generates every test's prototype from these lists, outside any
    `#ifdef`, and makes `-Wmissing-prototypes` an error, so a `test_<name>`
    that no list names fails to build instead of never running. A test that
@@ -438,9 +504,10 @@ error if `tests/unit/main.c`, the runner, is missing.
    `tests/check-debug-build.sh` (below) catches it by count. Make helper
    functions `static`.
 4. An adapter test sits inside `#ifdef FEAT_<flag>` in its file and may
-   include that backend's header; a core test includes only core headers and
-   libc. The declarations in `tests.h` keep a file whose flag is off from
-   being an empty translation unit, which `-Wpedantic` rejects.
+   include that backend's header; a hook test inside
+   `#ifdef UNIT_TESTS_REALLOC_HOOK`; a core test includes only core headers
+   and libc. The declarations in `tests.h` keep a file whose flag is off
+   from being an empty translation unit, which `-Wpedantic` rejects.
 5. Free whatever the test allocates: the debug runner also runs
    LeakSanitizer.
 
@@ -450,41 +517,72 @@ Both scripts check every file in `./tool sources core` (an empty list is an
 error), call `gcc` by name, run from any directory and exit 0 only when their
 canary is detected and every result is PASS or XFAIL.
 
-- `tests/check-includes.sh` (spine AD-2) strips comments with
+- `tests/check-includes.sh` (spine AD-1, AD-2) strips comments with
   `gcc -fpreprocessed -dD -E -P`, then reports each `#include` in the CORE
-  file, or in a core header it includes, that is not on the allow-list:
-  `base.h`, `vmio.h`, `gbuffer.h`, the other core headers AD-2 names, and
-  `<assert.h>`, `<limits.h>`, `<stdbool.h>`, `<stddef.h>`, `<stdint.h>`,
-  `<stdlib.h>` and `<string.h>`. It also reports `rand` as a whole word in
-  code. `base.h` is shared foundation, allowed whole and not scanned.
-  Comments do not count. Known edges: `rand` in a string literal or an
-  `#if 0` block is reported, and `srand` is not; `base.h` includes
-  `<unistd.h>`, so `read()`, `write()`, `usleep()` and the rest of it reach
-  every core file and pass the check. The canary `tests/includes/canary.c`
-  includes `<stdio.h>` and calls `rand()`; it is scanned first, the same
-  way as a CORE file, and both must be reported, or the check is blind and
-  the run fails. The `rand` half keeps that part of the check proven now
-  that B1 has removed `rand()` from `sim.c` and deleted its marker.
+  file, or in a core header it includes, that is not allowed for that
+  file. The allow-list has two tiers. `core_headers` (`base.h`, `vmio.h`,
+  `gbuffer.h`, `sim.h`, `opstate.h`, `prng.h`, `ccout.h`, `transport.h`,
+  `music.h` and `portlabel.h`, which `sim.h` includes) and the system
+  headers `<assert.h>`, `<limits.h>`, `<stdbool.h>`, `<stddef.h>`,
+  `<stdint.h>`, `<stdlib.h>` and `<string.h>` are allowed everywhere.
+  `shell_headers` (`tick.h`, `tooltips.h`, the testable shell's) are
+  allowed only when the CORE file under scan is in `shell_files` (`tick.c`,
+  `tooltips.c`): the tier is the CORE file's, whichever header is being
+  read, so `sim.c` including `tooltips.h` fails as `FAIL  sim.c
+  "tooltips.h"`, and `tick.h` reached through `music.h` fails every CORE
+  file outside the shell tier that includes `music.h`, naming `music.h`,
+  while `tick.c` and `tooltips.c` pass. A testable-shell module adds its
+  `.c` to `shell_files` and its header to `shell_headers`, never to
+  `core_headers`, where any core file could include it (next: `tui_prefs.c`
+  and `tui_prefs.h`, P3-4b). It also reports each of AD-1's banned names,
+  `rand`, `srand`, `srandom`, `drand48`, `lrand48` and `getenv`, found as a
+  whole word in code, each as its own pattern; `random` is not banned, and
+  the whole-word grep never matches it. `base.h` is shared foundation,
+  allowed whole and not scanned. Comments do not count. Known edges: a
+  banned name in a string literal or an `#if 0` block is reported;
+  `base.h` includes `<unistd.h>`, so `read()`, `write()`, `usleep()` and
+  the rest of it reach every core file and pass the check. The canary
+  `tests/includes/canary.c` includes `<stdio.h>`, calls each of the six
+  names once and includes `"tick.h"`; the canary is not in `shell_files`,
+  so `"tick.h"` is never allowed for it and is reported, never queued. It
+  is scanned first, the same way as a CORE file, and all eight patterns
+  must be reported, or the check is blind to the missing one and the run
+  fails. The list of eight is spelled out in the script, so a name dropped
+  from its banned list is caught too, and a name in the banned list that
+  the canary's list lacks fails the canary, so a new name gets a canary.
 - `tests/check-nm.sh` (spine AD-1) compiles each CORE file on its own with
-  `gcc -c -std=c99 -O2 -DNDEBUG -g0 -fno-pie -no-pie -fno-lto` and fails
-  each writable symbol (class `B b C D d G g S s V v`) that `nm -P` lists
-  and no marker covers, and a file with no symbol at all. Markers name a
-  symbol or a prefix; the marker set is empty since B3, so any writable
-  global in a CORE file fails. The canary `tests/nm/canary.c` holds one
-  writable symbol of each class `b`, `d`, `B` and `D`, each with its address
-  escaping. On every run the check must flag all four by name, and its
-  marker code must sort them with a built-in marker set:
-  `canary_static_*` matches both statics, `canary_extern_init` its one
-  symbol, `canary_absent` nothing (the XPASS path), and
-  `canary_extern_zero`, which no marker covers, is reported unmarked.
-  Otherwise the check is blind and the run fails. Symbols are listed in C
-  collation. The script is Linux/ELF only: elsewhere it exits 2.
+  `gcc -c -std=c99 -O2 -DNDEBUG -g0 -fno-pie -no-pie -fno-lto`, and again
+  with `-O0` in place of `-O2`, and fails each writable symbol (class
+  `B b C D d G g S s V v`) that `nm -P` lists in either pass and no marker
+  covers, and a file with no symbol at all. The second pass is there
+  because at `-O2` gcc places a non-`const` table that is never written and
+  whose address never escapes in `r`, so the `-O2` pass alone cannot tell
+  it from a `const` one; at `-O0` it is `d`, and `const` dropped from
+  `sim.c`'s `note_sequence` fails as `FAIL  sim.c d note_sequence (unmarked
+  symbol at -O0)`. Every PASS, FAIL and XFAIL line names its pass or
+  passes. Markers name a symbol or a prefix and span both passes (below);
+  the marker set is empty since B3, so any writable global in a CORE file
+  fails. The canary `tests/nm/canary.c` holds one writable symbol of each
+  class `b`, `d`, `B` and `D`, each with its address escaping. In each pass
+  the check must flag all four by name, and its marker code must sort them
+  with a built-in marker set: `canary_static_*` matches both statics,
+  `canary_extern_init` its one symbol, `canary_absent` nothing (the XPASS
+  path), and `canary_extern_zero`, which no marker covers, is reported
+  unmarked. A fifth symbol, `canary_O0_only`, is the `-O0` pass's own
+  canary: a non-`const` table that is never written and whose address
+  never escapes, read once at a constant index. It must not be writable in
+  the first pass (`-O2` folds it away) and must be `d` in the second, and
+  there must be two passes, so a second pass that optimises like the first
+  fails the canary; it has its own built-in marker, so it is never
+  unmarked. The canary prints one line per pass; otherwise the check is
+  blind and the run fails. Symbols are listed in C collation. The script is
+  Linux/ELF only: elsewhere it exits 2.
 
 Today they print, on the uConsole's gcc 12.2:
 
 ```text
 $ tests/check-includes.sh
-PASS  canary (detected: <stdio.h>, rand)
+PASS  canary (detected: <stdio.h>, rand, srand, srandom, drand48, lrand48, getenv, "tick.h")
 PASS  gbuffer.c
 PASS  vmio.c
 PASS  sim.c
@@ -496,17 +594,18 @@ PASS  tick.c
 PASS  tooltips.c
 include check: 9 files, 9 pass, 0 xfail, 0 fail, 0 xpass; canary detected
 $ tests/check-nm.sh
-PASS  canary (detected: D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; marker path: canary_extern_zero unmarked, canary_absent matches none)
-PASS  gbuffer.c
-PASS  vmio.c
-PASS  sim.c
-PASS  opstate.c
-PASS  ccout.c
-PASS  music.c
-PASS  transport.c
-PASS  tick.c
-PASS  tooltips.c
-nm check: 9 files, 9 pass, 0 xfail, 0 fail, 0 xpass; canary detected
+PASS  canary -O2 (detected: D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; marker path: canary_extern_zero unmarked, canary_absent matches none)
+PASS  canary -O0 (detected: D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; marker path: canary_extern_zero unmarked, canary_absent matches none)
+PASS  gbuffer.c (-O2, -O0)
+PASS  vmio.c (-O2, -O0)
+PASS  sim.c (-O2, -O0)
+PASS  opstate.c (-O2, -O0)
+PASS  ccout.c (-O2, -O0)
+PASS  music.c (-O2, -O0)
+PASS  transport.c (-O2, -O0)
+PASS  tick.c (-O2, -O0)
+PASS  tooltips.c (-O2, -O0)
+nm check: 9 files, 9 pass, 0 xfail, 0 fail, 0 xpass; canary detected in every pass
 ```
 
 In the summaries, `pass` counts clean files, and `xfail`, `fail` and `xpass`
@@ -519,8 +618,8 @@ count results, so one file can add several.
 
 | Marker file | Line format | Today |
 | --- | --- | --- |
-| `tests/xfail/include-check` | `<file> <pattern> <item...>`, where the pattern is `rand`, `<name.h>` or `"name.h"` | none (B1 deleted `sim.c rand B1`) |
-| `tests/xfail/nm-check` | `<file> <symbol\|glob> <item>`, where the pattern is a symbol name, or a literal prefix of at least 3 characters followed by one trailing `*` (`chord_*`) | none (B1 deleted its three lines and B3 its four) |
+| `tests/xfail/include-check` | `<file> <pattern> <item...>`, where the pattern is a banned name (`rand`, `srand`, `srandom`, `drand48`, `lrand48`, `getenv`), `<name.h>` or `"name.h"` (a shell header's `"tick.h"` or `"tooltips.h"` among them) | none (B1 deleted `sim.c rand B1`) |
+| `tests/xfail/nm-check` | `<file> <symbol\|glob> <item>`, where the pattern is a symbol name, or a literal prefix of at least 3 characters followed by one trailing `*` (`chord_*`); a line spans both passes | none (B1 deleted its three lines and B3 its four) |
 
 - The items are the spec items the fix waits for, each matching
   `^(B[1-8]|I[1-6])$` (`B1`, `I3`); an nm marker names exactly one. A
@@ -528,23 +627,27 @@ count results, so one file can add several.
 - A marker whose violation is gone reports XPASS and fails the run: the
   series that turns a check green deletes the marker line in the same
   commit.
-- Each nm marker line reports on its own: XFAIL with its item and every
-  writable symbol it matched (class and name), or XPASS once it matches
-  none, so each item removes the lines of the symbols it deletes, as B1
-  did. A writable symbol that no line of its file matches fails as
-  `FAIL <file> <class> <name> (unmarked symbol)`.
+- Each nm marker line reports on its own, over both passes: XFAIL with its
+  item and every writable symbol it matched (class, name and pass, as
+  `d note_sequence at -O0`), or XPASS once it matches none in either pass,
+  so each item removes the lines of the symbols it deletes, as B1 did. A
+  symbol that is writable only at `-O0` is therefore markable, and
+  `sim.c note_sequence B3` over a `note_sequence` without `const` reports
+  one XFAIL naming `-O0` and exits 0. A writable symbol that no line of its
+  file matches fails as `FAIL <file> <class> <name> (unmarked symbol at
+  <pass>)`.
 - B3 made every lookup table in `sim.c` `const` at every pointer level and
   deleted the `chord_*` and `scale_*` lines, which covered the 72 tables
   that stayed writable because `scales` and `scales_and_chords` held their
   addresses. At `-O2` a table that nothing addresses or writes shows as `r`
   even when it is not `const`, because gcc places never-written statics in
-  read-only data, so this recipe cannot prove AD-1's rule. B3 checked the
-  declarations and recorded a one-off `-O0` `nm` of `sim.o` that lists no
-  writable symbol. B2 moved the scale and chord tables to `music.c`, and a
-  one-off `-O0` `nm` of `music.o`, with this recipe's other flags, lists no
-  writable symbol either. An XFAIL line names every symbol it matched, so a
-  CI log records the runner gcc's list, which may differ from the
-  uConsole's; that log is the evidence for any marker change.
+  read-only data, so the `-O2` pass alone cannot prove AD-1's rule; B3 and
+  B2 (which moved the scale and chord tables to `music.c`) each recorded a
+  one-off `-O0` `nm`. Since P3-2 the script makes that `-O0` pass itself on
+  every run (deferred-work #24, closing #8), so a commit that drops
+  `const` from such a table fails CI. An XFAIL line names every symbol it
+  matched, so a CI log records the runner gcc's list, which may differ from
+  the uConsole's; that log is the evidence for any marker change.
 - A marker that names a file outside CORE, a malformed line, any other nm
   pattern (`*_*`, `_*`, `sc*`, `sca?`) or a duplicate (file, pattern) fails
   the run. An nm marker never hides an object with no symbols or a failed
@@ -645,7 +748,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   then runs `tests/check-includes.sh` and `tests/check-nm.sh`,
   which need no build, builds and runs the debug unit tests without and
   with `--portmidi` and with `--alsa` (ASan, UBSan with `halt_on_error=1`;
-  the `--portmidi` run fails unless it prints
+  the plain run fails unless it prints `ok tick_note_alloc_fail` and
+  `ok realloc_hook_builtin_null`, the
+  `--portmidi` run unless it prints
   `ok portmidi_error_text_and_filters`, the `--alsa` run unless it prints
   `ok alsa_version_and_open_modes`), and runs
   `tests/check-debug-build.sh` on each runner with its log before the next
@@ -668,24 +773,56 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   release `orca` without mouse support, the release `orca` with PortMidi,
   the release `orca` with `-DBORCA_DEBUG_COUNTERS`, without and then with
   ALSA, the release `orca` with ALSA and the appliance `orca`
-  (`make appliance`, which is `--alsa --harden --pie`), all with `-Werror`. The plain ALSA and appliance
+  (`make appliance`, which is `--alsa --harden --pie`), all with `-Werror`.
+  After each counter build `grep -a` must find `bOrca wakeups:` in
+  `build/orca` (and `bOrca ALSA:` after the ALSA one), and after the plain
+  ALSA build and `make appliance` it must find neither, which proves that
+  the counters stay out of the shipped builds; the positive greps are the
+  canary for the negative ones. The plain ALSA and appliance
   binaries must list `libasound.so.2` as `NEEDED` in `readelf -d`; the
   appliance binary must also be of type `DYN` in `readelf -h` (PIE) and
   import `__stack_chk_fail` in `nm -D --undefined-only` (hardened). Both
   runners install `libasound2-dev` for the ALSA builds.
 - **unsigned-char** (`ubuntu-24.04`): runs the golden suite on a release
-  `cli`, and the release unit tests, both built with `-funsigned-char`;
-  checks that a release runner built with `-DUNIT_TESTS_CANARY` exits 1 and
-  prints `FAIL unit_check_canary:`; and runs
-  `shellcheck -s sh` over `tool`, `tests/run.sh`, `tests/check-includes.sh`,
-  `tests/check-nm.sh`, `tests/check-debug-build.sh`,
-  `tests/check-doc-sync.sh`, `tests/check-examples.sh`,
-  `tests/upstream/build-cli.sh`, `tests/upstream/compare.sh` and
-  `tests/wakeups/ab.sh`.
+  `cli`, and the release unit tests, both built with `-funsigned-char`; the
+  release runner is an `-flto -s` link, and its run fails unless the log
+  holds `ok tick_note_alloc_fail` and `ok realloc_hook_builtin_null`, the
+  test that proves `tool`'s `-fno-builtin-realloc` (see
+  [The realloc hook](#the-realloc-hook)). It checks that a release runner
+  built
+  with `-DUNIT_TESTS_CANARY` exits 1 and prints `FAIL unit_check_canary:`,
+  and runs `shellcheck -s sh` over `tool`, `tests/run.sh`,
+  `tests/check-includes.sh`, `tests/check-nm.sh`,
+  `tests/check-debug-build.sh`, `tests/check-doc-sync.sh`,
+  `tests/check-examples.sh`, `tests/upstream/build-cli.sh`,
+  `tests/upstream/compare.sh` and `tests/wakeups/ab.sh`.
+- **clang** (`ubuntu-24.04`, P3-2, deferred-work #19): builds the debug
+  `cli` and the debug unit runner with `CC=clang` and
+  `CFLAGS_EXTRA="-fsanitize=undefined,pointer-overflow
+  -fno-sanitize=implicit-conversion,unsigned-integer-overflow"`, runs the
+  golden suite on the `cli`, the runner (which must print
+  `ok tick_note_alloc_fail`) and `tests/check-debug-build.sh` on both.
+  clang's UBSan (its pointer-overflow check, part of
+  `-fsanitize=undefined`) reports `NULL + 0` and gcc's does not, so the
+  empty-list guard in `tick_release_all` is machine-checked; the explicit
+  flags in `CFLAGS_EXTRA` are belt and braces. The job proves it on
+  every run: in a `git archive` copy of the tree with that two-line guard
+  deleted (its return line is the only line of `tick.c` that carries
+  `NULL + 0 is undefined`), the runner must exit non-zero with
+  `applying zero offset to null pointer`, which `test_tick_note_empty_list`
+  forms on its fresh list. No `-Werror` (the gcc legs own it; a clang
+  warning is a ledger entry for Ian, not a flag): both clang builds keep
+  their output, and a non-fatal step prints each `warning:` line as a
+  `::warning::` annotation, with a count. The two
+  `-fno-sanitize` checks are off because unsigned wrap is defined C, which
+  `prng.h`'s PCG32 relies on, and neither is about UB. `check-nm.sh` and
+  `check-includes.sh` call gcc by name, so the gcc legs own them, with the
+  examples, doc-sync, upstream and shellcheck steps.
 - **armhf** (`ubuntu-24.04`, optional): only cross-compiles, with
   `arm-linux-gnueabihf-gcc`, each file in the union of `./tool sources cli`,
   `./tool sources test` and `./tool sources readme-gen`; a red result does
-  not fail the run.
+  not fail the run. It compiles `tests/unit/alloc_hook.c` with no define,
+  where the file holds only `tests.h`'s declarations.
 
 `tool` adds `CFLAGS_EXTRA` after its own compiler flags, split on spaces. To
 reproduce a red `build` or `unsigned-char` step on the uConsole:
@@ -713,9 +850,13 @@ CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --no-mouse orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d --alsa orca
 CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build orca
+grep -aq 'bOrca wakeups:' build/orca                                   # must succeed
 CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
+grep -aq 'bOrca wakeups:' build/orca && grep -aq 'bOrca ALSA:' build/orca  # must succeed
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --alsa orca
+! grep -aq 'bOrca wakeups:' build/orca && ! grep -aq 'bOrca ALSA:' build/orca  # neither
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 make appliance
+! grep -aq 'bOrca wakeups:' build/orca && ! grep -aq 'bOrca ALSA:' build/orca  # neither
 ```
 
 `-DBORCA_DEBUG_COUNTERS`, passed through `CFLAGS_EXTRA`, is a development
@@ -726,8 +867,11 @@ wakeup check above compares with `4f349cd`. In an `--alsa` build the ALSA
 output also counts the messages it drops on `EAGAIN` or `EINTR`, and prints
 `bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`
 before it (`<m>` counts every message that did not go out). It is never
-part of a release or appliance build; CI only compiles it, with and
-without `--alsa`.
+part of a release or appliance build, and since P3-2 CI proves that on
+every run (deferred-work #37): the four greps above are its steps, and the
+positive ones show that `grep -a` finds the literals in an `-flto -s`
+binary. The MIDI-in counter line is not grepped: the same define gates all
+three, so a leak shows in `bOrca wakeups:`.
 
 Building an `--alsa` `orca` is safe while the appliance runs; running one is
 not, unless it uses another client name: the appliance router refuses to
@@ -749,8 +893,10 @@ UBSAN_OPTIONS=halt_on_error=1 nice -n 19 taskset -c 0-2 build/debug/unit_tests
 
 Some steps cannot be reproduced on the uConsole as it stands: the PortMidi
 builds, including `-d --portmidi test`, need `libportmidi-dev` (installing
-it needs Ian's approval), and the `armhf` job needs the armhf cross
-compiler. `tests/check-nm.sh` results depend on the architecture, so an
-x86_64 result from the `build` leg may differ from the uConsole's aarch64
-one. The runners' gcc can warn where the uConsole's gcc 12.2 does not; each
-job prints its compiler version in its "Toolchain versions" step.
+it needs Ian's approval), the `armhf` job needs the armhf cross compiler,
+and the `clang` job needs clang, which the device lacks (installing it
+needs Ian's approval too), so its CI runs are the only clang evidence.
+`tests/check-nm.sh` results depend on the architecture, so an x86_64
+result from the `build` leg may differ from the uConsole's aarch64 one.
+The runners' gcc can warn where the uConsole's gcc 12.2 does not; each job
+prints its compiler version in its "Toolchain versions" step.

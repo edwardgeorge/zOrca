@@ -1,4 +1,7 @@
-# Expected failures of tests/check-includes.sh (architecture spine AD-2).
-# One line per (file, pattern): <file> <pattern> <item...>, naming the spec
-# items the fix waits for. The series that removes a violation deletes its
-# line in the same commit; see tests/README.md.
+# Expected failures of tests/check-includes.sh (architecture spine AD-1,
+# AD-2). One line per (file, pattern): <file> <pattern> <item...>, where
+# the pattern is a banned name (rand, srand, srandom, drand48, lrand48 or
+# getenv), <name.h> or "name.h" (a shell header in a core file counts:
+# "tick.h"), naming the spec items the fix waits for. The series that
+# removes a violation deletes its line in the same commit; see
+# tests/README.md.

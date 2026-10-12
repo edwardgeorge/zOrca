@@ -7,9 +7,10 @@
 #
 # The build and unsigned-char jobs run the same ./tool, tests/run.sh,
 # build/unit_tests and tests/check-*.sh commands a developer runs locally
-# (tests/README.md lists them for the uConsole). Two kinds of step need what
-# the uConsole lacks: the --portmidi builds need libportmidi-dev, and the
-# armhf job needs the armhf cross compiler. The --alsa builds need
+# (tests/README.md lists them for the uConsole). Three kinds of step need
+# what the uConsole lacks: the --portmidi builds need libportmidi-dev, the
+# armhf job needs the armhf cross compiler, and the clang job needs clang,
+# whose UBSan reports NULL + 0 where gcc's does not. The --alsa builds need
 # libasound2-dev, which the uConsole has. The runners' gcc can also differ
 # from the device's; each job's "Toolchain versions" step prints it.
 name: CI
@@ -293,7 +294,9 @@ jobs:
       # checked, before the next one replaces it. After each run,
       # tests/check-debug-build.sh fails unless the runner imports ASan and
       # UBSan and its "<n> tests" count equals the T test_* functions it
-      # defines, so a test that no list registers cannot sit unrun.
+      # defines, so a test that no list registers cannot sit unrun. The
+      # first run also fails unless the realloc-hook test ran, so a tool
+      # that lost the hook's flags on Linux cannot drop it silently.
       - name: Build debug unit tests
         run: CFLAGS_EXTRA=-Werror ./tool build -d test
 
@@ -307,6 +310,14 @@ jobs:
           cat "$log"
           if [ "$status" != 0 ]; then
             echo "unit_tests exited $status"
+            exit 1
+          fi
+          if ! grep -qx 'ok tick_note_alloc_fail' "$log"; then
+            echo "the realloc-hook test did not run"
+            exit 1
+          fi
+          if ! grep -qx 'ok realloc_hook_builtin_null' "$log"; then
+            echo "the realloc hook missed a provably-NULL realloc: tool lost -fno-builtin-realloc"
             exit 1
           fi
           tests/check-debug-build.sh build/debug/unit_tests "$log"
@@ -421,15 +432,49 @@ jobs:
       # The debug-counter builds compile the wakeup counter (both) and the
       # ALSA drop counters (--alsa), with their stderr lines. They write
       # build/orca, so they run before the plain --alsa build, whose binary
-      # the next step checks.
+      # the next step checks. After each counter build, grep -a must find
+      # its counter strings in the -flto -s binary; after the plain --alsa
+      # build and make appliance below, it must find neither, which proves
+      # that the counters stay out of the shipped builds. The positive greps
+      # are the canary for the negative ones. BORCA_DEBUG_COUNTERS also
+      # gates the MIDI-in counter line; the wakeup line catches its leak.
       - name: Build release orca with debug counters
         run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build orca
+
+      - name: Check that the counter orca holds the wakeup counter string
+        run: |
+          if ! grep -aq 'bOrca wakeups:' build/orca; then
+            echo "build/orca does not hold 'bOrca wakeups:': the counter build lost its counter"
+            exit 1
+          fi
 
       - name: Build release orca with ALSA and debug counters
         run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build --alsa orca
 
+      - name: Check that the ALSA counter orca holds both counter strings
+        run: |
+          if ! grep -aq 'bOrca wakeups:' build/orca; then
+            echo "build/orca does not hold 'bOrca wakeups:': the counter build lost its counter"
+            exit 1
+          fi
+          if ! grep -aq 'bOrca ALSA:' build/orca; then
+            echo "build/orca does not hold 'bOrca ALSA:': the counter build lost its ALSA counters"
+            exit 1
+          fi
+
       - name: Build release orca with ALSA
         run: CFLAGS_EXTRA=-Werror ./tool build --alsa orca
+
+      - name: Check that the ALSA orca holds no counter string
+        run: |
+          if grep -aq 'bOrca wakeups:' build/orca; then
+            echo "build/orca holds 'bOrca wakeups:': the debug counters leaked into a release build"
+            exit 1
+          fi
+          if grep -aq 'bOrca ALSA:' build/orca; then
+            echo "build/orca holds 'bOrca ALSA:': the debug counters leaked into a release build"
+            exit 1
+          fi
 
       # Fails if --alsa stops reaching the link, which a green build alone
       # would not show.
@@ -449,6 +494,17 @@ jobs:
       # before redefining it.
       - name: Build the appliance orca (make appliance)
         run: CFLAGS_EXTRA=-Werror make appliance
+
+      - name: Check that the appliance orca holds no counter string
+        run: |
+          if grep -aq 'bOrca wakeups:' build/orca; then
+            echo "build/orca holds 'bOrca wakeups:': the debug counters leaked into the appliance build"
+            exit 1
+          fi
+          if grep -aq 'bOrca ALSA:' build/orca; then
+            echo "build/orca holds 'bOrca ALSA:': the debug counters leaked into the appliance build"
+            exit 1
+          fi
 
       # Fails unless make appliance kept all three of --alsa (libasound),
       # --pie (an ELF of type DYN) and --harden (the stack protector's
@@ -515,8 +571,29 @@ jobs:
       - name: Build release unit tests with -funsigned-char
         run: CFLAGS_EXTRA="-Werror -funsigned-char" ./tool build test
 
+      # The release runner is an -flto -s link. Without tool's
+      # -fno-builtin-realloc, any optimised build (-Og debug or -O2 -flto
+      # release) may fold a realloc whose pointer the compiler proves NULL
+      # into malloc, past the wrap; realloc_hook_builtin_null proves the flag
+      # is present. The step fails unless both hook tests ran and passed.
       - name: Unit tests (release, unsigned char)
-        run: build/unit_tests
+        run: |
+          log="$RUNNER_TEMP/unit_tests_release.log"
+          status=0
+          build/unit_tests >"$log" 2>&1 || status=$?
+          cat "$log"
+          if [ "$status" != 0 ]; then
+            echo "unit_tests exited $status"
+            exit 1
+          fi
+          if ! grep -qx 'ok tick_note_alloc_fail' "$log"; then
+            echo "the realloc-hook test did not run in the -flto -s link"
+            exit 1
+          fi
+          if ! grep -qx 'ok realloc_hook_builtin_null' "$log"; then
+            echo "the realloc hook missed a provably-NULL realloc: tool lost -fno-builtin-realloc"
+            exit 1
+          fi
 
       # The runner's failure path: with -DUNIT_TESTS_CANARY it registers a
       # test whose check is false, and must report it and exit 1.
@@ -543,6 +620,127 @@ jobs:
           tests/check-nm.sh tests/check-debug-build.sh tests/check-doc-sync.sh
           tests/check-examples.sh tests/upstream/build-cli.sh
           tests/upstream/compare.sh tests/wakeups/ab.sh
+
+  # The debug cli and the unit runner under clang's UBSan, whose
+  # pointer-overflow check reports NULL + 0 where gcc's does not, so the
+  # empty-list guard in tick_release_all is machine-checked (deferred-work
+  # #19). tool honours $CC, and CFLAGS_EXTRA lands after tool's own
+  # sanitizer flags, so it turns off clang's implicit-conversion and
+  # unsigned-integer-overflow checks: unsigned wrap is defined C, which
+  # prng.h's PCG32 relies on, and neither check is about UB. No -Werror:
+  # the gcc legs own it, and a clang warning is a ledger entry for Ian, not
+  # a flag. check-nm.sh and check-includes.sh call gcc by name, so the gcc
+  # legs own them too, with the examples, doc-sync, upstream and shellcheck
+  # steps. The last step proves the leg can fail: in a copy of the tree
+  # with the guard deleted, the runner must abort on NULL + 0.
+  clang:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CC: clang
+      CFLAGS_EXTRA: -fsanitize=undefined,pointer-overflow -fno-sanitize=implicit-conversion,unsigned-integer-overflow
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install clang if the image lacks it
+        run: |
+          if ! command -v clang >/dev/null 2>&1; then
+            sudo apt-get update && sudo apt-get install -y clang
+          fi
+
+      - name: Toolchain versions
+        run: clang --version | head -n 1
+
+      - name: Set vm.mmap_rnd_bits=28 for ASan
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      # Each clang build keeps its output for the warnings step below.
+      - name: Build debug cli
+        run: |
+          set -o pipefail
+          ./tool build -d cli 2>&1 | tee "$RUNNER_TEMP/clang_build_cli.log"
+
+      - name: Check that the debug cli is sanitized
+        run: tests/check-debug-build.sh build/debug/cli
+
+      - name: Golden suite on the debug cli (ASan + UBSan with pointer-overflow)
+        run: tests/run.sh build/debug/cli
+
+      - name: Build debug unit tests
+        run: |
+          set -o pipefail
+          ./tool build -d test 2>&1 | tee "$RUNNER_TEMP/clang_build_test.log"
+
+      # No -Werror on this job, so its warnings would scroll by unseen: this
+      # step prints each one as an annotation, with a count, and never fails.
+      # A clang warning is a ledger entry for Ian, not a flag or a fix.
+      - name: Report clang warnings (non-fatal)
+        if: always()
+        run: |
+          warnings="$RUNNER_TEMP/clang_warnings.txt"
+          : >"$warnings"
+          for f in "$RUNNER_TEMP/clang_build_cli.log" "$RUNNER_TEMP/clang_build_test.log"; do
+            if [ -f "$f" ]; then
+              grep 'warning:' "$f" >>"$warnings" || true
+            fi
+          done
+          while IFS= read -r line; do
+            printf '::warning::%s\n' "$(printf '%s' "$line" | sed 's/%/%25/g')"
+          done <"$warnings"
+          echo "clang warnings: $(wc -l <"$warnings")"
+
+      - name: Unit tests (ASan + UBSan with pointer-overflow)
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          log="$RUNNER_TEMP/unit_tests_clang.log"
+          status=0
+          build/debug/unit_tests >"$log" 2>&1 || status=$?
+          cat "$log"
+          if [ "$status" != 0 ]; then
+            echo "unit_tests exited $status"
+            exit 1
+          fi
+          if ! grep -qx 'ok tick_note_alloc_fail' "$log"; then
+            echo "the realloc-hook test did not run"
+            exit 1
+          fi
+          tests/check-debug-build.sh build/debug/unit_tests "$log"
+
+      # The guard canary: a copy of HEAD with tick_release_all's two-line
+      # count == 0 guard deleted (its return line is the only line of
+      # tick.c that carries "NULL + 0 is undefined"), built the same way,
+      # must exit non-zero with UBSan's report of the NULL + 0 that
+      # test_tick_note_empty_list then forms. Each gate is its own command:
+      # the Actions shell never fails a step on a ! command or on a command
+      # before the last &&.
+      - name: Deleting tick_release_all's empty-list guard fails the runner (canary)
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          red="$RUNNER_TEMP/red"
+          mkdir -p "$red"
+          git archive HEAD | tar -x -C "$red"
+          before=$(wc -l <"$red/tick.c")
+          sed -i '/if (susnotes->count == 0)$/{N;/NULL + 0 is undefined/d}' "$red/tick.c"
+          after=$(wc -l <"$red/tick.c")
+          if [ $((before - after)) != 2 ]; then
+            echo "expected the guard's two lines to go from tick.c, $((before - after)) went"
+            exit 1
+          fi
+          (cd "$red" && ./tool build -d test)
+          log="$RUNNER_TEMP/red.log"
+          status=0
+          "$red/build/debug/unit_tests" >"$log" 2>&1 || status=$?
+          cat "$log"
+          if [ "$status" = 0 ]; then
+            echo "the runner exited 0 with the guard deleted"
+            exit 1
+          fi
+          if ! grep -q 'applying zero offset to null pointer' "$log"; then
+            echo "the runner did not report NULL + 0"
+            exit 1
+          fi
 
   # Optional compile-only check for 32-bit ARM (Pi Zero 2W), where Usz is
   # 32-bit. It calls the cross compiler directly instead of going through

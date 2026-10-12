@@ -1,6 +1,6 @@
 #!/bin/sh
-# Include allow-list and rand check for the CORE files (architecture spine
-# AD-2). See tests/README.md.
+# Include allow-list, core/shell tiers and banned-name check for the CORE
+# files (architecture spine AD-1, AD-2). See tests/README.md.
 #
 #   tests/check-includes.sh
 #
@@ -8,31 +8,44 @@
 # includes (directly or through another core header), comments are stripped
 # with `gcc -fpreprocessed -dD -E -P`, which keeps #include and #define lines
 # and expands no macros. The script then reports:
-#   - every #include that is not on the allow-list below, as the pattern
+#   - every #include that is not allowed for the file, as the pattern
 #     <name.h> or "name.h", spelled as in the source;
-#   - rand as a whole word in code, as the pattern rand. Comments do not
-#     count.
-# base.h is shared foundation: it is allowed whole and not scanned. A
-# violation found in a core header is reported against the CORE file that
-# includes it, with the header named.
+#   - each banned name (rand, srand, srandom, drand48, lrand48, getenv) found
+#     as a whole word in code, as the pattern of that name. Comments do not
+#     count, and random is not banned: the whole-word grep never matches it.
 #
-# Known edges: rand inside a string literal or an #if 0 block is reported;
-# srand is not. base.h includes <unistd.h>, so every core file sees read(),
+# Two tiers. core_headers is allowed in every CORE file. shell_headers (the
+# testable shell's: tick.h, tooltips.h) is allowed only when the CORE file
+# under scan is in shell_files (tick.c, tooltips.c); anywhere else a shell
+# header is a violation, so a core module cannot include tick.h or tooltips.h,
+# nor reach one through a core header. The tier is decided by the CORE file,
+# not by the header being read: a shell header pulled in through a core
+# header is reported against the CORE file and names that header, as every
+# violation found in a header is. A testable-shell module adds its .c to
+# shell_files and its header to shell_headers, never to core_headers (next:
+# tui_prefs.c and tui_prefs.h, P3-4b). base.h is shared foundation: it is
+# allowed whole and not scanned. portlabel.h is core: sim.h includes it.
+#
+# Known edges: a banned name inside a string literal or an #if 0 block is
+# reported. base.h includes <unistd.h>, so every core file sees read(),
 # write(), usleep() and the rest of it, and calling them passes this check.
 #
-# The canary, tests/includes/canary.c, includes <stdio.h> and calls rand().
-# It is scanned first, the same way as a CORE file, and both <stdio.h> and
-# rand must be reported for it on every run; if either is not, the check is
-# blind and the run fails. The rand canary keeps that half of the check
-# proven once B1 removes rand() from sim.c and its marker.
+# The canary, tests/includes/canary.c, includes <stdio.h>, calls each of the
+# six banned names and includes "tick.h" from outside the shell tier. It is
+# scanned first, the same way as a CORE file, and all eight patterns must be
+# reported for it on every run; if one is not, the check is blind to it and
+# the run fails. The canary is not in shell_files, so "tick.h" is never
+# allowed for it: it is reported, never queued. A name in banned_names that
+# the canary's pattern list lacks also fails the canary.
 #
 # tests/xfail/include-check lists the expected violations, one per line, as
-# `<file> <pattern> <item...>`; # starts a comment. The items are the spec
-# items the fix waits for, each matching ^(B[1-8]|I[1-6])$ (B1, I3). A
-# marked violation reports XFAIL and
-# does not fail the run. A marker whose violation is gone reports XPASS and
-# fails the run, so the series that removes the violation deletes the line in
-# the same commit. A marker naming a file outside CORE, a malformed line or a
+# `<file> <pattern> <item...>`; # starts a comment. The pattern is a banned
+# name, <name.h> or "name.h" (a shell header's "tick.h" among them). The
+# items are the spec items the fix waits for, each matching
+# ^(B[1-8]|I[1-6])$ (B1, I3). A marked violation reports XFAIL and does not
+# fail the run. A marker whose violation is gone reports XPASS and fails the
+# run, so the series that removes the violation deletes the line in the same
+# commit. A marker naming a file outside CORE, a malformed line or a
 # duplicate fails the run.
 #
 # Exit status: 0 when the canary is detected and every result is PASS or
@@ -47,10 +60,15 @@ fi
 marker_rel=tests/xfail/include-check
 canary_rel=tests/includes/canary.c
 
-# AD-2's allow-list: the core headers, the port-label header (portlabel.h,
-# I5) and tooltips.h, the testable shell's, among them.
+# AD-2's allow-list, in two tiers: the core headers, the port-label header
+# (portlabel.h, I5) among them, for every CORE file; the testable shell's
+# headers only for the testable shell's files.
 allowed_system='<assert.h> <limits.h> <stdbool.h> <stddef.h> <stdint.h> <stdlib.h> <string.h>'
-core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h music.h tick.h portlabel.h tooltips.h'
+core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h music.h portlabel.h'
+shell_headers='tick.h tooltips.h'
+shell_files='tick.c tooltips.c'
+# AD-1's banned names, each a pattern of its own.
+banned_names='rand srand srandom drand48 lrand48 getenv'
 
 if ! command -v gcc >/dev/null 2>&1; then
   echo "error: gcc not found (the comment stripping needs gcc)" >&2
@@ -77,16 +95,20 @@ n_files=0 n_pass=0 n_fail=0 n_xfail=0 n_xpass=0
 # Markers, validated, as "<file> <pattern> <items>" lines in $tmp/markers.
 : >"$tmp/markers"
 if [ -f "$root/$marker_rel" ]; then
-  if ! awk -v core="$core" -v name="$marker_rel" -v out="$tmp/markers" '
+  if ! awk -v core="$core" -v banned="$banned_names" -v name="$marker_rel" \
+    -v out="$tmp/markers" '
     function bad(why) { printf "FAIL  %s:%d: %s\n", name, FNR, why; errors++ }
-    BEGIN { n = split(core, c, " "); for (i = 1; i <= n; i++) incore[c[i]] = 1 }
+    BEGIN {
+      n = split(core, c, " "); for (i = 1; i <= n; i++) incore[c[i]] = 1
+      n = split(banned, b, " "); for (i = 1; i <= n; i++) isbanned[b[i]] = 1
+    }
     {
       sub(/#.*/, "")
       if (NF == 0) next
       if (NF < 3) { bad("expected <file> <pattern> <item...>"); next }
       if (!($1 in incore)) { bad($1 " is not in CORE"); next }
-      if ($2 != "rand" && $2 !~ /^<[^<>"]+>$/ && $2 !~ /^"[^<>"]+"$/) {
-        bad("bad pattern " $2 " (expected rand, <name.h> or \"name.h\")"); next
+      if (!($2 in isbanned) && $2 !~ /^<[^<>"]+>$/ && $2 !~ /^"[^<>"]+"$/) {
+        bad("bad pattern " $2 " (expected one of " banned ", <name.h> or \"name.h\")"); next
       }
       items = ""
       for (i = 3; i <= NF; i++) {
@@ -118,6 +140,12 @@ scan() {
   sc_core=$1
   sc_queue=$1
   sc_seen=
+  # Whether the CORE file under scan may include the testable shell's
+  # headers: the tier is the CORE file's, whichever header is being read.
+  sc_shell=0
+  if in_list "$sc_core" "$shell_files"; then
+    sc_shell=1
+  fi
   while [ -n "$sc_queue" ]; do
     # shellcheck disable=SC2086  # a space-separated work list
     set -- $sc_queue
@@ -151,7 +179,13 @@ scan() {
         \"*)
           sc_h=${sc_inc#\"}
           sc_h=${sc_h%\"}
+          sc_allowed=0
           if in_list "$sc_h" "$core_headers"; then
+            sc_allowed=1
+          elif [ "$sc_shell" = 1 ] && in_list "$sc_h" "$shell_headers"; then
+            sc_allowed=1
+          fi
+          if [ "$sc_allowed" = 1 ]; then
             if [ "$sc_h" != base.h ] && [ -f "$root/$sc_dir$sc_h" ]; then
               sc_queue="$sc_queue $sc_dir$sc_h"
             fi
@@ -161,26 +195,45 @@ scan() {
       esac
       printf '%s %s\n' "$sc_inc" "$sc_f" >>"$tmp/found"
     done <"$tmp/includes"
-    if grep -Ev '^[[:space:]]*#[[:space:]]*include' "$tmp/pp" |
-      grep -Eq '(^|[^A-Za-z0-9_])rand([^A-Za-z0-9_]|$)'; then
-      printf 'rand %s\n' "$sc_f" >>"$tmp/found"
-    fi
+    # Each banned name as a whole word in the non-#include lines.
+    grep -Ev '^[[:space:]]*#[[:space:]]*include' "$tmp/pp" >"$tmp/code"
+    for sc_name in $banned_names; do
+      if grep -Eq "(^|[^A-Za-z0-9_])$sc_name([^A-Za-z0-9_]|\$)" "$tmp/code"; then
+        printf '%s %s\n' "$sc_name" "$sc_f" >>"$tmp/found"
+      fi
+    done
   done
   return 0
 }
 
-# The canary must be reported for both of its planted violations.
+# The canary must be reported for every one of its planted violations: the
+# eight patterns, one per line in $tmp/canary_patterns. The list is spelled
+# out, not built from banned_names, so a name dropped from that list is
+# missed in the canary and fails the run; and a name in banned_names that
+# the list lacks fails the canary too, so a name added there has a canary.
 canary_ok=0
 canary_missing=
-if scan "$canary_rel"; then
-  for canary_pattern in '<stdio.h>' rand; do
+printf '%s\n' '<stdio.h>' rand srand srandom drand48 lrand48 getenv '"tick.h"' \
+  >"$tmp/canary_patterns"
+canary_unlisted=
+for canary_name in $banned_names; do
+  if ! grep -Fqx "$canary_name" "$tmp/canary_patterns"; then
+    canary_unlisted="$canary_unlisted${canary_unlisted:+, }$canary_name"
+  fi
+done
+if [ -n "$canary_unlisted" ]; then
+  printf 'FAIL  canary (the canary list lacks %s, which banned_names checks: plant it in %s and add it to the list)\n' \
+    "$canary_unlisted" "$canary_rel"
+elif scan "$canary_rel"; then
+  while IFS= read -r canary_pattern; do
     if ! awk -v p="$canary_pattern" '$1 == p { found = 1 } END { exit !found }' \
       "$tmp/found"; then
-      canary_missing="$canary_missing${canary_missing:+ and }$canary_pattern"
+      canary_missing="$canary_missing${canary_missing:+, }$canary_pattern"
     fi
-  done
+  done <"$tmp/canary_patterns"
   if [ -z "$canary_missing" ]; then
-    printf 'PASS  canary (detected: <stdio.h>, rand)\n'
+    printf 'PASS  canary (detected: %s)\n' \
+      "$(awk '{ printf "%s%s", (NR > 1 ? ", " : ""), $0 }' "$tmp/canary_patterns")"
     canary_ok=1
   else
     printf 'FAIL  canary (the check is blind: %s not reported in %s)\n' \
