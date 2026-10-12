@@ -550,6 +550,8 @@ before: 0, 16, 32, 48, 64, 20, 40, 60, 80
 after:  0, 16, 32, 48, 64, 68, 72, 76, 80
 ```
 
+Since I2 (CC glides step between ticks, above), a glide sends the values it passes through as it reaches them, at most 100 a second, so one period is now 66 or 67 CCs: 0, then 1, 2, 3, 4, 6 … 64 (a glide to 64 at `w` wants 128 a second and gets 100), then 65, 66 … 80. What holds is the property: the period starts at 0, rises strictly, reaches 64 and then 80, the second glide continuing from 64.
+
 Example: `examples/misc/glide_continuity.orca`; repro patch for the instant rates: `tests/patches/cc_rates.orca`. (B3)
 
 ### With beat clock on, notes last their written length
