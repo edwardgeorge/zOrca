@@ -547,9 +547,9 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
                        Usz bpm, char const *bpm_text,
                        Ged_cursor const *ged_cursor,
                        Ged_input_mode input_mode, Usz activity_counter,
-                       Glyph const *gbuffer, Mark const *mbuffer,
-                       bool midi_err) {
-  (void)height;
+                       Glyph const *gbuffer, Port_label_cell const *labels,
+                       Usz labels_h, Usz labels_w, bool midi_err) {
+  assert(height >= 2); // two rows: the tooltip's lines go on win_y and win_y + 1
   enum { Tabstop = 8 };
   wmove(win, win_y, win_x);
   wprintw(win, "%zux%zu", field_w, field_h);
@@ -600,52 +600,41 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
   }
   advance_faketab(win, win_x, Tabstop);
   wattrset(win, A_normal);
-  waddstr(win, filename);
-  
-  // Display tooltip if cursor is on a PORT
-  Enhanced_tooltip enhanced_tooltip = get_enhanced_tooltip_at_cursor(gbuffer, mbuffer, field_h, field_w,
-                                                                     ged_cursor->y, ged_cursor->x);
-  if (enhanced_tooltip.line1) {
-    // Get window dimensions to align tooltip to right side
-    int win_height, win_width;
-    getmaxyx(win, win_height, win_width);
-    
-    if (enhanced_tooltip.is_enhanced) {
-      // Enhanced scale/chord tooltip: split into two lines
-      // Line 1 (label) goes on 3rd line from bottom, aligned with BPM, etc.
-      int label_len = (int)strlen(enhanced_tooltip.line1);
-      int label_x = win_width - label_len - 1;
-      if (label_x < 0) label_x = 0;
-      
-      wmove(win, win_height - 3, label_x);
+  // Clipped to the row, so a long name never wraps below the HUD.
+  int filename_x = getcurx(win);
+  int filename_len = (int)strlen(filename);
+  if (filename_x < width)
+    waddnstr(win, filename, width - filename_x);
+
+  // The tooltip for the port under the cursor (tooltips.h), on the HUD's
+  // two rows, right of each row's last field, cut from the end to fit. Row
+  // 1's last field is the 8-column MIDI err slot at midi_err_x, reserved
+  // whether or not the error shows; row 2's is the filename. Every field
+  // is drawn before it, and MIDI err after it.
+  char tip1[Tooltip_line_max], tip2[Tooltip_line_max];
+  if (tooltip_at(labels, labels_h, labels_w, gbuffer, field_h, field_w,
+                 ged_cursor->y, ged_cursor->x, tip1, tip2)) {
+    enum { Midi_err_width = 8 };
+    char const *lines[2] = {tip1, tip2};
+    int limits[2] = {midi_err_x + Midi_err_width, filename_x + filename_len};
+    for (int row = 0; row < 2; ++row) {
+      int len = (int)strlen(lines[row]);
+      if (len == 0)
+        continue;
+      int limit = limits[row] < width ? limits[row] : width;
+      int x;
+      int n = tooltip_place(limit, len, width, &x);
+      if (n <= 0)
+        continue;
+      wmove(win, win_y + row, x);
       wattrset(win, A_reverse);
-      waddstr(win, enhanced_tooltip.line1);
-      wattrset(win, A_normal);
-      
-      // Line 2 (value) goes on 2nd line from bottom, aligned with cursor pos, mode, etc.
-      int value_len = (int)strlen(enhanced_tooltip.line2);
-      int value_x = win_width - value_len - 1;
-      if (value_x < 0) value_x = 0;
-      
-      wmove(win, win_height - 2, value_x);
-      wattrset(win, A_reverse);
-      waddstr(win, enhanced_tooltip.line2);
-      wattrset(win, A_normal);
-    } else {
-      // Regular tooltip: single line on 3rd line from bottom
-      int tooltip_len = (int)strlen(enhanced_tooltip.line1);
-      int tooltip_x = win_width - tooltip_len - 1;
-      if (tooltip_x < 0) tooltip_x = 0;
-      
-      wmove(win, win_height - 3, tooltip_x);
-      wattrset(win, A_reverse);
-      waddstr(win, enhanced_tooltip.line1);
+      waddnstr(win, lines[row], n);
       wattrset(win, A_normal);
     }
   }
   if (midi_err) {
-    // Sticky until quit. Drawn after the tooltip, which can share this line,
-    // and pulled left to fit a narrow window, so neither can hide it.
+    // Sticky until quit. Drawn after the tooltip, which sits right of its
+    // slot, and pulled left to fit a narrow window, so neither can hide it.
     static char const midi_err_text[] = "MIDI err";
     int text_len = (int)sizeof midi_err_text - 1;
     int x = midi_err_x;
@@ -1352,6 +1341,14 @@ typedef struct {
   Orca_dialect dialect;
   Field clipboard_field;
   Mbuf_reusable mbuf_r;
+  // The label buffer (portlabel.h, spine AD-19): one reusable buffer that
+  // the tick, step-forward and the paused preview all pass to the VM, sized
+  // for the field before every run by ged_labels_for_run, which remembers
+  // the height and width it sized it for; draw_hud passes those to the
+  // tooltip lookup, which shows nothing while they differ from the field's.
+  Port_label_cell *labels;
+  Usz labels_capacity; // cells allocated
+  Usz labels_h, labels_w; // the size of the last run, 0 x 0 after a failure
   Undo_history undo_hist;
   // The three event lists (AD-12). oevent_list is the tick list: the VM's
   // events on each tick, sent, and shown by Ctrl+E. scratch_oevent_list is
@@ -1452,6 +1449,10 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   a->dialect = Orca_dialect_borca;
   field_init(&a->clipboard_field);
   mbuf_reusable_init(&a->mbuf_r);
+  a->labels = NULL;
+  a->labels_capacity = 0;
+  a->labels_h = 0;
+  a->labels_w = 0;
   undo_history_init(&a->undo_hist, undo_limit);
   oevent_list_init(&a->oevent_list);
   oevent_list_init(&a->scratch_oevent_list);
@@ -1497,6 +1498,7 @@ static void ged_deinit(Ged *a) {
   opstate_free(&a->scratch_opstate);
   field_deinit(&a->clipboard_field);
   mbuf_reusable_deinit(&a->mbuf_r);
+  free(a->labels);
   undo_history_deinit(&a->undo_hist);
   oevent_list_deinit(&a->oevent_list);
   oevent_list_deinit(&a->scratch_oevent_list);
@@ -1713,6 +1715,29 @@ static double ged_secs_to_deadline(Ged const *a) {
   return rem;
 }
 
+// The label buffer for a VM run on a height x width grid: grown when the
+// grid outgrew it, amortized like mbuf_r, with no allocation otherwise, and
+// its size remembered for draw_hud. If growth fails the old allocation is
+// kept (the realloc goes into a temporary), the remembered size becomes
+// 0 x 0 and the run gets NULL, so nothing is recorded and no tooltip shows
+// until a later run succeeds.
+static Port_label_cell *ged_labels_for_run(Ged *a, Usz height, Usz width) {
+  Usz count = height * width;
+  if (count > a->labels_capacity) {
+    Port_label_cell *grown = realloc(a->labels, count * sizeof *grown);
+    if (!grown) {
+      a->labels_h = 0;
+      a->labels_w = 0;
+      return NULL;
+    }
+    a->labels = grown;
+    a->labels_capacity = count;
+  }
+  a->labels_h = height;
+  a->labels_w = width;
+  return a->labels;
+}
+
 // One tick body (AD-14), for both callers: the internal deadline in
 // ged_do_stuff and the transport machine's tick due under External. The tick
 // body (tick.c) sends everything for the tick: note-offs that are due, the
@@ -1729,6 +1754,8 @@ staticni void ged_run_tick_body(Ged *a) {
                         .random_seed = a->random_seed,
                         .opstate = &a->opstate,
                         .dialect = a->dialect,
+                        .labels = ged_labels_for_run(a, a->field.height,
+                                                     a->field.width),
                         .tick_num = &a->tick_num,
                         .tick_list = &a->oevent_list,
                         .engine_list = &a->engine_oevent_list,
@@ -1894,9 +1921,13 @@ staticni void ged_draw(Ged *a, WINDOW *win, char const *filename,
     // the store, as it does on scratch_field (AD-7). If the copy cannot
     // allocate, it runs on an empty store; the live one is untouched.
     (void)opstate_copy(&a->opstate, &a->scratch_opstate);
-    // Its events go to the preview list, which is never sent (AD-12).
-    Orca_run_ctx const preview_ctx = {.opstate = &a->scratch_opstate,
-                                      .dialect = a->dialect};
+    // Its events go to the preview list, which is never sent (AD-12), and
+    // its labels to the live label buffer (AD-7), so the tooltips follow
+    // the marks.
+    Orca_run_ctx const preview_ctx = {
+        .opstate = &a->scratch_opstate,
+        .dialect = a->dialect,
+        .labels = ged_labels_for_run(a, a->field.height, a->field.width)};
     tick_run_vm(a->scratch_field.buffer, a->mbuf_r.buffer, a->field.height,
                 a->field.width, a->tick_num, &a->scratch_oevent_list,
                 a->random_seed, &preview_ctx);
@@ -1927,8 +1958,8 @@ staticni void ged_draw(Ged *a, WINDOW *win, char const *filename,
     draw_hud(win, a->grid_h, hud_x, Hud_height, win_w, filename,
              a->field.height, a->field.width, a->ruler_spacing_y,
              a->ruler_spacing_x, a->tick_num, a->bpm, bpm_text, &a->ged_cursor,
-             a->input_mode, a->activity_counter, a->field.buffer, a->mbuf_r.buffer,
-             midi_mode_send_failed(&a->midi_mode));
+             a->input_mode, a->activity_counter, a->field.buffer, a->labels,
+             a->labels_h, a->labels_w, midi_mode_send_failed(&a->midi_mode));
   }
   if (a->draw_event_list)
     draw_oevent_list(win, &a->oevent_list);
@@ -2431,8 +2462,10 @@ staticni void ged_input_cmd(Ged *a, Ged_input_cmd ev) {
   case Ged_input_cmd_step_forward: {
     undo_history_push(&a->undo_hist, &a->field, a->tick_num);
     // The VM only, into the tick list: nothing is sent and no note ages.
-    Orca_run_ctx const step_ctx = {.opstate = &a->opstate,
-                                   .dialect = a->dialect};
+    Orca_run_ctx const step_ctx = {
+        .opstate = &a->opstate,
+        .dialect = a->dialect,
+        .labels = ged_labels_for_run(a, a->field.height, a->field.width)};
     tick_run_vm(a->field.buffer, a->mbuf_r.buffer, a->field.height,
                 a->field.width, a->tick_num, &a->oevent_list, a->random_seed,
                 &step_ctx);

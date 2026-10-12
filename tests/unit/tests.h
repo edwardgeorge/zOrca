@@ -1,7 +1,30 @@
 // The registry of unit tests in build/unit_tests (./tool build test). See
 // tests/README.md for how to add a test.
 #pragma once
+#include "../../vmio.h"
 #include "check.h"
+
+// The bytes an event of this type occupies: its own struct's size, not the
+// union's. oevent_list_alloc_item never zeroes a slot's tail, so a test that
+// compares two event lists compares each pair over this size.
+static inline Usz oevent_size(U8 type) {
+  switch ((Oevent_types)type) {
+  case Oevent_type_midi_note:
+    return sizeof(Oevent_midi_note);
+  case Oevent_type_midi_cc:
+    return sizeof(Oevent_midi_cc);
+  case Oevent_type_midi_cc_interpolated:
+    return sizeof(Oevent_midi_cc_interpolated);
+  case Oevent_type_midi_pb:
+    return sizeof(Oevent_midi_pb);
+  case Oevent_type_osc_ints:
+    return sizeof(Oevent_osc_ints);
+  case Oevent_type_udp_string:
+    return sizeof(Oevent_udp_string);
+  default:
+    return sizeof(Oevent);
+  }
+}
 
 // X-macro lists, in run order. X(name) registers the function test_<name>.
 //
@@ -145,7 +168,33 @@
   X(transport_deadline_while_stopped)                                          \
   X(transport_gap_keeps_running)                                               \
   X(transport_songpos_moves_anchor)                                            \
-  X(transport_start_clears_lost)
+  X(transport_start_clears_lost)                                               \
+  X(labels_ids)                                                                \
+  X(labels_in_in_shared)                                                       \
+  X(labels_in_over_out)                                                        \
+  X(labels_out_keeps_in)                                                       \
+  X(labels_q_fixture)                                                          \
+  X(labels_g)                                                                  \
+  X(labels_k)                                                                  \
+  X(labels_t)                                                                  \
+  X(labels_o)                                                                  \
+  X(labels_i_on_input)                                                         \
+  X(labels_p)                                                                  \
+  X(labels_x)                                                                  \
+  X(labels_far_owner)                                                          \
+  X(labels_match_marks)                                                        \
+  X(labels_no_buffer)                                                          \
+  X(labels_upstream_cc)                                                        \
+  X(labels_upstream_inert)                                                     \
+  X(labels_upstream_udp)                                                       \
+  X(labels_upstream_osc)                                                       \
+  X(labels_selectors)                                                          \
+  X(labels_borca_cc)                                                           \
+  X(labels_stale_size)                                                         \
+  X(labels_per_operator)                                                       \
+  X(tooltip_place)                                                             \
+  X(labels_tick_run_vm_clears)                                                 \
+  X(labels_tick_body)
 
 // The full list for each adapter FEAT_ flag, and for the runner's failure
 // canary, whatever the flags.

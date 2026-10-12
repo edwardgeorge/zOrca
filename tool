@@ -256,12 +256,13 @@ try_make_dir() {
 build_dir=build
 
 # The CORE list (architecture spine AD-1, AD-21): the core modules, which do
-# no I/O, read no clock and keep no writable globals, plus tick.c, the
-# testable shell that obeys the same rules (AD-14). Every build target links
-# all of it, and tests/check-nm.sh and tests/check-includes.sh check each file
-# in it through './tool sources core', so adding a core module edits only
-# this line.
-core_sources='gbuffer.c vmio.c sim.c opstate.c ccout.c music.c transport.c tick.c'
+# no I/O, read no clock and keep no writable globals, plus the testable
+# shell that obeys the same rules: tick.c (AD-14) and tooltips.c (I5, the
+# tooltip text and placement). Every build target links all of it, and
+# tests/check-nm.sh and tests/check-includes.sh check each file in it
+# through './tool sources core', so adding a core module edits only this
+# line.
+core_sources='gbuffer.c vmio.c sim.c opstate.c ccout.c music.c transport.c tick.c tooltips.c'
 
 # set_target_sources <core|cli|orca|test|readme-gen>: sets source_files to
 # CORE followed by the target's own files. Returns 1 for an unknown name.
@@ -277,7 +278,7 @@ set_target_sources() {
     readme-gen) add source_files tools/readme-gen.c;;
     orca|tui)
       add source_files field.c osc_out.c term_util.c sysmisc.c \
-        thirdparty/oso.c tooltips.c tui_main.c
+        thirdparty/oso.c tui_main.c
     ;;
     test)
       # tests/unit/*.c without globbing, in a fixed order.

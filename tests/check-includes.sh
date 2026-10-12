@@ -47,9 +47,10 @@ fi
 marker_rel=tests/xfail/include-check
 canary_rel=tests/includes/canary.c
 
-# AD-2's allow-list. The port-label header joins core_headers when it exists.
+# AD-2's allow-list: the core headers, the port-label header (portlabel.h,
+# I5) and tooltips.h, the testable shell's, among them.
 allowed_system='<assert.h> <limits.h> <stdbool.h> <stddef.h> <stdint.h> <stdlib.h> <string.h>'
-core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h music.h tick.h'
+core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h music.h tick.h portlabel.h tooltips.h'
 
 if ! command -v gcc >/dev/null 2>&1; then
   echo "error: gcc not found (the comment stripping needs gcc)" >&2

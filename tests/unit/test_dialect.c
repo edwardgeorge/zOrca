@@ -109,9 +109,11 @@ void test_dialect_default_is_borca(void) {
     CHECK(memcmp(grids[0], grids[1], sizeof grids[0]) == 0);
     CHECK(memcmp(marks[0], marks[1], sizeof marks[0]) == 0);
     CHECK(events[0].count == events[1].count);
-    CHECK(events[0].count == 0 ||
-          memcmp(events[0].buffer, events[1].buffer,
-                 events[0].count * sizeof(Oevent)) == 0);
+    for (Usz k = 0; k < events[0].count && k < events[1].count; ++k) {
+      Oevent const *a = events[0].buffer + k, *b = events[1].buffer + k;
+      CHECK(a->any.oevent_type == b->any.oevent_type &&
+            memcmp(a, b, oevent_size(a->any.oevent_type)) == 0);
+    }
     CHECK(stores[0].count == stores[1].count);
     for (Usz k = 0; k < 3; ++k) {
       ccs[k] += count_type(&events[k], Oevent_type_midi_cc);

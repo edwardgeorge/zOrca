@@ -292,6 +292,8 @@ void tick_run_vm(Glyph *restrict gbuffer, Mark *restrict mbuffer, Usz height,
                  Usz width, Usz tick_num, Oevent_list *list, Usz random_seed,
                  Orca_run_ctx const *ctx) {
   mbuffer_clear(mbuffer, height, width);
+  if (ctx->labels)
+    memset(ctx->labels, 0, height * width * sizeof *ctx->labels);
   oevent_list_clear(list);
   orca_run(gbuffer, mbuffer, height, width, tick_num, list, random_seed, ctx);
 }
@@ -313,7 +315,8 @@ void tick_body(Tick_ctx const *ctx, Tick_sink const *sink) {
   tick_poll_engine(ctx->ccout, ctx->now_us, ctx->engine_list, sink);
   Oevent_list *list = ctx->tick_list;
   Orca_run_ctx const run_ctx = {.opstate = ctx->opstate,
-                                .dialect = ctx->dialect};
+                                .dialect = ctx->dialect,
+                                .labels = ctx->labels};
   tick_run_vm(ctx->gbuffer, ctx->mbuffer, ctx->height, ctx->width,
               *ctx->tick_num, list, ctx->random_seed, &run_ctx);
   ++*ctx->tick_num;

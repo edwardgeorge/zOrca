@@ -78,6 +78,8 @@ typedef struct {
   Usz random_seed;
   Opstate_store *opstate;   // the live store
   Orca_dialect dialect;     // the operator list the VM runs (sim.h)
+  Port_label_cell *labels;  // the label buffer, height x width, or NULL
+                            // (sim.h, portlabel.h); passed on to the VM
   Usz *tick_num;            // incremented once per tick body
   Oevent_list *tick_list;   // the VM's events, then sent
   Oevent_list *engine_list; // the CC engine's output: cleared before each
@@ -118,10 +120,11 @@ void tick_body(Tick_ctx const *ctx, Tick_sink const *sink);
 void tick_poll_engine(Ccout_engine *ccout, U64 now_us, Oevent_list *engine,
                       Tick_sink const *sink);
 
-// Clears the marks and the list, then runs the VM once into the list, with
-// ctx's store and dialect. Sends nothing, ages nothing and never touches the
-// CC engine: the paused re-mark (the preview, on the scratch grid and store)
-// and step-forward use it as well as tick_body.
+// Clears the marks and the list, and ctx's label buffer (height x width
+// cells) when it has one, then runs the VM once into the list, with ctx's
+// store, dialect and buffer. Sends nothing, ages nothing and never touches
+// the CC engine: the paused re-mark (the preview, on the scratch grid and
+// store) and step-forward use it as well as tick_body.
 void tick_run_vm(Glyph *restrict gbuffer, Mark *restrict mbuffer, Usz height,
                  Usz width, Usz tick_num, Oevent_list *list, Usz random_seed,
                  Orca_run_ctx const *ctx);

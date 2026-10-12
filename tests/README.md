@@ -205,6 +205,23 @@ mark and keep nothing; the tick body runs `Tick_ctx`'s dialect, so upstream
 `;` and `=` reach the sink's `osc` and upstream `!` goes out as a plain CC;
 and only `borca` and `upstream` are dialect names.
 
+The unit tests `labels_*` and `tooltip_place` in `tests/unit/test_labels.c`
+check the port labels and the tooltips (I5, CAP-17): what each `PORT`
+records in the label buffer (`portlabel.h`), the id, whether the port
+counted as an input, and the owner's offset; the recording rule (an input
+beats an output, the later port of the same kind wins, `I`'s and `Z`'s
+read-write cell counts as an output); the moved ports of `G`, `K`, `O`,
+`P`, `Q`, `T` and `X`; a `J` 256 rows from its output; one fixture per
+operator body in its dialect, with the buffer holding exactly its ports;
+every fixture in both dialects, with a record exactly where the mark has
+an input or an output and the marks, grid and events identical with and
+without a buffer; the upstream labels of `!` (Value × 127 / 35), `;`, `=`,
+`$` and `&`; the selector, value and rate enhancements, "instant" for rates
+`0` and `z` among them; the lookup's size check (a 10 × 20 buffer against a
+30 × 20 and a 20 × 10 field shows nothing); the placement of a line on a
+HUD row over widths 0-200, lengths 0-40 and every limit; and the tick path,
+`tick_run_vm` clearing the buffer and `tick_body` passing it on.
+
 ### The upstream comparison
 
 `tests/upstream/` holds an Orca-c build, which made the goldens above, and
@@ -356,11 +373,13 @@ without `UBSAN_OPTIONS`. CI and the commands above still set
 runner's defaults.
 
 `tool` defines the CORE list once (today `gbuffer.c vmio.c sim.c
-opstate.c ccout.c music.c transport.c tick.c`; the other extracted core
-modules join it later).
-`tick.c` is shell code, the tick body and the sustained-note list, held to
-the core rules (spine AD-14), so the unit tests can drive it through a
-recording sink.
+opstate.c ccout.c music.c transport.c tick.c tooltips.c`).
+`tick.c` and `tooltips.c` are shell code held to the core rules, the
+testable shell (spine AD-1, AD-2, AD-21): `tick.c` is the tick body and the
+sustained-note list (AD-14), which the unit tests drive through a recording
+sink, and `tooltips.c` the tooltip text and placement (I5), which reads the
+label buffer the VM fills (`portlabel.h`) and formats its integers itself,
+with no `<stdio.h>`.
 `cli`, `orca` and `test` link all of it, and
 `./tool sources <core|cli|orca|test>` prints a list, one file per line, so
 the checks below and the CI `armhf` job read the same lists.
@@ -467,7 +486,8 @@ PASS  ccout.c
 PASS  music.c
 PASS  transport.c
 PASS  tick.c
-include check: 8 files, 8 pass, 0 xfail, 0 fail, 0 xpass; canary detected
+PASS  tooltips.c
+include check: 9 files, 9 pass, 0 xfail, 0 fail, 0 xpass; canary detected
 $ tests/check-nm.sh
 PASS  canary (detected: D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; marker path: canary_extern_zero unmarked, canary_absent matches none)
 PASS  gbuffer.c
@@ -478,7 +498,8 @@ PASS  ccout.c
 PASS  music.c
 PASS  transport.c
 PASS  tick.c
-nm check: 8 files, 8 pass, 0 xfail, 0 fail, 0 xpass; canary detected
+PASS  tooltips.c
+nm check: 9 files, 9 pass, 0 xfail, 0 fail, 0 xpass; canary detected
 ```
 
 In the summaries, `pass` counts clean files, and `xfail`, `fail` and `xpass`

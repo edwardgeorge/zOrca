@@ -1,6 +1,7 @@
 #pragma once
 #include "base.h"
 #include "opstate.h"
+#include "portlabel.h"
 #include "vmio.h"
 
 // The operator list orca_run runs (architecture spine AD-18). Zero is bOrca,
@@ -23,6 +24,12 @@ typedef enum {
 typedef struct {
   Opstate_store *opstate; // the per-cell state of &, ; and r (opstate.h)
   Orca_dialect dialect;   // the operator list, chosen once per call
+  // The label buffer (portlabel.h, spine AD-19): height x width cells that
+  // the caller owns and clears with the marks (tick_run_vm, tick.h). Every
+  // PORT records its label id and owner into it. NULL, the default, records
+  // nothing; cli passes NULL, and the marks, grid and events are the same
+  // either way.
+  Port_label_cell *labels;
 } Orca_run_ctx;
 
 // The dialect names that cli's and orca's --dialect and the dialect key of

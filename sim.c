@@ -105,7 +105,40 @@ typedef struct {
   Oevent_list *oevent_list;
   Usz random_seed;
   Orca_run_ctx const *ctx;
+  // ctx->labels, copied so PORT loads one pointer per port; NULL records
+  // nothing
+  Port_label_cell *labels;
 } Oper_extra_params;
+
+// PORT's record (portlabel.h, spine AD-19): the label id and the owner's
+// offset go into the port's cell when the caller gave a buffer and the cell
+// is in the grid, the bounds the mark uses. An input that is not an output
+// replaces any record; any other port replaces only a record that counted
+// as an output, or an empty cell. The NULL test is the only cost on cli's
+// path, which passes no buffer.
+static ORCA_FORCEINLINE void port_label_record(Port_label_cell *labels,
+                                               Usz height, Usz width, Usz y,
+                                               Usz x, Isz delta_y, Isz delta_x,
+                                               Mark_flags flags, Port_label id) {
+  if (!labels)
+    return;
+  // Asserted for every port, in or out of the grid (portlabel.h).
+  assert(delta_y >= -256 && delta_y <= 256 && delta_x >= -256 &&
+         delta_x <= 256);
+  assert(id != Port_label_none && id < Port_label_id_count);
+  Isz y0 = (Isz)y + delta_y;
+  Isz x0 = (Isz)x + delta_x;
+  if (y0 >= (Isz)height || x0 >= (Isz)width || y0 < 0 || x0 < 0)
+    return;
+  Port_label_cell *cell = labels + (Usz)y0 * width + (Usz)x0;
+  bool in = (flags & Mark_flag_input) && !(flags & Mark_flag_output);
+  if (in || !cell->is_input) {
+    cell->id = (U8)id;
+    cell->is_input = in;
+    cell->owner_dy = (I16)-delta_y;
+    cell->owner_dx = (I16)-delta_x;
+  }
+}
 
 static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
                                Usz height, Usz width, Usz y, Usz x, Isz delta_y,
@@ -173,12 +206,16 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
   if (!oper_has_neighboring_bang(gbuffer, height, width, y, x))                \
   return
 
-#define PORT(_delta_y, _delta_x, _flags, _tooltip)                             \
+// A port: the mark, then its label record (portlabel.h). _label is a
+// Port_label; an output passes Port_label_output, never none, and so does a
+// port that is both an input and an output (I's and Z's read-write cell).
+#define PORT(_delta_y, _delta_x, _flags, _label)                               \
   do {                                                                         \
     mbuffer_poke_relative_flags_or(mbuffer, height, width, y, x, _delta_y,     \
-                                   _delta_x, (_flags) ^ Mark_flag_lock);        \
-    (void)(_tooltip); /* Suppress unused parameter warning for now */          \
-  } while(0)
+                                   _delta_x, (_flags) ^ Mark_flag_lock);       \
+    port_label_record(extra_params->labels, height, width, y, x, _delta_y,     \
+                      _delta_x, (_flags), (_label));                           \
+  } while (0)
 //////// Operators
 
 // The operator lists, one per dialect (architecture spine AD-18; sim.h's
@@ -283,12 +320,12 @@ BEGIN_OPERATOR(movement)
 END_OPERATOR
 
 BEGIN_OPERATOR(midicc)
-  PORT(0, 1, IN | PARAM, "Channel");
-  PORT(0, 2, IN | PARAM, "Control (hundreds)");
-  PORT(0, 3, IN | PARAM, "Control (tens)");
-  PORT(0, 4, IN | PARAM, "Control (ones)");
-  PORT(0, 5, IN | PARAM, "Value");
-  PORT(0, 6, IN | PARAM, "Interpolation Rate");
+  PORT(0, 1, IN | PARAM, Port_label_channel);
+  PORT(0, 2, IN | PARAM, Port_label_control_hundreds);
+  PORT(0, 3, IN | PARAM, Port_label_control_tens);
+  PORT(0, 4, IN | PARAM, Port_label_control_ones);
+  PORT(0, 5, IN | PARAM, Port_label_cc_value);
+  PORT(0, 6, IN | PARAM, Port_label_glide_rate);
   STOP_IF_NOT_BANGED;
   Glyph channel_g = PEEK(0, 1);
   Glyph control_h = PEEK(0, 2);  // hundreds
@@ -318,7 +355,7 @@ BEGIN_OPERATOR(midicc)
   Usz midi_value = value_index * 4;
   if (midi_value > 127) midi_value = 127; // Clamp to MIDI CC range
   
-  PORT(0, 0, OUT, "");
+  PORT(0, 0, OUT, Port_label_output);
   
   // Handle interpolation rate
   if (interp_rate_g == '.') {
@@ -361,11 +398,11 @@ BEGIN_OPERATOR(bang)
 END_OPERATOR
 
 BEGIN_OPERATOR(midi)
-  PORT(0, 1, IN | PARAM, "Channel");
-  PORT(0, 2, IN | PARAM, "Octave");
-  PORT(0, 3, IN | PARAM, "Note");
-  PORT(0, 4, IN | PARAM, "Velocity");
-  PORT(0, 5, IN | PARAM, "Length");
+  PORT(0, 1, IN | PARAM, Port_label_channel);
+  PORT(0, 2, IN | PARAM, Port_label_octave);
+  PORT(0, 3, IN | PARAM, Port_label_note);
+  PORT(0, 4, IN | PARAM, Port_label_velocity);
+  PORT(0, 5, IN | PARAM, Port_label_length);
   STOP_IF_NOT_BANGED;
   Glyph channel_g = PEEK(0, 1);
   Glyph octave_g = PEEK(0, 2);
@@ -386,7 +423,7 @@ BEGIN_OPERATOR(midi)
   U8 velocity = midi_velocity_of(velocity_g);
   if (velocity == 0)
     return;
-  PORT(0, 0, OUT, "");
+  PORT(0, 0, OUT, Port_label_output);
   Oevent_midi_note *oe =
       (Oevent_midi_note *)oevent_list_alloc_item(extra_params->oevent_list);
   oe->oevent_type = (U8)Oevent_type_midi_note;
@@ -399,10 +436,10 @@ BEGIN_OPERATOR(midi)
 END_OPERATOR
 
 BEGIN_OPERATOR(midipb)
-  PORT(0, 1, IN | PARAM, "Channel");
-  PORT(0, 2, IN | PARAM, "MSB");
-  PORT(0, 3, IN | PARAM, "LSB");
-  PORT(0, 0, OUT, ""); // Mark output immediately
+  PORT(0, 1, IN | PARAM, Port_label_channel);
+  PORT(0, 2, IN | PARAM, Port_label_msb);
+  PORT(0, 3, IN | PARAM, Port_label_lsb);
+  PORT(0, 0, OUT, Port_label_output); // Mark output immediately
   STOP_IF_NOT_BANGED;
   Glyph channel_g = PEEK(0, 1);
   Glyph msb_g = PEEK(0, 2);
@@ -422,9 +459,9 @@ END_OPERATOR
 
 BEGIN_OPERATOR(add)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Value A");
-  PORT(0, 1, IN, "Value B");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_value_a);
+  PORT(0, 1, IN, Port_label_value_b);
+  PORT(1, 0, OUT, Port_label_output);
   Glyph a = PEEK(0, -1);
   Glyph b = PEEK(0, 1);
   Glyph g = glyph_table[(index_of(a) + index_of(b)) % Glyphs_index_count];
@@ -433,9 +470,9 @@ END_OPERATOR
 
 BEGIN_OPERATOR(subtract)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Value A");
-  PORT(0, 1, IN, "Value B");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_value_a);
+  PORT(0, 1, IN, Port_label_value_b);
+  PORT(1, 0, OUT, Port_label_output);
   Glyph a = PEEK(0, -1);
   Glyph b = PEEK(0, 1);
   Isz val = (Isz)index_of(b) - (Isz)index_of(a);
@@ -446,9 +483,9 @@ END_OPERATOR
 
 BEGIN_OPERATOR(clock)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Rate");
-  PORT(0, 1, IN, "Modulo");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN, Port_label_modulo);
+  PORT(1, 0, OUT, Port_label_output);
   Glyph b = PEEK(0, 1);
   Usz rate = index_of(PEEK(0, -1));
   Usz mod_num = index_of(b);
@@ -462,9 +499,9 @@ END_OPERATOR
 
 BEGIN_OPERATOR(delay)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Rate");
-  PORT(0, 1, IN, "Modulo");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN, Port_label_modulo);
+  PORT(1, 0, OUT, Port_label_output);
   Usz rate = index_of(PEEK(0, -1));
   Usz mod_num = index_of(PEEK(0, 1));
   if (rate == 0)
@@ -477,9 +514,9 @@ END_OPERATOR
 
 BEGIN_OPERATOR(if)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Value A");
-  PORT(0, 1, IN, "Value B");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_value_a);
+  PORT(0, 1, IN, Port_label_value_b);
+  PORT(1, 0, OUT, Port_label_output);
   Glyph g0 = PEEK(0, -1);
   Glyph g1 = PEEK(0, 1);
   POKE(1, 0, g0 == g1 ? '*' : '.');
@@ -490,12 +527,12 @@ BEGIN_OPERATOR(generator)
   Isz out_x = (Isz)index_of(PEEK(0, -3));
   Isz out_y = (Isz)index_of(PEEK(0, -2)) + 1;
   Isz len = (Isz)index_of(PEEK(0, -1));
-  PORT(0, -3, IN | PARAM, "X offset"); // x
-  PORT(0, -2, IN | PARAM, "Y offset"); // y
-  PORT(0, -1, IN | PARAM, "Length"); // len
+  PORT(0, -3, IN | PARAM, Port_label_x_offset); // x
+  PORT(0, -2, IN | PARAM, Port_label_y_offset); // y
+  PORT(0, -1, IN | PARAM, Port_label_length); // len
   for (Isz i = 0; i < len; ++i) {
-    PORT(0, i + 1, IN | PARAM, "Input");
-    PORT(out_y, out_x + i, OUT | NONLOCKING, "");
+    PORT(0, i + 1, IN | PARAM, Port_label_input);
+    PORT(out_y, out_x + i, OUT | NONLOCKING, Port_label_output);
     Glyph g = PEEK(0, i + 1);
     POKE_STUNNED(out_y, out_x + i, g);
   }
@@ -503,14 +540,14 @@ END_OPERATOR
 
 BEGIN_OPERATOR(halt)
   LOWERCASE_REQUIRES_BANG;
-  PORT(1, 0, IN | PARAM, "Input");
+  PORT(1, 0, IN | PARAM, Port_label_input);
 END_OPERATOR
 
 BEGIN_OPERATOR(increment)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Rate");
-  PORT(0, 1, IN, "Max");
-  PORT(1, 0, IN | OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN, Port_label_max);
+  PORT(1, 0, IN | OUT, Port_label_output);
   Glyph ga = PEEK(0, -1);
   Glyph gb = PEEK(0, 1);
   Usz rate = 1;
@@ -530,10 +567,10 @@ BEGIN_OPERATOR(jump)
   Glyph g = PEEK(-1, 0);
   if (g == 'J')
     return;
-  PORT(-1, 0, IN, "Input");
+  PORT(-1, 0, IN, Port_label_input);
   for (Isz i = 1; i <= 256; ++i) {
     if (PEEK(i, 0) != This_oper_char) {
-      PORT(i, 0, OUT, "");
+      PORT(i, 0, OUT, Port_label_output);
       POKE(i, 0, g);
       break;
     }
@@ -548,14 +585,14 @@ BEGIN_OPERATOR(konkat)
   Isz len = (Isz)index_of(PEEK(0, -1));
   if (len == 0)
     len = 1;
-  PORT(0, -1, IN | PARAM, "Length");
+  PORT(0, -1, IN | PARAM, Port_label_length);
   for (Isz i = 0; i < len; ++i) {
-    PORT(0, i + 1, IN | PARAM, "Variable");
+    PORT(0, i + 1, IN | PARAM, Port_label_variable);
     Glyph var = PEEK(0, i + 1);
     if (var != '.') {
       Usz var_idx = index_of(var);
       Glyph result = extra_params->vars_slots[var_idx];
-      PORT(1, i + 1, OUT, "");
+      PORT(1, i + 1, OUT, Port_label_output);
       POKE(1, i + 1, result);
     }
   }
@@ -563,9 +600,9 @@ END_OPERATOR
 
 BEGIN_OPERATOR(lesser)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Value A");
-  PORT(0, 1, IN, "Value B");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_value_a);
+  PORT(0, 1, IN, Port_label_value_b);
+  PORT(1, 0, OUT, Port_label_output);
   Glyph ga = PEEK(0, -1);
   Glyph gb = PEEK(0, 1);
   if (ga == '.' || gb == '.') {
@@ -580,9 +617,9 @@ END_OPERATOR
 
 BEGIN_OPERATOR(multiply)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Factor A");
-  PORT(0, 1, IN, "Factor B");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_factor_a);
+  PORT(0, 1, IN, Port_label_factor_b);
+  PORT(1, 0, OUT, Port_label_output);
   Glyph a = PEEK(0, -1);
   Glyph b = PEEK(0, 1);
   Glyph g = glyph_table[(index_of(a) * index_of(b)) % Glyphs_index_count];
@@ -593,10 +630,10 @@ BEGIN_OPERATOR(offset)
   LOWERCASE_REQUIRES_BANG;
   Isz in_x = (Isz)index_of(PEEK(0, -2)) + 1;
   Isz in_y = (Isz)index_of(PEEK(0, -1));
-  PORT(0, -1, IN | PARAM, "Y offset");
-  PORT(0, -2, IN | PARAM, "X offset");
-  PORT(in_y, in_x, IN, "Input");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_y_offset);
+  PORT(0, -2, IN | PARAM, Port_label_x_offset);
+  PORT(in_y, in_x, IN, Port_label_input);
+  PORT(1, 0, OUT, Port_label_output);
   POKE(1, 0, PEEK(in_y, in_x));
 END_OPERATOR
 
@@ -604,16 +641,16 @@ BEGIN_OPERATOR(push)
   LOWERCASE_REQUIRES_BANG;
   Usz key = index_of(PEEK(0, -2));
   Usz len = index_of(PEEK(0, -1));
-  PORT(0, -1, IN | PARAM, "Length");
-  PORT(0, -2, IN | PARAM, "Key");
-  PORT(0, 1, IN, "Input");
+  PORT(0, -1, IN | PARAM, Port_label_length);
+  PORT(0, -2, IN | PARAM, Port_label_key);
+  PORT(0, 1, IN, Port_label_input);
   if (len == 0)
     return;
   Isz out_x = (Isz)(key % len);
   for (Usz i = 0; i < len; ++i) {
     LOCK(1, (Isz)i);
   }
-  PORT(1, out_x, OUT, "");
+  PORT(1, out_x, OUT, Port_label_output);
   POKE(1, out_x, PEEK(0, 1));
 END_OPERATOR
 
@@ -623,13 +660,13 @@ BEGIN_OPERATOR(query)
   Isz in_y = (Isz)index_of(PEEK(0, -2));
   Isz len = (Isz)index_of(PEEK(0, -1));
   Isz out_x = 1 - len;
-  PORT(0, -3, IN | PARAM, "X offset"); // x
-  PORT(0, -2, IN | PARAM, "Y offset"); // y
-  PORT(0, -1, IN | PARAM, "Length"); // len
+  PORT(0, -3, IN | PARAM, Port_label_x_offset); // x
+  PORT(0, -2, IN | PARAM, Port_label_y_offset); // y
+  PORT(0, -1, IN | PARAM, Port_label_length); // len
   // todo direct buffer manip
   for (Isz i = 0; i < len; ++i) {
-    PORT(in_y, in_x + i, IN, "Input");
-    PORT(1, out_x + i, OUT, "");
+    PORT(in_y, in_x + i, IN, Port_label_input);
+    PORT(1, out_x + i, OUT, Port_label_output);
     Glyph g = PEEK(in_y, in_x + i);
     POKE(1, out_x + i, g);
   }
@@ -639,16 +676,16 @@ BEGIN_OPERATOR(track)
   LOWERCASE_REQUIRES_BANG;
   Usz key = index_of(PEEK(0, -2));
   Usz len = index_of(PEEK(0, -1));
-  PORT(0, -2, IN | PARAM, "Key");
-  PORT(0, -1, IN | PARAM, "Length");
+  PORT(0, -2, IN | PARAM, Port_label_key);
+  PORT(0, -1, IN | PARAM, Port_label_length);
   if (len == 0)
     return;
   Isz read_val_x = (Isz)(key % len) + 1;
   for (Usz i = 0; i < len; ++i) {
     LOCK(0, (Isz)(i + 1));
   }
-  PORT(0, (Isz)read_val_x, IN, "Input");
-  PORT(1, 0, OUT, "");
+  PORT(0, (Isz)read_val_x, IN, Port_label_input);
+  PORT(1, 0, OUT, Port_label_output);
   POKE(1, 0, PEEK(0, read_val_x));
 END_OPERATOR
 
@@ -656,9 +693,9 @@ END_OPERATOR
 // simplest-euclidean-rhythm-algorithm-explained/
 BEGIN_OPERATOR(uclid)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Steps");
-  PORT(0, 1, IN, "Max");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_steps);
+  PORT(0, 1, IN, Port_label_max);
+  PORT(1, 0, OUT, Port_label_output);
   Glyph left = PEEK(0, -1);
   Usz steps = 1;
   if (left != '.' && left != '*')
@@ -673,8 +710,8 @@ END_OPERATOR
 
 BEGIN_OPERATOR(variable)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Variable");
-  PORT(0, 1, IN, "Value");
+  PORT(0, -1, IN | PARAM, Port_label_variable);
+  PORT(0, 1, IN, Port_label_value);
   Glyph left = PEEK(0, -1);
   Glyph right = PEEK(0, 1);
   if (left != '.') {
@@ -683,7 +720,7 @@ BEGIN_OPERATOR(variable)
     extra_params->vars_slots[var_idx] = right;
   } else if (right != '.') {
     // Read
-    PORT(1, 0, OUT, "");
+    PORT(1, 0, OUT, Port_label_output);
     Usz var_idx = index_of(right);
     Glyph result = extra_params->vars_slots[var_idx];
     POKE(1, 0, result);
@@ -694,10 +731,10 @@ BEGIN_OPERATOR(teleport)
   LOWERCASE_REQUIRES_BANG;
   Isz out_x = (Isz)index_of(PEEK(0, -2));
   Isz out_y = (Isz)index_of(PEEK(0, -1)) + 1;
-  PORT(0, -2, IN | PARAM, "X offset"); // x
-  PORT(0, -1, IN | PARAM, "Y offset"); // y
-  PORT(0, 1, IN, "Input");
-  PORT(out_y, out_x, OUT | NONLOCKING, "");
+  PORT(0, -2, IN | PARAM, Port_label_x_offset); // x
+  PORT(0, -1, IN | PARAM, Port_label_y_offset); // y
+  PORT(0, 1, IN, Port_label_input);
+  PORT(out_y, out_x, OUT | NONLOCKING, Port_label_output);
   POKE_STUNNED(out_y, out_x, PEEK(0, 1));
 END_OPERATOR
 
@@ -706,10 +743,10 @@ BEGIN_OPERATOR(yump)
   Glyph g = PEEK(0, -1);
   if (g == 'Y')
     return;
-  PORT(0, -1, IN, "Input");
+  PORT(0, -1, IN, Port_label_input);
   for (Isz i = 1; i <= 256; ++i) {
     if (PEEK(0, i) != This_oper_char) {
-      PORT(0, i, OUT, "");
+      PORT(0, i, OUT, Port_label_output);
       POKE(0, i, g);
       break;
     }
@@ -719,9 +756,9 @@ END_OPERATOR
 
 BEGIN_OPERATOR(lerp)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, -1, IN | PARAM, "Rate");
-  PORT(0, 1, IN, "Target");
-  PORT(1, 0, IN | OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN, Port_label_target);
+  PORT(1, 0, IN | OUT, Port_label_output);
   Glyph g = PEEK(0, -1);
   Glyph b = PEEK(0, 1);
   Isz rate = g == '.' || g == '*' ? 1 : (Isz)index_of(g);
@@ -733,12 +770,12 @@ END_OPERATOR
 
 // BOORCH's Scale operator. Its scales and chords come from music.h.
 BEGIN_OPERATOR(scale)
-  PORT(0, 1, IN | PARAM, "Octave");   // Octave input
-  PORT(0, 2, IN | PARAM, "Root");   // Root note (like C, c, D etc)
-  PORT(0, 3, IN | PARAM, "Scale");   // Selector: 0-9 scales, a-z chords, A-Z first inversions
-  PORT(0, 4, IN | PARAM, "Degree");   // Degree
-  PORT(1, -1, OUT, ""); // Octave output
-  PORT(1, 0, OUT, "");  // Note output
+  PORT(0, 1, IN | PARAM, Port_label_octave);   // Octave input
+  PORT(0, 2, IN | PARAM, Port_label_root);   // Root note (like C, c, D etc)
+  PORT(0, 3, IN | PARAM, Port_label_scale_selector);   // Selector: 0-9 scales, a-z chords, A-Z first inversions
+  PORT(0, 4, IN | PARAM, Port_label_degree);   // Degree
+  PORT(1, -1, OUT, Port_label_output); // Octave output
+  PORT(1, 0, OUT, Port_label_output);  // Note output
 
   // Lock inputs
   LOCK(0, 1);
@@ -807,13 +844,13 @@ END_OPERATOR
 // BOORCH's MIDIChord operator. Its chords come from music.h.
 BEGIN_OPERATOR(midichord)
   // Check all required input ports
-  PORT(0, 1, IN | PARAM, "Channel");
-  PORT(0, 2, IN | PARAM, "Octave");
-  PORT(0, 3, IN | PARAM, "Root note");
-  PORT(0, 4, IN | PARAM, "Chord type");
-  PORT(0, 5, IN | PARAM, "Velocity");
-  PORT(0, 6, IN | PARAM, "Length");
-  PORT(0, 0, OUT, ""); // Mark output immediately
+  PORT(0, 1, IN | PARAM, Port_label_channel);
+  PORT(0, 2, IN | PARAM, Port_label_octave);
+  PORT(0, 3, IN | PARAM, Port_label_root_note);
+  PORT(0, 4, IN | PARAM, Port_label_chord_type);
+  PORT(0, 5, IN | PARAM, Port_label_velocity);
+  PORT(0, 6, IN | PARAM, Port_label_length);
+  PORT(0, 0, OUT, Port_label_output); // Mark output immediately
   STOP_IF_NOT_BANGED;
 
   // Get base note information with local scope
@@ -1032,11 +1069,11 @@ static Usz get_arp_degree(ArpPatternType pattern, Usz step, Usz total_degrees,
 // changes.
 BEGIN_OPERATOR(arpeggiator)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, 1, IN | PARAM, "Range");   // Range (1-4)
-  PORT(0, 2, IN | PARAM, "Pattern"); // Pattern (0-9, a-d)
-  PORT(0, 3, IN | PARAM, "Length");  // Notes per octave (`.` is 7)
-  PORT(0, 4, IN | PARAM, "Step");    // `.` for the counter, else the step
-  PORT(1, 0, OUT, "");               // Degree output
+  PORT(0, 1, IN | PARAM, Port_label_range);   // Range (1-4)
+  PORT(0, 2, IN | PARAM, Port_label_pattern); // Pattern (0-9, a-d)
+  PORT(0, 3, IN | PARAM, Port_label_length);  // Notes per octave (`.` is 7)
+  PORT(0, 4, IN | PARAM, Port_label_step);    // `.` for the counter, else the step
+  PORT(1, 0, OUT, Port_label_output);               // Degree output
 
   // Get inputs
   Glyph range_g = PEEK(0, 1);
@@ -1152,9 +1189,9 @@ static ORCA_FORCEINLINE void
 random_hashed(Glyph *const restrict gbuffer, Mark *const restrict mbuffer,
               Usz const height, Usz const width, Usz const y, Usz const x,
               Usz Tick_number, Oper_extra_params *const extra_params) {
-  PORT(0, -1, IN | PARAM, "Min");
-  PORT(0, 1, IN, "Max");
-  PORT(1, 0, OUT, "");
+  PORT(0, -1, IN | PARAM, Port_label_min);
+  PORT(0, 1, IN, Port_label_max);
+  PORT(1, 0, OUT, Port_label_output);
   Glyph gb = PEEK(0, 1);
   Usz a = index_of(PEEK(0, -1));
   Usz b = index_of(gb);
@@ -1191,9 +1228,9 @@ BEGIN_OPERATOR(random)
   if (glyph_is_lowercase(This_oper_char)) {
     // Lowercase 'r' - requires bang and uses shuffle algorithm
     LOWERCASE_REQUIRES_BANG;
-    PORT(0, -1, IN | PARAM, "Min"); // Min
-    PORT(0, 1, IN, "Max");          // Max
-    PORT(1, 0, OUT, "");         // Output
+    PORT(0, -1, IN | PARAM, Port_label_min); // Min
+    PORT(0, 1, IN, Port_label_max);          // Max
+    PORT(1, 0, OUT, Port_label_output);         // Output
 
     Glyph min_glyph = PEEK(0, -1);
     Glyph max_glyph = PEEK(0, 1);
@@ -1298,11 +1335,11 @@ enum { Ticks_per_beat = 4 };
 // change keeps the anchor. The shell sets every anchor back to 0 on an
 // external MIDI start or song position (opstate_reset_anchors, AD-6).
 BEGIN_OPERATOR(bouncer)
-  PORT(0, 1, IN | PARAM, "Start"); // Start value (a)
-  PORT(0, 2, IN | PARAM, "End"); // End value (b)
-  PORT(0, 3, IN | PARAM, "Rate"); // Rate (the cycle length in beats)
-  PORT(0, 4, IN | PARAM, "Shape"); // Shape (0-7 for different waveforms)
-  PORT(1, 0, OUT, "");
+  PORT(0, 1, IN | PARAM, Port_label_start); // Start value (a)
+  PORT(0, 2, IN | PARAM, Port_label_end); // End value (b)
+  PORT(0, 3, IN | PARAM, Port_label_rate); // Rate (the cycle length in beats)
+  PORT(0, 4, IN | PARAM, Port_label_shape); // Shape (0-7 for different waveforms)
+  PORT(1, 0, OUT, Port_label_output);
 
   Glyph start_g = PEEK(0, 1);
   Glyph end_g = PEEK(0, 2);
@@ -1367,9 +1404,9 @@ END_OPERATOR
 // A plain CC from three inputs: channel, control, and a value 0-z scaled to
 // 0-127 by x 127 / 35. Never a glide.
 BEGIN_OPERATOR(midicc_upstream)
-  PORT(0, 1, IN, "Channel");
-  PORT(0, 2, IN, "Control");
-  PORT(0, 3, IN, "Value");
+  PORT(0, 1, IN, Port_label_channel);
+  PORT(0, 2, IN, Port_label_control);
+  PORT(0, 3, IN, Port_label_cc_value_upstream);
   STOP_IF_NOT_BANGED;
   Glyph channel_g = PEEK(0, 1);
   Glyph control_g = PEEK(0, 2);
@@ -1379,7 +1416,7 @@ BEGIN_OPERATOR(midicc_upstream)
   Usz channel = index_of(channel_g);
   if (channel > 15)
     return;
-  PORT(0, 0, OUT, "");
+  PORT(0, 0, OUT, Port_label_output);
   Oevent_midi_cc *oe =
       (Oevent_midi_cc *)oevent_list_alloc_item(extra_params->oevent_list);
   oe->oevent_type = Oevent_type_midi_cc;
@@ -1407,7 +1444,7 @@ BEGIN_OPERATOR(udp)
   }
   n = i;
   STOP_IF_NOT_BANGED;
-  PORT(0, 0, OUT, "");
+  PORT(0, 0, OUT, Port_label_output);
   Oevent_udp_string *oe =
       (Oevent_udp_string *)oevent_list_alloc_item(extra_params->oevent_list);
   oe->oevent_type = (U8)Oevent_type_udp_string;
@@ -1420,18 +1457,18 @@ END_OPERATOR
 // Sends an OSC message to the path /<path glyph>, with count integers, each
 // a value glyph's 0-35, read east of the count.
 BEGIN_OPERATOR(osc)
-  PORT(0, 1, IN | PARAM, "Path");
-  PORT(0, 2, IN | PARAM, "Count");
+  PORT(0, 1, IN | PARAM, Port_label_path);
+  PORT(0, 2, IN | PARAM, Port_label_count);
   Usz len = index_of(PEEK(0, 2));
   if (len > Oevent_osc_int_count)
     len = Oevent_osc_int_count;
   for (Usz i = 0; i < len; ++i) {
-    PORT(0, (Isz)i + 3, IN, "Value");
+    PORT(0, (Isz)i + 3, IN, Port_label_value);
   }
   STOP_IF_NOT_BANGED;
   Glyph g = PEEK(0, 1);
   if (g != '.') {
-    PORT(0, 0, OUT, "");
+    PORT(0, 0, OUT, Port_label_output);
     U8 buff[Oevent_osc_int_count];
     for (Usz i = 0; i < len; ++i) {
       buff[i] = (U8)index_of(PEEK(0, (Isz)i + 3));
@@ -1476,6 +1513,7 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
   extras.oevent_list = oevent_list;
   extras.random_seed = random_seed;
   extras.ctx = ctx;
+  extras.labels = ctx->labels;
 
 #define UNIQUE_CASE(_oper_char, _oper_name)                                    \
   case _oper_char:                                                             \
