@@ -110,8 +110,10 @@ static bool triple_is(Triple t, int status, int d1, int d2) {
 
 // The model shell: the grid, store, lists, sustained notes and CC engine a
 // tick body needs, tick_num and the playing flag, which the machine's
-// actions drive as tui_main.c's do (AD-15): stop or clock lost releases the
-// notes, cancels the glides and pauses, keeping tick_num; set tick; reset
+// actions drive as tui_main.c's do (AD-15): stop or clock lost is
+// tick_stop with the clock-out gate shut, as ged_set_playing(false) under
+// External (note-offs, glides cancelled, /orca/stopped, no FC), then pause,
+// keeping tick_num; set tick; reset
 // anchors; start; then one tick body if a tick is due and the model is
 // playing. tick_len is the estimate while valid, else 120 BPM's. The model
 // also counts what the shell would send as /orca/bpm: the shown value on
@@ -151,11 +153,7 @@ static void model_init(Model *md) {
   susnote_list_init(&md->susnotes);
   ccout_init(&md->ccout);
   md->tick_len = tick_len_us(120);
-  md->sink = (Tick_sink){.u = &md->rec,
-                         .midi3 = rec_midi3,
-                         .midi1 = rec_midi1,
-                         .osc = rec_osc,
-                         .control = rec_control};
+  md->sink = rec_sink(&md->rec);
   transport_reset(&md->m);
 }
 
@@ -190,8 +188,7 @@ static void seed_glide(Model *md) {
 
 static void model_apply(Model *md, Transport_actions const *act, U64 now) {
   if (act->stop || act->clock_lost) {
-    tick_release_all(&md->sink, &md->susnotes);
-    ccout_cancel(&md->ccout);
+    tick_stop(&md->sink, &md->susnotes, &md->ccout, false);
     md->playing = false;
   }
   if (act->set_tick)

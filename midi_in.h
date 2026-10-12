@@ -4,18 +4,17 @@
 #include "transport.h"
 #include <stdio.h>
 
-// The MIDI input side of the shell (architecture spine AD-2, AD-16, AD-17):
-// the pure parts, shared by tui_main.c and the unit tests, which link none of
+// The MIDI input side of the shell (architecture spine AD-2, AD-16, AD-17): the
+// pure parts, shared by tui_main.c and the unit tests, which link none of
 // tui_main.c, among them the clock-out state Clock_out and its inlines, which
 // send the beat clock through the tick.h sink, and the PortMidi reader's
 // decode, pm_in_decode; it also holds the ALSA client-name scan that the
 // startup guard runs (the scan's I/O is the caller's `next` callback).
-// Everything here is static inline, reads no clock and does no I/O but
-// through a sink or a callback.
-// The backend-specific helpers sit behind their FEAT_ flags and may include
-// that backend's header (an adapter, not core). BORCA_HAS_MIDI_IN is defined
-// when a build has a reader; with none, External is hidden and the
-// --clock-source and --midi-in flags are unknown options.
+// Everything here is static inline, reads no clock and does no I/O but through
+// a sink or a callback. The backend-specific helpers sit behind their FEAT_
+// flags and may include that backend's header (an adapter, not core).
+// BORCA_HAS_MIDI_IN is defined when a build has a reader; with none, External
+// is hidden and the --clock-source and --midi-in flags are unknown options.
 
 #if defined(FEAT_ALSA) || defined(FEAT_PORTMIDI)
 #define BORCA_HAS_MIDI_IN 1
@@ -123,10 +122,12 @@ typedef struct {
   bool enabled;      // the stored Send MIDI Beat Clock setting
 } Clock_out;
 
-// The one predicate: every F8, FA, FB and FC bOrca sends is gated by it, the
-// stored setting while the source is Internal. External suspends clock-out
-// for the session without clearing the setting, so nothing echoes transport
-// back to a master.
+// The one predicate (AD-16): the stored setting while the source is
+// Internal. F8, FA and FB are sent only while it is true; the toggle's FC is
+// sent as it turns false, and tick_stop's FC is gated by the caller's copy of
+// it, taken before is_playing clears. External suspends clock-out for the
+// session without clearing the setting, so nothing echoes transport back to
+// a master.
 static inline bool clock_out_active(Clock_out const *co, Clock_source src) {
   return co->enabled && src == Clock_source_internal;
 }
@@ -141,9 +142,10 @@ static inline double clock_out_span(Clock_out const *co, Clock_source src,
   return secs_span;
 }
 
-// The start (ged_set_playing(true)): clock = now and sixths = 0, and the
-// first deadline just under one span away; FA when clock-out is active. The
-// shell then sends /orca/started.
+// The start (ged_set_playing(true)): clock = now, sixths = 0 and accum_secs
+// just under one span, so the first deadline (the first tick, and with
+// clock-out the first F8) comes about 0.1 ms after the start; FA when
+// clock-out is active. The shell then sends /orca/started.
 static inline void clock_out_on_start(Clock_out *co, Clock_source src,
                                       Usz bpm, U64 now,
                                       Tick_sink const *sink) {

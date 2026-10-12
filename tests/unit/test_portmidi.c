@@ -82,10 +82,12 @@ void test_portmidi_in_filter(void) {
 
 // The reader's decode (pm_in_decode, AD-17) on PortMidi's own message
 // packing: F2 with Data1 16 is song position 16 (Data1 and Data2 swapped
-// would give 16 << 7), FB is continue, F8 a clock, each with its stamp, and a
-// note is refused with *out left alone. Applied in order to a reset machine,
-// as the shell applies them (AD-15): F2 sets tick 16, FB starts, and of six
-// F8s only the first makes a tick due, so a tick counter ends at 17.
+// would give 16 << 7) and F2 with Data1 16 and Data2 1 is 144 (Data2 is the
+// high seven bits), FA is start, FB continue, FC stop and F8 a clock, each
+// with its stamp, and a note is refused with *out left alone. Applied in
+// order to a reset machine, as the shell applies them (AD-15): F2 sets tick
+// 16, FB starts, and of six F8s only the first makes a tick due, so a tick
+// counter ends at 17.
 void test_portmidi_in_decode(void) {
   Transport_event ev[8];
   CHECK(pm_in_decode(Pm_Message(0xF2, 16, 0), 1, &ev[0]));
@@ -101,6 +103,13 @@ void test_portmidi_in_decode(void) {
   Transport_event note = {.type = Transport_stop, .value = 7, .stamp = 99};
   CHECK(!pm_in_decode(Pm_Message(0x90, 60, 100), 9, &note));
   CHECK(note.type == Transport_stop && note.value == 7 && note.stamp == 99);
+  Transport_event e;
+  CHECK(pm_in_decode(Pm_Message(0xF2, 16, 1), 10, &e));
+  CHECK(e.type == Transport_songpos && e.value == 144 && e.stamp == 10);
+  CHECK(pm_in_decode(Pm_Message(0xFA, 0, 0), 11, &e));
+  CHECK(e.type == Transport_start && e.stamp == 11);
+  CHECK(pm_in_decode(Pm_Message(0xFC, 0, 0), 12, &e));
+  CHECK(e.type == Transport_stop && e.stamp == 12);
 
   Transport m;
   transport_reset(&m);
