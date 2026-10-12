@@ -179,6 +179,83 @@ jobs:
           rm "$canary"
           test -z "$(git status --porcelain)"
 
+      # The shared crash rule's failure path (tests/lib.sh). A fake cli runs
+      # the release cli for every file but tests/patches/pitch_bend.orca and
+      # examples/basics/_midi.orca. For those, by MODE, it prints a UBSan
+      # "runtime error:" line and exits 0 (san); sleeps 5 s under a timeout
+      # shim on PATH that runs the real timeout with 1 s, so the command -v
+      # timeout path is the one tested (slow); or exits 3 after the real
+      # output (exit3). tests/run.sh and tests/check-examples.sh must each
+      # exit 1 with the exact FAIL line for san and slow (and, for san, the
+      # report excerpt and summary line). For exit3, check-examples.sh must
+      # fail the file, and run.sh, under a throwaway pitch_bend.xfail
+      # holding B2, must report XFAIL and exit 0: only check-examples.sh
+      # fails a plain non-zero exit. The tree must end clean.
+      - name: Golden and examples checks catch a planted crash (canary)
+        run: |
+          fake="$RUNNER_TEMP/cli-planted"
+          shim="$RUNNER_TEMP/timeout-shim"
+          log="$RUNNER_TEMP/planted_crash.log"
+          marker=tests/expected/patches/pitch_bend.xfail
+          mkdir -p "$shim"
+          printf '#!/bin/sh\nshift\nexec "%s" 1 "$@"\n' \
+            "$(command -v timeout)" >"$shim/timeout"
+          printf '%s\n' '#!/bin/sh' \
+            'case "$*" in *basics/_midi.orca*|*pitch_bend.orca*)' \
+            '  case $MODE in' \
+            '    san) "$REAL_CLI" "$@"; echo "x.c:1:2: runtime error: planted" >&2; exit 0 ;;' \
+            '    slow) sleep 5 ;;' \
+            '    exit3) "$REAL_CLI" "$@"; exit 3 ;;' \
+            '  esac ;;' \
+            'esac' \
+            'exec "$REAL_CLI" "$@"' >"$fake"
+          chmod +x "$shim/timeout" "$fake"
+          export REAL_CLI="$PWD/build/cli"
+          # run_check <MODE> <PATH> <want status> <script> <args...>
+          run_check() {
+            mode=$1 path=$2 want=$3
+            shift 3
+            status=0
+            MODE=$mode PATH=$path "$@" >"$log" 2>&1 || status=$?
+            cat "$log"
+            if [ "$status" != "$want" ]; then
+              echo "$mode: expected exit $want from $1, got $status"
+              exit 1
+            fi
+          }
+          # need <line>...: each line must be in the log, exactly.
+          need() {
+            for line in "$@"; do
+              if ! grep -qxF -- "$line" "$log"; then
+                echo "$mode: expected the line '$line'"
+                exit 1
+              fi
+            done
+          }
+          run_check san "$PATH" 1 tests/run.sh "$fake" pitch_bend
+          need 'FAIL  tests/patches/pitch_bend.orca (sanitizer report)' \
+            '      x.c:1:2: runtime error: planted' \
+            '1 cases: 0 pass, 0 xfail, 1 fail, 0 xpass, 0 orphaned'
+          run_check san "$PATH" 1 tests/check-examples.sh "$fake"
+          need 'FAIL   examples/basics/_midi.orca (cli -t 0: sanitizer report)' \
+            '       x.c:1:2: runtime error: planted'
+          # Only the planted file fails; the counts follow the example set.
+          if ! grep -Eqx 'examples check: [0-9]+ files, [0-9]+ pass, [0-9]+ exceptions, 1 fail' "$log"; then
+            echo "san: expected the examples summary with exactly 1 fail"
+            exit 1
+          fi
+          run_check slow "$shim:$PATH" 1 tests/run.sh "$fake" pitch_bend
+          need 'FAIL  tests/patches/pitch_bend.orca (cli exited 124 (signal or timeout))'
+          run_check slow "$shim:$PATH" 1 tests/check-examples.sh "$fake"
+          need 'FAIL   examples/basics/_midi.orca (cli -t 0: cli exited 124 (signal or timeout))'
+          run_check exit3 "$PATH" 1 tests/check-examples.sh "$fake"
+          need 'FAIL   examples/basics/_midi.orca (cli -t 0: cli exited 3)'
+          printf 'B2\n' >"$marker"
+          run_check exit3 "$PATH" 0 tests/run.sh "$fake" pitch_bend
+          need 'XFAIL tests/patches/pitch_bend.orca (waiting for B2)'
+          rm "$marker"
+          test -z "$(git status --porcelain)"
+
       # The upstream dialect against Orca-c 9df9786 itself (CAP-13, spine
       # AD-21). build-cli.sh builds Orca-c's cli with --events and --seed,
       # fetching the commit by URL, since the checkout is shallow. compare.sh
@@ -619,7 +696,7 @@ jobs:
         run: >-
           shellcheck -s sh tool tests/run.sh tests/check-includes.sh
           tests/check-nm.sh tests/check-debug-build.sh tests/check-doc-sync.sh
-          tests/check-examples.sh tests/upstream/build-cli.sh
+          tests/check-examples.sh tests/lib.sh tests/upstream/build-cli.sh
           tests/upstream/compare.sh tests/wakeups/ab.sh
 
   # The debug cli and the unit runner under clang's UBSan, whose

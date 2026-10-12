@@ -17,9 +17,11 @@
 # EXCEPT with its reason. A listed exception that passes, or that names a
 # file that does not exist, fails the run, so the list cannot go stale. A
 # non-zero cli exit, a sanitizer report, a signal or a timeout fails the
-# file, exception or not. examples/upstream/ is skipped: those patches need
-# --dialect upstream, and their tests/run.sh goldens, which pass and hold
-# event lines, prove that each does something there (CAP-13).
+# file, exception or not: the last three are tests/run.sh's crash rule,
+# shared through tests/lib.sh, and the non-zero exit is this script's own.
+# examples/upstream/ is skipped: those patches need --dialect upstream, and
+# their tests/run.sh goldens, which pass and hold event lines, prove that
+# each does something there (CAP-13).
 #
 # Exit status: 0 when every file passes or is a listed exception that still
 # fails the rule, 1 otherwise, 2 on usage.
@@ -48,14 +50,8 @@ case $cli in
 esac
 
 ticks=64
-sanitizer_re='AddressSanitizer|LeakSanitizer|UndefinedBehaviorSanitizer|runtime error:'
-# Make UBSan stop at its first report, so it fails the exit status as well.
-UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1${UBSAN_OPTIONS:+:$UBSAN_OPTIONS}"
-export UBSAN_OPTIONS
-timeout_cmd=
-if command -v timeout >/dev/null 2>&1; then
-  timeout_cmd="timeout 60"
-fi
+# shellcheck source=lib.sh source-path=SCRIPTDIR
+. "$root/tests/lib.sh" || exit 2
 
 tmpd=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmpd"' EXIT
@@ -74,20 +70,15 @@ exception_reason() {
     END { exit !found }'
 }
 
-# run_cli <output file> <args...>: runs cli, sets rc_crash when it crashed
-# or reported a sanitizer error, rc_status to its exit status.
+# run_cli <output file> <args...>: runs cli through tests/lib.sh's
+# run_checked, which sets rc_status to its exit status and rc_crash when it
+# crashed or reported a sanitizer error; here a plain non-zero exit sets
+# rc_crash too.
 run_cli() {
   rc_out=$1
   shift
-  # shellcheck disable=SC2086  # $timeout_cmd is a word list
-  $timeout_cmd "$cli" "$@" >"$rc_out" 2>&1
-  rc_status=$?
-  rc_crash=
-  if [ "$rc_status" -ge 124 ]; then
-    rc_crash="cli exited $rc_status (signal or timeout)"
-  elif grep -Eq "$sanitizer_re" "$rc_out"; then
-    rc_crash="sanitizer report"
-  elif [ "$rc_status" != 0 ]; then
+  run_checked "$rc_out" "$cli" "$@"
+  if [ -z "$rc_crash" ] && [ "$rc_status" != 0 ]; then
     rc_crash="cli exited $rc_status"
   fi
 }

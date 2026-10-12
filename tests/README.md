@@ -48,7 +48,11 @@ files sit under `tests/expected/examples/upstream/<dir>/` (see
   the 60 s per-case timeout (applied when `timeout(1)` is on `PATH`) fails
   the run whatever the marker says, so the
   debug build must stay clean on every case. A plain non-zero exit (such as a
-  rejected flag) counts as a mismatch and may be marked.
+  rejected flag) counts as a mismatch and may be marked. This crash rule,
+  with the sanitizer pattern, `UBSAN_OPTIONS` and the timeout, lives in
+  `tests/lib.sh`, which `tests/check-examples.sh` sources too;
+  `tests/upstream/compare.sh` takes only the pattern, `UBSAN_OPTIONS` and
+  the timeout from it.
 - An expected file or sidecar whose input no longer exists under `examples/`
   or `tests/patches/` is reported as ORPHAN and fails the run, so renamed or
   removed patches cannot leave stale goldens behind.
@@ -343,8 +347,10 @@ passes, or that names a missing file or one under `examples/upstream/`, so
 the list cannot go stale. A non-zero `cli` exit, a sanitizer report, a
 signal or the 60 s per-run timeout (applied when `timeout(1)` is on `PATH`)
 fails the file, exception or not, as does output that is not 64 ticks of
-event lines and grids. The script exits 0 only when every file passes or is
-a listed exception. An example run, with B7's examples:
+event lines and grids. The sanitizer, signal and timeout part is the golden
+suite's crash rule, from `tests/lib.sh`; the non-zero exit is this script's
+own addition. The script exits 0 only when every file passes or is a listed
+exception. An example run, with B7's examples:
 
 ```text
 $ nice -n 19 taskset -c 0-2 tests/check-examples.sh build/debug/cli
@@ -755,12 +761,25 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `ok portmidi_error_text_and_filters`, the `--alsa` run unless it prints
   `ok alsa_version_and_open_modes`), and runs
   `tests/check-debug-build.sh` on each runner with its log before the next
-  build replaces it. Five steps prove the checks' failure paths on every
+  build replaces it. Six steps prove the checks' failure paths on every
   run: `tests/run.sh` must fail a throwaway `pitch_bend.xfail` holding
   `TODO`, then `B2 B5`, as a bad marker, and `--update` must leave an
   edited `pitch_bend.events` alone, after which the tree must be clean;
   `tests/check-examples.sh` must exit 1 with a FAIL line for a throwaway
   dots-only `examples/ci-canary.orca`, after which the tree must be clean;
+  a fake `cli` under `$RUNNER_TEMP`, which runs the release `cli` for every
+  file but `tests/patches/pitch_bend.orca` and
+  `examples/basics/_midi.orca`, must make `tests/run.sh <fake> pitch_bend`
+  and `tests/check-examples.sh <fake>` each exit 1 with its exact FAIL
+  line, once when it prints a `runtime error:` line and exits 0 for those
+  two (`sanitizer report`, with the report excerpt and summary line) and
+  once when it sleeps 5 s under a `timeout` shim on `PATH` that runs the
+  real `timeout` with 1 s (`cli exited 124 (signal or timeout)`), proving
+  `tests/lib.sh`'s shared crash rule in both scripts; when it exits 3
+  after the real output, `tests/check-examples.sh` must fail the file
+  (`cli exited 3`) and `tests/run.sh`, under a throwaway
+  `pitch_bend.xfail` holding `B2`, must report XFAIL and exit 0, after
+  which the tree must be clean;
   `tests/check-doc-sync.sh` must exit 1 on a README copy under
   `$RUNNER_TEMP` whose `k/K` row has one cell changed, printing that row,
   and on one with its end marker deleted, as bad markers;
@@ -795,8 +814,10 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   and runs `shellcheck -s sh` over `tool`, `tests/run.sh`,
   `tests/check-includes.sh`, `tests/check-nm.sh`,
   `tests/check-debug-build.sh`, `tests/check-doc-sync.sh`,
-  `tests/check-examples.sh`, `tests/upstream/build-cli.sh`,
-  `tests/upstream/compare.sh` and `tests/wakeups/ab.sh`.
+  `tests/check-examples.sh`, `tests/lib.sh`, `tests/upstream/build-cli.sh`,
+  `tests/upstream/compare.sh` and `tests/wakeups/ab.sh`. `tests/lib.sh` must
+  be in that list: without `-x`, shellcheck follows a sourced file only when
+  it is given too.
 - **clang** (`ubuntu-24.04`, P3-2, deferred-work #19): builds the debug
   `cli` and the debug unit runner with `CC=clang` and
   `CFLAGS_EXTRA="-fsanitize=undefined,pointer-overflow

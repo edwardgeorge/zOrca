@@ -15,7 +15,9 @@
 # lands the item deletes the marker. A marker that is empty, holds anything
 # but one such id, or names two ids fails the case as a bad marker, in both
 # modes. A marker never hides a crash: a sanitizer report, a signal or a
-# timeout fails the run whatever the marker says.
+# timeout fails the run whatever the marker says. That crash rule, the
+# sanitizer pattern, UBSAN_OPTIONS and the timeout live in tests/lib.sh,
+# which tests/check-examples.sh shares.
 #
 # --update rewrites expected files from the current output and skips cases
 # that carry a marker, valid or bad, so hand-written fixed-behaviour files
@@ -44,14 +46,8 @@ case $cli in
 esac
 
 default_args="-t 64 --seed 0 --dialect borca"
-sanitizer_re='AddressSanitizer|LeakSanitizer|UndefinedBehaviorSanitizer|runtime error:'
-# Make UBSan stop at its first report, so it fails the exit status as well.
-UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1${UBSAN_OPTIONS:+:$UBSAN_OPTIONS}"
-export UBSAN_OPTIONS
-timeout_cmd=
-if command -v timeout >/dev/null 2>&1; then
-  timeout_cmd="timeout 60"
-fi
+# shellcheck source=lib.sh source-path=SCRIPTDIR
+. "$root/tests/lib.sh" || exit 2
 
 tmp=$(mktemp) || exit 2
 list=$(mktemp) || exit 2
@@ -124,15 +120,8 @@ run_case() {
     return
   fi
 
-  # shellcheck disable=SC2086  # $timeout_cmd and $rc_args are word lists
-  $timeout_cmd "$cli" --events $rc_args "$root/$rc_in" >"$tmp" 2>&1
-  rc_status=$?
-  rc_crash=
-  if [ "$rc_status" -ge 124 ]; then
-    rc_crash="cli exited $rc_status (signal or timeout)"
-  elif grep -Eq "$sanitizer_re" "$tmp"; then
-    rc_crash="sanitizer report"
-  fi
+  # shellcheck disable=SC2086  # $rc_args is a word list
+  run_checked "$tmp" "$cli" --events $rc_args "$root/$rc_in"
 
   if [ "$update" = 1 ]; then
     if [ -n "$rc_xfail" ]; then

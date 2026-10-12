@@ -56,14 +56,8 @@ if [ ! -x "$up_cli" ] || [ ! -d "$tree/examples" ]; then
   exit 2
 fi
 
-sanitizer_re='AddressSanitizer|LeakSanitizer|UndefinedBehaviorSanitizer|runtime error:'
-# Make UBSan stop at its first report, so it fails the exit status as well.
-UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1${UBSAN_OPTIONS:+:$UBSAN_OPTIONS}"
-export UBSAN_OPTIONS
-timeout_cmd=
-if command -v timeout >/dev/null 2>&1; then
-  timeout_cmd="timeout 60"
-fi
+# shellcheck source=../lib.sh source-path=SCRIPTDIR
+. "$root/tests/lib.sh" || exit 2
 
 tmpd=$(mktemp -d) || exit 2
 trap 'rm -rf "$tmpd"' EXIT
@@ -83,7 +77,10 @@ fail() {
 
 # run <stdout file> <stderr file> <cli> <args...>: runs a cli and sets
 # run_error to why the run failed (a non-zero exit, a signal, a timeout or a
-# sanitizer report), or to nothing.
+# sanitizer report), or to nothing. Its crash rule differs from
+# tests/lib.sh's run_checked on purpose (the sanitizer check before the
+# status, two files, the word "exited"), so do not switch it to that: this
+# script shares only lib.sh's three constants.
 run() {
   r_out=$1 r_err=$2
   shift 2
