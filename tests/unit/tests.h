@@ -206,7 +206,8 @@ static inline Usz oevent_size(U8 type) {
   X(alsa_version_and_open_modes)                                               \
   X(alsa_in_mapping)                                                           \
   X(alsa_in_announce)                                                          \
-  X(alsa_in_split)
+  X(alsa_in_split)                                                             \
+  X(alsa_name_scan)
 #define CANARY_TESTS_ALL(X) X(unit_check_canary)
 
 // Every test's prototype, generated from the lists and outside any #ifdef:

@@ -126,10 +126,11 @@ fprintf(stderr,
 "    orca itself subscribes to the MIDI input while the clock source is\n"
 "    external. The client opens at startup even with --osc-midi-bidule,\n"
 "    whose output then replaces it. If the sequencer cannot be opened,\n"
-"    or another client already has the name (checked once, at startup),\n"
-"    orca exits with status 1. SIGTERM, SIGHUP and SIGINT quit cleanly,\n"
-"    stopping playback first, unless the signal was already ignored when\n"
-"    orca started.\n"
+"    or another client already has the name (checked at startup, before\n"
+"    and after taking the name), or the sequencer cannot list its\n"
+"    clients, orca exits with status 1. SIGTERM, SIGHUP and SIGINT quit\n"
+"    cleanly, stopping playback first, unless the signal was already\n"
+"    ignored when orca started.\n"
 );
 #endif
 } // clang-format on
@@ -951,23 +952,35 @@ static char const *alsa_client_name(void) {
   return name && *name ? name : "bOrca";
 }
 
+// One step of the name scan over the sequencer (midi_in.h alsa_name_scan):
+// snd_seq_query_next_client, whose cursor is the client info itself.
+typedef struct {
+  snd_seq_t *seq;
+  snd_seq_client_info_t *info;
+} Alsa_name_query;
+
+static int alsa_name_next_client(void *arg, int *client, char const **name) {
+  Alsa_name_query *q = arg;
+  int err = snd_seq_query_next_client(q->seq, q->info);
+  if (err < 0)
+    return err;
+  *client = snd_seq_client_info_get_client(q->info);
+  *name = snd_seq_client_info_get_name(q->info);
+  return err;
+}
+
 // Returns 1 if a client other than seq's own is named name, 0 if none is, or
-// a negative ALSA error code.
+// a negative ALSA error code, from the malloc or from a scan that failed
+// before the end of the list: a failed scan is never a free name.
 staticni int alsa_client_name_taken(snd_seq_t *seq, char const *name) {
   snd_seq_client_info_t *info;
   int err = snd_seq_client_info_malloc(&info);
   if (err < 0)
     return err;
-  int own = snd_seq_client_id(seq);
-  int taken = 0;
   snd_seq_client_info_set_client(info, -1);
-  while (snd_seq_query_next_client(seq, info) >= 0) {
-    if (snd_seq_client_info_get_client(info) != own &&
-        strcmp(snd_seq_client_info_get_name(info), name) == 0) {
-      taken = 1;
-      break;
-    }
-  }
+  Alsa_name_query q = {.seq = seq, .info = info};
+  int taken =
+      alsa_name_scan(alsa_name_next_client, &q, snd_seq_client_id(seq), name);
   snd_seq_client_info_free(info);
   return taken;
 }
@@ -978,9 +991,12 @@ staticni int alsa_client_name_taken(snd_seq_t *seq, char const *name) {
 // verify match the name, "MIDI out", its port number and its capability set
 // exactly, and neither sees a write-only port. Returns 0, -EEXIST if another
 // client already has the name, or another negative ALSA error code, with
-// nothing left open.
-staticni int alsa_ctx_open(Alsa_ctx *ctx) {
+// nothing left open; *scan_failed is set when that error came from a name
+// scan (the sequencer could not list its clients, or the client info could
+// not be allocated), so the caller can say so.
+staticni int alsa_ctx_open(Alsa_ctx *ctx, bool *scan_failed) {
   *ctx = (Alsa_ctx){.seq = NULL, .port = -1, .in_port = -1};
+  *scan_failed = false;
   snd_seq_t *seq;
   int err =
       snd_seq_open(&seq, "default", SND_SEQ_OPEN_DUPLEX, SND_SEQ_NONBLOCK);
@@ -988,14 +1004,19 @@ staticni int alsa_ctx_open(Alsa_ctx *ctx) {
     return err;
   char const *client_name = alsa_client_name();
   // Two clients with one name make the appliance router refuse to route
-  // either, so refuse a name another client holds. One check, no wait: the
-  // kernel drops a client when its process exits, and borca-tty.service
+  // either, so refuse a name another client holds. No wait: the kernel drops
+  // a client when its process exits, and borca-tty.service
   // (KillMode=control-group) starts a new instance only after the old one
   // has stopped; if the name is still held, its Restart=always retries.
-  // Two instances started at the same moment can both pass this check.
+  // This scan refuses an ordinary duplicate before it takes the name. A
+  // second scan, right after the rename and before any port exists, catches
+  // two instances started at the same moment: at most one same-name instance
+  // survives, possibly none, and Restart=always retries.
   err = alsa_client_name_taken(seq, client_name);
-  if (err < 0)
+  if (err < 0) {
+    *scan_failed = true;
     goto fail;
+  }
   if (err > 0) {
     err = -EEXIST;
     goto fail;
@@ -1003,6 +1024,18 @@ staticni int alsa_ctx_open(Alsa_ctx *ctx) {
   err = snd_seq_set_client_name(seq, client_name);
   if (err < 0)
     goto fail;
+  // The second scan: of two instances that renamed together, whichever
+  // rescans second sees the other. No port exists yet, so a refused client
+  // never shows a MIDI out port to the router.
+  err = alsa_client_name_taken(seq, client_name);
+  if (err < 0) {
+    *scan_failed = true;
+    goto fail;
+  }
+  if (err > 0) {
+    err = -EEXIST;
+    goto fail;
+  }
   err = snd_seq_create_simple_port(
       seq, "MIDI out", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
       SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
@@ -4736,7 +4769,18 @@ int main(int argc, char **argv) {
   // still be reported on stderr.
   Alsa_ctx alsa_ctx;
   {
-    int err = alsa_ctx_open(&alsa_ctx);
+    bool scan_failed;
+    int err = alsa_ctx_open(&alsa_ctx, &scan_failed);
+    if (scan_failed) {
+      fprintf(stderr,
+              "Cannot start: the scan for an ALSA client named '%s' failed: "
+              "%s\n",
+              alsa_client_name(), snd_strerror(err));
+      osofree(t.file_name);
+      osofree(t.osc_midi_bidule_path);
+      osofree(t.overrides.midi_in);
+      return 1;
+    }
     if (err == -EEXIST) {
       fprintf(stderr,
               "Cannot start: an ALSA client named '%s' is already running "

@@ -5,10 +5,12 @@
 
 // The MIDI input side of the shell (architecture spine AD-2, AD-16, AD-17):
 // the pure parts, shared by tui_main.c and the unit tests, which link none of
-// tui_main.c. Everything here is static inline, reads no clock and does no
-// I/O. The backend-specific helpers sit behind their FEAT_ flags and may
-// include that backend's header (an adapter, not core). BORCA_HAS_MIDI_IN is
-// defined when a build has a reader; with none, External is hidden and the
+// tui_main.c; it also holds the ALSA client-name scan that the startup guard
+// runs (the scan's I/O is the caller's `next` callback). Everything here is
+// static inline, reads no clock and does no I/O.
+// The backend-specific helpers sit behind their FEAT_ flags and may include
+// that backend's header (an adapter, not core). BORCA_HAS_MIDI_IN is defined
+// when a build has a reader; with none, External is hidden and the
 // --clock-source and --midi-in flags are unknown options.
 
 #if defined(FEAT_ALSA) || defined(FEAT_PORTMIDI)
@@ -131,6 +133,7 @@ static inline bool alsa_in_split(char const *name, Usz *client_len,
 
 #ifdef FEAT_ALSA
 #include <alsa/asoundlib.h>
+#include <errno.h>
 
 // The source bOrca has subscribed, while one is stored (AD-17). The shell is
 // unsubscribed while has is false, and System Announce decides when it is
@@ -214,6 +217,28 @@ alsa_in_announce(snd_seq_event_t const *ev, Alsa_in_addr const *stored,
     return stored->has ? Alsa_in_keep : Alsa_in_rematch;
   default:
     return Alsa_in_keep;
+  }
+}
+
+// The client-name scan that alsa_ctx_open runs before and after taking its
+// name (AD-17). next(arg, &client, &name) yields one client per call: >= 0
+// with both filled in, -ENOENT at the end of the list, or another negative
+// error. alsa_name_scan returns 1 as soon as a client other than own is
+// named name, 0 when next returns -ENOENT first, and otherwise next's
+// negative result, so a failed scan is an error and never a free name (the
+// appliance router's find_source ends its list on -ENOENT the same way).
+typedef int (*Alsa_name_next)(void *arg, int *client, char const **name);
+
+static inline int alsa_name_scan(Alsa_name_next next, void *arg, int own,
+                                 char const *name) {
+  for (;;) {
+    int client;
+    char const *client_name;
+    int err = next(arg, &client, &client_name);
+    if (err < 0)
+      return err == -ENOENT ? 0 : err;
+    if (client != own && strcmp(client_name, name) == 0)
+      return 1;
   }
 }
 #endif

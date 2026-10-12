@@ -134,4 +134,81 @@ void test_alsa_in_split(void) {
   CHECK(!alsa_in_split(":b", &len, &port));
   CHECK(!alsa_in_split("a:", &len, &port));
 }
+
+// A fake Alsa_name_next over a fixed list of steps: each step is what one
+// call returns, with the client filled in when that is >= 0. The list ends
+// in its own terminator step (-ENOENT, or an error); running past it returns
+// -EINVAL, so a scan that ignores the end shows up.
+typedef struct {
+  int result;
+  int client;
+  char const *name;
+} Name_step;
+
+typedef struct {
+  Name_step const *steps;
+  Usz count, at;
+} Name_list;
+
+static int fake_name_next(void *arg, int *client, char const **name) {
+  Name_list *l = arg;
+  if (l->at >= l->count)
+    return -EINVAL;
+  Name_step const *s = &l->steps[l->at++];
+  if (s->result < 0)
+    return s->result;
+  *client = s->client;
+  *name = s->name;
+  return s->result;
+}
+
+static int scan_of(Name_step const *steps, Usz count, Usz *calls) {
+  Name_list l = {.steps = steps, .count = count, .at = 0};
+  int r = alsa_name_scan(fake_name_next, &l, 128, "p35");
+  *calls = l.at;
+  return r;
+}
+
+// The client-name scan (P3-5, AD-17), with own client 128 named p35: free
+// when the list ends on -ENOENT with only the own client of that name, or
+// with other clients whose names only resemble it, or at once; taken as soon
+// as another client has it; a scan error before the end of the list is
+// returned, mid-list or at once, never read as a free name.
+void test_alsa_name_scan(void) {
+  Name_step const free_list[] = {{0, 0, "System"},
+                                 {0, 14, "Midi Through"},
+                                 {0, 128, "p35"},
+                                 {.result = -ENOENT}};
+  // Near misses: a longer name with p35 as its prefix, and another case.
+  Name_step const near_list[] = {{0, 128, "p35"},
+                                 {0, 130, "p35x"},
+                                 {0, 131, "P35"},
+                                 {.result = -ENOENT}};
+  Name_step const empty_list[] = {{.result = -ENOENT}};
+  Name_step const taken_list[] = {{0, 0, "System"},
+                                  {0, 14, "Midi Through"},
+                                  {0, 128, "p35"},
+                                  {0, 130, "p35"},
+                                  {.result = -ENOENT}};
+  Name_step const eio_list[] = {{0, 0, "System"},
+                                {0, 14, "Midi Through"},
+                                {.result = -EIO},
+                                {.result = -ENOENT}};
+  Name_step const enomem_list[] = {
+      {.result = -ENOMEM}, {0, 0, "System"}, {.result = -ENOENT}};
+  Usz calls;
+  CHECK(scan_of(free_list, ORCA_ARRAY_COUNTOF(free_list), &calls) == 0);
+  CHECK(calls == 4); // the whole list, through its -ENOENT
+  CHECK(scan_of(near_list, ORCA_ARRAY_COUNTOF(near_list), &calls) == 0);
+  CHECK(calls == 4);
+  CHECK(scan_of(empty_list, ORCA_ARRAY_COUNTOF(empty_list), &calls) == 0);
+  CHECK(calls == 1);
+  CHECK(scan_of(taken_list, ORCA_ARRAY_COUNTOF(taken_list), &calls) == 1);
+  CHECK(calls == 4); // stops at the hit
+  CHECK(scan_of(eio_list, ORCA_ARRAY_COUNTOF(eio_list), &calls) == -EIO);
+  CHECK(calls == 3);
+  CHECK(scan_of(enomem_list, ORCA_ARRAY_COUNTOF(enomem_list), &calls) ==
+        -ENOMEM);
+  CHECK(calls == 1);
+}
 #endif
