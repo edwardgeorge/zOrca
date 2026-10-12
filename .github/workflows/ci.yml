@@ -502,6 +502,29 @@ jobs:
       - name: Build debug orca with ALSA
         run: CFLAGS_EXTRA=-Werror ./tool build -d --alsa orca
 
+      # A client name over 63 bytes (ALSA keeps 63 and cuts a longer one short
+      # without an error) is refused before the sequencer is opened (P3-7).
+      # ALSA_CONFIG_PATH=/nonexistent makes snd_seq_open fail, so the refusal
+      # shows only if the length check comes first; no sequencer is needed.
+      - name: ALSA orca refuses a 200-byte client name before opening ALSA
+        run: |
+          err="$RUNNER_TEMP/orca_long_name.err"
+          name=$(printf 'x%.0s' $(seq 1 200))
+          status=0
+          ASAN_OPTIONS=detect_leaks=0 ALSA_CONFIG_PATH=/nonexistent \
+            BORCA_ALSA_CLIENT_NAME="$name" \
+            build/debug/orca </dev/null >/dev/null 2>"$err" || status=$?
+          cat "$err"
+          if [ "$status" != 1 ]; then
+            echo "expected exit 1 from orca with a 200-byte name, got $status"
+            exit 1
+          fi
+          if ! grep -qF 'is 200 bytes; ALSA keeps at most 63' "$err" ||
+            grep -q 'Cannot initialize' "$err"; then
+            echo "orca did not refuse the 200-byte name before opening ALSA"
+            exit 1
+          fi
+
       # Release builds link with -flto, and gcc may print "lto-wrapper:
       # warning: using serial compilation of N LTRANS jobs". That line is a
       # note from the link step, not a compiler diagnostic, and -Werror does

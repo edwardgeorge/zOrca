@@ -211,4 +211,31 @@ void test_alsa_name_scan(void) {
         -ENOMEM);
   CHECK(calls == 1);
 }
+
+// The client-name length limit (P3-7): the sequencer keeps 63 bytes, so a
+// 63-byte name fits and a 64- or 200-byte one does not. The names are built
+// with literal lengths, never from Alsa_client_name_max. The limit is in
+// bytes: with a two-byte UTF-8 character at the end, 63 bytes fit and 64 do
+// not. The empty string fits, though the shell never asks: alsa_client_name
+// falls back to bOrca.
+void test_alsa_client_name_fits(void) {
+  char name[201];
+  CHECK(alsa_client_name_fits("bOrca"));
+  memset(name, 'x', 63);
+  name[63] = '\0';
+  CHECK(alsa_client_name_fits(name));
+  memset(name, 'x', 64);
+  name[64] = '\0';
+  CHECK(!alsa_client_name_fits(name));
+  memset(name, 'x', 200);
+  name[200] = '\0';
+  CHECK(!alsa_client_name_fits(name));
+  memset(name, 'x', 62); // 62 + the two bytes of U+00E9: 64 bytes
+  memcpy(name + 62, "\xc3\xa9", 3);
+  CHECK(!alsa_client_name_fits(name));
+  memset(name, 'x', 61); // 61 + 2: 63 bytes
+  memcpy(name + 61, "\xc3\xa9", 3);
+  CHECK(alsa_client_name_fits(name));
+  CHECK(alsa_client_name_fits(""));
+}
 #endif

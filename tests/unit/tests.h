@@ -266,7 +266,8 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(alsa_in_mapping)                                                           \
   X(alsa_in_announce)                                                          \
   X(alsa_in_split)                                                             \
-  X(alsa_name_scan)
+  X(alsa_name_scan)                                                            \
+  X(alsa_client_name_fits)
 #define CANARY_TESTS_ALL(X) X(unit_check_canary)
 
 // Every test's prototype, generated from the lists and outside any #ifdef:

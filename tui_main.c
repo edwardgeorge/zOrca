@@ -129,9 +129,10 @@ fprintf(stderr,
 "    whose output then replaces it. If the sequencer cannot be opened,\n"
 "    or another client already has the name (checked at startup, before\n"
 "    and after taking the name), or the sequencer cannot list its\n"
-"    clients, orca exits with status 1. SIGTERM, SIGHUP and SIGINT quit\n"
-"    cleanly, stopping playback first, unless the signal was already\n"
-"    ignored when orca started.\n"
+"    clients, or the name is over 63 bytes (ALSA keeps 63; set a shorter\n"
+"    BORCA_ALSA_CLIENT_NAME), orca exits with status 1. SIGTERM, SIGHUP\n"
+"    and SIGINT quit cleanly, stopping playback first, unless the signal\n"
+"    was already ignored when orca started.\n"
 );
 #endif
 } // clang-format on
@@ -990,20 +991,26 @@ staticni int alsa_client_name_taken(snd_seq_t *seq, char const *name) {
 // out" that others can read and subscribe to, then "MIDI in", write-only,
 // that the input reader subscribes sources to. The appliance's router and
 // verify match the name, "MIDI out", its port number and its capability set
-// exactly, and neither sees a write-only port. Returns 0, -EEXIST if another
-// client already has the name, or another negative ALSA error code, with
-// nothing left open; *scan_failed is set when that error came from a name
-// scan (the sequencer could not list its clients, or the client info could
-// not be allocated), so the caller can say so.
+// exactly, and neither sees a write-only port. Returns 0, -ENAMETOOLONG if
+// the name is over Alsa_client_name_max (63) bytes, which the sequencer would
+// cut short (checked before the sequencer is opened, so nothing is), -EEXIST
+// if another client already has the name, or another negative ALSA error
+// code, with nothing left open; *scan_failed is set when that error came from
+// a name scan (the sequencer could not list its clients, or the client info
+// could not be allocated), so the caller can say so.
 staticni int alsa_ctx_open(Alsa_ctx *ctx, bool *scan_failed) {
   *ctx = (Alsa_ctx){.seq = NULL, .port = -1, .in_port = -1};
   *scan_failed = false;
+  char const *client_name = alsa_client_name();
+  // A longer name would be stored cut short, and the scans below compare the
+  // whole name, so they could never find it (midi_in.h).
+  if (!alsa_client_name_fits(client_name))
+    return -ENAMETOOLONG;
   snd_seq_t *seq;
   int err =
       snd_seq_open(&seq, "default", SND_SEQ_OPEN_DUPLEX, SND_SEQ_NONBLOCK);
   if (err < 0)
     return err;
-  char const *client_name = alsa_client_name();
   // Two clients with one name make the appliance router refuse to route
   // either, so refuse a name another client holds. No wait: the kernel drops
   // a client when its process exits, and borca-tty.service
@@ -4495,11 +4502,21 @@ int main(int argc, char **argv) {
   {
     bool scan_failed;
     int err = alsa_ctx_open(&alsa_ctx, &scan_failed);
+    char const *name = alsa_client_name();
+    if (err == -ENAMETOOLONG) {
+      fprintf(stderr,
+              "Cannot start: the ALSA client name '%s' is %zu bytes; ALSA "
+              "keeps at most %d (set a shorter BORCA_ALSA_CLIENT_NAME)\n",
+              name, strlen(name), Alsa_client_name_max);
+      osofree(t.file_name);
+      osofree(t.osc_midi_bidule_path);
+      return 1;
+    }
     if (scan_failed) {
       fprintf(stderr,
               "Cannot start: the scan for an ALSA client named '%s' failed: "
               "%s\n",
-              alsa_client_name(), snd_strerror(err));
+              name, snd_strerror(err));
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
       return 1;
@@ -4508,7 +4525,7 @@ int main(int argc, char **argv) {
       fprintf(stderr,
               "Cannot start: an ALSA client named '%s' is already running "
               "(set BORCA_ALSA_CLIENT_NAME to run another instance)\n",
-              alsa_client_name());
+              name);
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
       return 1;

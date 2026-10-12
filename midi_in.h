@@ -9,7 +9,8 @@
 // tui_main.c, among them the clock-out state Clock_out and its inlines, which
 // send the beat clock through the tick.h sink, and the PortMidi reader's
 // decode, pm_in_decode; it also holds the ALSA client-name scan that the
-// startup guard runs (the scan's I/O is the caller's `next` callback).
+// startup guard runs (the scan's I/O is the caller's `next` callback) and the
+// client-name length limit it checks first (the sequencer keeps 63 bytes).
 // Everything here is static inline, reads no clock and does no I/O but through
 // a sink or a callback. The backend-specific helpers sit behind their FEAT_
 // flags and may include that backend's header (an adapter, not core).
@@ -317,6 +318,19 @@ alsa_in_announce(snd_seq_event_t const *ev, Alsa_in_addr const *stored,
   default:
     return Alsa_in_keep;
   }
+}
+
+// The sequencer keeps at most this many bytes of a client name (its
+// snd_seq_client_info name is 64 bytes with the terminator) and cuts a
+// longer name short without an error, so the name scan could never match it.
+// Bytes, not characters: the limit also keeps ALSA from splitting a
+// multi-byte UTF-8 character.
+enum { Alsa_client_name_max = 63 };
+
+// True when the sequencer would keep name whole; alsa_ctx_open refuses a
+// name that does not fit, before it opens the sequencer.
+static inline bool alsa_client_name_fits(char const *name) {
+  return strlen(name) <= Alsa_client_name_max;
 }
 
 // The client-name scan that alsa_ctx_open runs before and after taking its
