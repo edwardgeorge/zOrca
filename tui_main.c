@@ -2919,7 +2919,7 @@ static void push_opers_guide_msg(Orca_dialect dialect) {
       {';', Guide_borca, "arpeggiator",
        "Outputs degree numbers for Scale operator."},
       {';', Guide_upstream, "udp", "Sends UDP message."},
-      {'&', Guide_borca, "bouncer", "A rudimentary LFO-like operator."},
+      {'&', Guide_borca, "bouncer", "LFO; rate is its cycle in beats."},
   };
   U8 const shown =
       dialect == Orca_dialect_upstream ? Guide_upstream : Guide_borca;

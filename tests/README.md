@@ -102,13 +102,14 @@ on fixed patches.
 
 Eight characterization goldens pin, unmarked, what the operators that
 Phase 1 touches produce today, so a refactor that changes their output
-fails a case. Three are replaced, not marked, by the Phase 2 item that
-redefines their operator: `bouncer_shapes` by I3, and `arp_patterns` and the
-`;` rows of `seeded_random` by I4.
+fails a case. Two are replaced, not marked, by the Phase 2 item that
+redefines their operator: `arp_patterns` and the `;` rows of
+`seeded_random` by I4. `bouncer_shapes` was replaced that way by I3, and
+now records the anchored, tempo-synced `&`, regenerated with `--update`.
 
 | Case | Pins | `.args` | Replaced by |
 | --- | --- | --- | --- |
-| `bouncer_shapes` | `&` shapes 0–7 at rate 5 over `0`–`z`, an end below the start, a partial range, rate `.`, shape `z`, a `D` bang that resets the phase every 7 ticks, and a rate and a shape that a `C` clock changes, each change resetting the phase | none | I3 |
+| `bouncer_shapes` | `&` shapes 0–7 at rate 5 over `0`–`z`, an end below the start, a partial range, rate `.`, shape `z`, a `D` bang every 7 ticks, and a rate and a shape that a `C` clock changes; a bang restarts the phase; rate and shape changes keep the anchor (a shape change keeps the phase, a rate change re-takes the elapsed ticks mod the new cycle) | none | none (I3 replaced it) |
 | `arp_patterns` | `;` ranges 1–4 with every non-random pattern, ranges `0` and `z`, a bang every 3 ticks, and a clocked pattern change that restarts the step | none | I4 |
 | `seeded_random` | `R` with a lowercase, an uppercase and a `0` max, and `;` pattern `c`, under a non-zero seed | `--seed 7` | I4 (its `;` rows) |
 | `cc_instant` | `!` at rate `.` on CC 1 and CC 74 with values `0`, `g`, `v` and `w` (clamped to 127), sent again on every tick; a channel above 15 that sends nothing, a hundreds digit (CC 100), and controller 130 clamped to 127 | `-t 2` | none |
@@ -136,12 +137,19 @@ upstream "Allow wires to grow" cherry-pick (P0.1) and replaced by it; together
 with `j_reads_locked_J`, added with that pick, they now pin the grown-wire
 behaviour.
 
+`bouncer_rate4` (I3) pins all eight `&` shapes at rate `4` over `0`–`z`,
+which repeat every 16 ticks: ticks 0–15 are the rate-4 table in
+`tests/unit/test_sim_state.c`, and ticks 16–63 repeat them. Captured with
+`--update`.
+
 The `&` state-overflow fixture is a unit test, not a golden
 (`sim_bouncer_overflow_fixture` in `tests/unit/test_sim_state.c`): before
 B1 its output differed between builds, because the overflow read whatever
 lay past the array. It builds the 300×80 grid in memory, runs 256 ticks
-under the debug runner's ASan and UBSan, and checks that every `&` outputs
-what a lone in-range one does.
+under the debug runner's ASan and UBSan, and checks that every `&` matches
+a lone in-range reference `&0z12`; the one at cell 4096 is banged once, at
+tick 5, from its own output cell, and matches a second reference banged at
+the same tick.
 
 ### Upstream examples
 

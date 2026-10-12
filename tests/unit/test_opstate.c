@@ -77,7 +77,7 @@ void test_opstate_edge_keys(void) {
     CHECK(e->y == 0 && e->x == 0 && e->glyph == '&');
     CHECK(payload_is_zero(e));
     e->u.bouncer.initialized = true;
-    e->u.bouncer.current_index = 11;
+    e->u.bouncer.anchor = 11;
   }
   e = opstate_lookup(&store, 65534, 65534, ';');
   CHECK(e != NULL);
@@ -97,7 +97,7 @@ void test_opstate_edge_keys(void) {
   e = opstate_lookup(&store, 0, 0, '&');
   CHECK(e != NULL);
   if (e)
-    CHECK(e->u.bouncer.initialized && e->u.bouncer.current_index == 11);
+    CHECK(e->u.bouncer.initialized && e->u.bouncer.anchor == 11);
   e = opstate_lookup(&store, 65534, 65534, ';');
   CHECK(e != NULL);
   if (e)
@@ -138,7 +138,7 @@ void test_opstate_growth(void) {
       continue;
     }
     e->u.bouncer.initialized = true;
-    e->u.bouncer.current_index = i;
+    e->u.bouncer.anchor = i;
     if (store.capacity != last_capacity) {
       ++reallocations;
       last_capacity = store.capacity;
@@ -157,8 +157,7 @@ void test_opstate_growth(void) {
     Usz y, x;
     growth_key(i, N, &y, &x);
     Opstate_entry *e = opstate_lookup(&store, y, x, '&');
-    wrong += !e || !e->u.bouncer.initialized ||
-             e->u.bouncer.current_index != i;
+    wrong += !e || !e->u.bouncer.initialized || e->u.bouncer.anchor != i;
   }
   CHECK(wrong == 0);
   CHECK(store.count == N);
@@ -175,12 +174,10 @@ void test_opstate_retag(void) {
   CHECK(e != NULL);
   if (e) {
     e->u.bouncer.initialized = true;
-    e->u.bouncer.current_index = 40;
-    e->u.bouncer.last_rate = 2;
-    e->u.bouncer.last_shape = 5;
+    e->u.bouncer.anchor = 40;
   }
   e = opstate_lookup(&store, 3, 4, '&');
-  CHECK(e != NULL && e->u.bouncer.current_index == 40);
+  CHECK(e != NULL && e->u.bouncer.anchor == 40);
 
   e = opstate_lookup(&store, 3, 4, ';');
   CHECK(e != NULL);
@@ -243,7 +240,7 @@ void test_opstate_prune(void) {
     for (Usz x = 0; x < W; ++x) {
       Opstate_entry *e = opstate_lookup(&store, y, x, glyphs[(y + x) % 3]);
       if (e)
-        e->u.bouncer.current_index = y * 100 + x + 1; // first field of each
+        e->u.bouncer.anchor = y * 100 + x + 1; // the same bytes of each payload
     }
   }
   CHECK(store.count == H * W);
@@ -267,7 +264,7 @@ void test_opstate_prune(void) {
   for (Usz y = 0; y < New_h; ++y) {
     for (Usz x = 0; x < New_w; ++x) {
       Opstate_entry *e = opstate_lookup(&store, y, x, glyphs[(y + x) % 3]);
-      wrong += !e || e->u.bouncer.current_index != y * 100 + x + 1;
+      wrong += !e || e->u.bouncer.anchor != y * 100 + x + 1;
     }
   }
   CHECK(wrong == 0);
@@ -363,7 +360,7 @@ void test_opstate_copy(void) {
   opstate_free(&dest);
 }
 
-// Reset anchors zeroes the phase of every & and touches nothing else.
+// Reset anchors sets the anchor of every & to 0 and touches nothing else.
 void test_opstate_reset_anchors(void) {
   Opstate_store store;
   opstate_init(&store);
@@ -371,9 +368,7 @@ void test_opstate_reset_anchors(void) {
   Opstate_entry *e = opstate_lookup(&store, 1, 1, '&');
   if (e) {
     e->u.bouncer.initialized = true;
-    e->u.bouncer.current_index = 50;
-    e->u.bouncer.last_rate = 3;
-    e->u.bouncer.last_shape = 2;
+    e->u.bouncer.anchor = 50;
   }
   e = opstate_lookup(&store, 2, 2, ';');
   if (e) {
@@ -389,8 +384,7 @@ void test_opstate_reset_anchors(void) {
   e = opstate_lookup(&store, 1, 1, '&');
   CHECK(e != NULL);
   if (e)
-    CHECK(e->u.bouncer.current_index == 0 && e->u.bouncer.initialized &&
-          e->u.bouncer.last_rate == 3 && e->u.bouncer.last_shape == 2);
+    CHECK(e->u.bouncer.anchor == 0 && e->u.bouncer.initialized);
   e = opstate_lookup(&store, 2, 2, ';');
   CHECK(e != NULL && e->u.arp.initialized && e->u.arp.step_counter == 9);
   e = opstate_lookup(&store, 3, 3, 'r');

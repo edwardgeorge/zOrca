@@ -24,10 +24,11 @@
 // copy, reset anchors); operators call only opstate_lookup.
 
 typedef struct {
-  bool initialized;
-  Usz current_index; // phase: position in the 128-step waveform
-  Usz last_rate;
-  Usz last_shape;
+  bool initialized; // set on the first visit for the store's bookkeeping;
+                    // & does not read it
+  Usz anchor; // the tick of the last bang; 0 in a new entry, which lines the
+              // & up with tick 0. The phase is (tick - anchor) floor-mod
+              // the cycle length (sim.c's bouncer, CAP-15).
 } Opstate_bouncer; // '&'
 
 typedef struct {
@@ -89,7 +90,8 @@ bool opstate_prune(Opstate_store *store, Usz height, Usz width);
 // already matches. False if dest cannot be resized; dest is then empty.
 bool opstate_copy(Opstate_store const *src, Opstate_store *dest);
 
-// Zeroes the phase of every & entry, so each restarts its waveform on its
-// next tick as a bang would make it. The other fields and operators keep
-// their state.
+// Sets the anchor of every & entry to 0, so each lines up with tick 0 again,
+// as a new entry does; the shell calls it on an external MIDI start (FA) and
+// song position (F2), spine AD-15. It touches nothing else: the & entries'
+// other fields and the other operators' entries keep their state.
 void opstate_reset_anchors(Opstate_store *store);

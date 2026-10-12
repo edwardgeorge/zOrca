@@ -19,6 +19,9 @@
   X(opstate_copy)                                                              \
   X(opstate_reset_anchors)                                                     \
   X(sim_bouncer_overflow_fixture)                                              \
+  X(sim_bouncer_rate4_shapes)                                                  \
+  X(sim_bouncer_anchor)                                                        \
+  X(sim_bouncer_hold_and_range)                                                \
   X(sim_far_cell)                                                              \
   X(sim_two_r_permutations)                                                    \
   X(sim_r_no_repeat)                                                           \

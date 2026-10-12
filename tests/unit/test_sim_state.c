@@ -79,9 +79,24 @@ static bool events_equal(Oevent_list const *a, Oevent_list const *b) {
 // reported a global-buffer-overflow there; with the store, 256 ticks run
 // clean under ASan and UBSan, and every & outputs on every tick what a lone
 // in-range &0z12 outputs. Each output lands on an empty cell (cell index
-// 0 mod 7), so the copies never disturb one another.
+// 0 mod 7), so the copies never disturb one another. Since I3, rate 1 is a
+// 4-tick cycle that samples the sine at steps 0, 32, 64 and 96: 0, f, z, f.
+// So that the comparison can still fail, the & at cell 4096 is banged once,
+// at tick 5 (odd, so the banged reference is one sample off and no two of
+// the four samples 0 f z f coincide; at an even offset some would), with a
+// * in its own output cell, 4396, which it overwrites that tick; its left and upper
+// neighbours belong to the & at 3795. It is checked against a second lone
+// reference banged the same way at the same tick, every other & against
+// the unbanged one.
 void test_sim_bouncer_overflow_fixture(void) {
-  enum { H = 80, W = 300, Ticks = 256, Ref_w = 5 };
+  enum {
+    H = 80,
+    W = 300,
+    Ticks = 256,
+    Ref_w = 5,
+    Bang_tick = 5,
+    Banged = 13 * W + 196
+  };
   Glyph *grid = malloc(H * W * sizeof *grid);
   Mark *marks = malloc(H * W * sizeof *marks);
   CHECK(grid != NULL && marks != NULL);
@@ -101,27 +116,37 @@ void test_sim_bouncer_overflow_fixture(void) {
   CHECK(placed == 3383);
   CHECK(grid[13 * W + 196] == '&' && 13 * W + 196 == 4096);
 
-  Glyph ref[2 * Ref_w];
+  Glyph ref[2 * Ref_w], banged_ref[2 * Ref_w];
   Mark ref_marks[2 * Ref_w];
   memcpy(ref, "&0z12.....", sizeof ref);
+  memcpy(banged_ref, ref, sizeof banged_ref);
 
-  Opstate_store store, ref_store;
+  Opstate_store store, ref_store, banged_ref_store;
   opstate_init(&store);
   opstate_init(&ref_store);
+  opstate_init(&banged_ref_store);
   Oevent_list events;
   oevent_list_init(&events);
-  Usz wrong = 0, checked = 0;
+  Usz wrong = 0, checked = 0, shifted = 0;
   bool seen[128] = {0};
   for (Usz tick = 0; tick < Ticks; ++tick) {
+    if (tick == Bang_tick) {
+      grid[Banged + W] = '*';
+      banged_ref[Ref_w] = '*';
+    }
     run_tick(grid, marks, H, W, tick, &events, 0, &store);
     run_tick(ref, ref_marks, 2, Ref_w, tick, &events, 0, &ref_store);
+    run_tick(banged_ref, ref_marks, 2, Ref_w, tick, &events, 0,
+             &banged_ref_store);
     Glyph want = ref[Ref_w]; // the cell under the reference &
+    Glyph want_banged = banged_ref[Ref_w];
     seen[want & 0x7f] = true;
+    shifted += want_banged != want;
     for (Usz c = 1; c + W < H * W; c += 7) {
       if (c % W + 5 > W)
         continue;
       ++checked;
-      wrong += grid[c + W] != want;
+      wrong += grid[c + W] != (c == Banged ? want_banged : want);
     }
   }
   Usz distinct = 0;
@@ -129,14 +154,257 @@ void test_sim_bouncer_overflow_fixture(void) {
     distinct += seen[i];
   CHECK(wrong == 0);
   CHECK(checked > 0);
-  CHECK(distinct > 10); // the reference output really moves
+  CHECK(distinct == 3); // 0, f, z: the reference output really moves
+  CHECK(shifted == Ticks - Bang_tick); // and the bang really moved the anchor
   CHECK(store.count == placed); // one entry per &
   CHECK(events.count == 0);
   oevent_list_deinit(&events);
   opstate_free(&store);
   opstate_free(&ref_store);
+  opstate_free(&banged_ref_store);
   free(grid);
   free(marks);
+}
+
+// The rate-4 table (I3, CAP-15): with the range 0-z, shape N at tick e is
+// waveforms[N][8 e] (sim.c), and rate 4 is a 16-tick cycle, so ticks 16-63
+// repeat ticks 0-15. The table's quirks (s up against r down in the
+// triangle, the saw's uneven steps) are the table's, kept on purpose.
+static char const *const rate4_rows[8] = {
+    "048cgkoszrnjfb73", // 0 triangle
+    "zvrnjfb708cgkosw", // 1 inverted triangle
+    "0138fowyzyuof831", // 2 sine
+    "zywrkb31015bkrwy", // 3 inverted sine
+    "00000000zzzzzzzz", // 4 square
+    "zzzzzzzz00000000", // 5 inverted square
+    "02468acegikmpsux", // 6 saw
+    "zxvtrpnljhfda752", // 7 inverted saw
+};
+
+// Every shape at rate 4 over 0-z, laid out as tests/patches/bouncer_rate4.orca
+// is: eight &0z4N rows, each over an empty row, for 64 ticks. Tick t
+// outputs rate4_rows[N][t % 16].
+void test_sim_bouncer_rate4_shapes(void) {
+  enum { H = 16, W = 7, Ticks = 64 };
+  Glyph grid[H * W];
+  Mark marks[H * W];
+  memset(grid, '.', sizeof grid);
+  for (Usz n = 0; n < 8; ++n) {
+    put(grid, W, 2 * n, 1, "&0z4");
+    grid[2 * n * W + 5] = (Glyph) "01234567"[n];
+  }
+  Opstate_store store;
+  opstate_init(&store);
+  Oevent_list events;
+  oevent_list_init(&events);
+  Usz wrong = 0;
+  for (Usz tick = 0; tick < Ticks; ++tick) {
+    run_tick(grid, marks, H, W, tick, &events, 0, &store);
+    for (Usz n = 0; n < 8; ++n)
+      wrong += grid[(2 * n + 1) * W + 1] != rate4_rows[n][tick % 16];
+  }
+  CHECK(wrong == 0);
+  CHECK(store.count == 8);
+  CHECK(events.count == 0);
+  oevent_list_deinit(&events);
+  opstate_free(&store);
+}
+
+// One & at (0, 1) of a 2x7 grid, its output read from the cell below it.
+enum { B_h = 2, B_w = 7, B_y = 0, B_x = 1, B_out = (B_y + 1) * B_w + B_x };
+
+static void bouncer_grid(Glyph *grid, char const *cell) {
+  memset(grid, '.', B_h * B_w);
+  put(grid, B_w, B_y, B_x, cell);
+}
+
+// Runs one tick on the & grid and returns the &'s output.
+static Glyph bouncer_tick(Glyph *grid, Mark *marks, Usz tick,
+                          Oevent_list *events, Opstate_store *store) {
+  run_tick(grid, marks, B_h, B_w, tick, events, 0, store);
+  return grid[B_out];
+}
+
+// The anchor (I3): &0z36 is a 12-tick saw, 0 2 5 8 a d g i l p s w. A bang
+// moves the anchor to its tick, which outputs phase 0; an anchor above the
+// tick, as after an undo, gives the floor-mod phase; opstate_reset_anchors
+// puts the anchor back to 0 and touches no other operator's state; a new &
+// lines up with tick 0 however late it first runs; and a rate or a shape
+// change keeps the anchor. P = 12 on purpose: 2^32 and 2^64 are both 4 mod
+// 12, so an unsigned wrap gives phase 9 (p) where floor-mod gives 5 (d),
+// on every Usz width, and a truncating signed % gives a negative index.
+void test_sim_bouncer_anchor(void) {
+  static char const saw12[13] = "0258adgilpsw";
+  Glyph grid[B_h * B_w];
+  Mark marks[B_h * B_w];
+  Opstate_store store;
+  opstate_init(&store);
+  Oevent_list events;
+  oevent_list_init(&events);
+
+  // Unbanged from tick 0: the saw, over and over.
+  bouncer_grid(grid, "&0z36");
+  Usz wrong = 0;
+  for (Usz tick = 0; tick < 20; ++tick)
+    wrong +=
+        bouncer_tick(grid, marks, tick, &events, &store) != saw12[tick % 12];
+  CHECK(wrong == 0);
+
+  // A bang at tick 20, from the output cell below the &, which the & then
+  // overwrites: tick 20 outputs phase 0, and tick 20 + e outputs out(e).
+  grid[B_out] = '*';
+  CHECK(bouncer_tick(grid, marks, 20, &events, &store) == '0');
+  for (Usz e = 1; e <= 10; ++e)
+    wrong += bouncer_tick(grid, marks, 20 + e, &events, &store) != saw12[e];
+  CHECK(wrong == 0);
+  CHECK(store.count == 1);
+
+  // The anchor, 20, above the tick, 13: floor-mod gives 5, d. An unsigned
+  // wrap would give 9, p, and ignoring the anchor 1, 2.
+  CHECK(bouncer_tick(grid, marks, 13, &events, &store) == 'd');
+
+  // A tick a whole period below the anchor, 8: floor-mod gives 0, so the
+  // inverted saw outputs End, z. Without the trailing % period, elapsed
+  // would be 12 and the index 128, past the table (the literal's NUL reads
+  // as 0, which would output Start).
+  grid[B_y * B_w + B_x + 4] = '7';
+  CHECK(bouncer_tick(grid, marks, 8, &events, &store) == 'z');
+  grid[B_y * B_w + B_x + 4] = '6';
+
+  // Reset anchors: the & is back at tick 0, so tick 25 outputs out(25 mod
+  // 12), where the anchor of 20 would give out(5), d. The ; and r entries
+  // beside it keep their state.
+  Opstate_entry *e = opstate_lookup(&store, 1, 5, ';');
+  CHECK(e != NULL);
+  if (e) {
+    e->u.arp.initialized = true;
+    e->u.arp.step_counter = 9;
+  }
+  e = opstate_lookup(&store, 1, 6, 'r');
+  CHECK(e != NULL);
+  if (e) {
+    e->u.random.initialized = true;
+    e->u.random.current_index = 2;
+  }
+  opstate_reset_anchors(&store);
+  CHECK(bouncer_tick(grid, marks, 25, &events, &store) == '2');
+  e = opstate_lookup(&store, 1, 5, ';');
+  CHECK(e != NULL && e->u.arp.initialized && e->u.arp.step_counter == 9);
+  e = opstate_lookup(&store, 1, 6, 'r');
+  CHECK(e != NULL && e->u.random.initialized &&
+        e->u.random.current_index == 2);
+  CHECK(store.count == 3);
+
+  // A bang moves the anchor whatever the rate: &0z.6 banged at tick 5
+  // outputs phase 0, and at rate 1 from tick 6 counts from 5 (phase 1 of
+  // the 4-tick saw, 8), not from 0 (phase 2, g).
+  opstate_clear(&store);
+  bouncer_grid(grid, "&0z.6");
+  for (Usz tick = 0; tick < 5; ++tick)
+    bouncer_tick(grid, marks, tick, &events, &store);
+  grid[B_out] = '*';
+  CHECK(bouncer_tick(grid, marks, 5, &events, &store) == '0');
+  grid[B_y * B_w + B_x + 3] = '1';
+  CHECK(bouncer_tick(grid, marks, 6, &events, &store) == '8');
+
+  // A late first visit: a new & that first runs at tick 37 is at phase 1.
+  opstate_clear(&store);
+  bouncer_grid(grid, "&0z36");
+  CHECK(bouncer_tick(grid, marks, 37, &events, &store) == '2');
+
+  // A rate change keeps the anchor: &0z36 for ticks 0-9, then &0z46 (the
+  // 16-tick saw) for ticks 10-12, which outputs the rate-4 saw at 10, 11
+  // and 12. A restart would give 0 2 4.
+  opstate_clear(&store);
+  bouncer_grid(grid, "&0z36");
+  for (Usz tick = 0; tick < 10; ++tick)
+    bouncer_tick(grid, marks, tick, &events, &store);
+  grid[B_y * B_w + B_x + 3] = '4';
+  CHECK(bouncer_tick(grid, marks, 10, &events, &store) == 'k');
+  CHECK(bouncer_tick(grid, marks, 11, &events, &store) == 'm');
+  CHECK(bouncer_tick(grid, marks, 12, &events, &store) == 'p');
+
+  // A shape change keeps it too: &0z37 at ticks 10 and 11 is the inverted
+  // saw at phases 10 and 11, 7 and 3. A restart would give z x.
+  opstate_clear(&store);
+  bouncer_grid(grid, "&0z36");
+  for (Usz tick = 0; tick < 10; ++tick)
+    bouncer_tick(grid, marks, tick, &events, &store);
+  grid[B_y * B_w + B_x + 4] = '7';
+  CHECK(bouncer_tick(grid, marks, 10, &events, &store) == '7');
+  CHECK(bouncer_tick(grid, marks, 11, &events, &store) == '3');
+
+  CHECK(events.count == 0);
+  oevent_list_deinit(&events);
+  opstate_free(&store);
+}
+
+// A rate worth 0 (., 0, or a * the & locks as an input) holds the phase-0
+// output, Start for an even shape and End for an odd one; a partial and a
+// descending range are scaled with round-half-up; a shape above 7, or .,
+// is shape 0; and an & whose Start is empty writes nothing and keeps no
+// entry. The rows sit one over an empty row, as in bouncer_shapes.orca.
+void test_sim_bouncer_hold_and_range(void) {
+  enum { H = 20, W = 7, Ticks = 16, Rows = 10 };
+  static char const *const cells[Rows] = {
+      "&3a01", "&3a.1", "&3a00", "&3a*0", "&3a46",
+      "&a346", "&0z4z", "&0z4.", "&0z40", "&.z46",
+  };
+  char const *const want[Rows] = {
+      "aaaaaaaaaaaaaaaa", "aaaaaaaaaaaaaaaa", "3333333333333333",
+      "3333333333333333", "334455566777899a", "aa99888776665443",
+      rate4_rows[0],      rate4_rows[0],      rate4_rows[0],
+      "................",
+  };
+  Glyph grid[H * W];
+  Mark marks[H * W];
+  memset(grid, '.', sizeof grid);
+  for (Usz r = 0; r < Rows; ++r)
+    put(grid, W, 2 * r, 1, cells[r]);
+  Opstate_store store;
+  opstate_init(&store);
+  Oevent_list events;
+  oevent_list_init(&events);
+  Usz wrong = 0;
+  for (Usz tick = 0; tick < Ticks; ++tick) {
+    run_tick(grid, marks, H, W, tick, &events, 0, &store);
+    for (Usz r = 0; r < Rows; ++r)
+      wrong += grid[(2 * r + 1) * W + 1] != want[r][tick];
+  }
+  CHECK(wrong == 0);
+  CHECK(store.count == Rows - 1); // &.z46 returned before its lookup
+
+  // The longest cycle, rate z, is 140 ticks, and its last tick reaches z.
+  // An uppercase rate glyph reads as its lowercase one (index_of folds
+  // case), so &0zG6 outputs what &0zg6 does, tick by tick.
+  enum { Longest = 140 };
+  Glyph one[B_h * B_w], upper[B_h * B_w], lower[B_h * B_w];
+  Mark one_marks[B_h * B_w];
+  Glyph out_z[2 * Longest];
+  opstate_clear(&store);
+  bouncer_grid(one, "&0zz6");
+  for (Usz tick = 0; tick < 2 * Longest; ++tick)
+    out_z[tick] = bouncer_tick(one, one_marks, tick, &events, &store);
+  wrong = 0;
+  for (Usz tick = 0; tick < Longest; ++tick)
+    wrong += out_z[tick + Longest] != out_z[tick];
+  CHECK(wrong == 0);
+  CHECK(out_z[0] == '0' && out_z[Longest - 1] == 'z');
+  Opstate_store lower_store;
+  opstate_init(&lower_store);
+  opstate_clear(&store);
+  bouncer_grid(upper, "&0zG6");
+  bouncer_grid(lower, "&0zg6");
+  wrong = 0;
+  for (Usz tick = 0; tick < 70; ++tick)
+    wrong += bouncer_tick(upper, one_marks, tick, &events, &store) !=
+             bouncer_tick(lower, one_marks, tick, &events, &lower_store);
+  CHECK(wrong == 0);
+  CHECK(lower[B_out] == '2'); // tick 69 of the 64-tick saw: phase 5
+  opstate_free(&lower_store);
+  CHECK(events.count == 0);
+  oevent_list_deinit(&events);
+  opstate_free(&store);
 }
 
 // ; and r at row 70 of a 265-wide grid run as they do near the origin. The
@@ -469,9 +737,10 @@ void test_sim_r_first_visit_and_clear(void) {
   CHECK(zero_first > 0); // the check above can see a swap against 0
 }
 
-// A patch with each stateful operator: a banged ; and r, a free-running &,
-// and a note whose velocity is r's output, so the events depend on r's
-// state too.
+// A patch with each stateful operator: a banged ; and r, an unbanged &, and
+// a note whose velocity is r's output, so the events depend on r's state
+// too. Since I3 the & holds only its anchor, which the same tick sets the
+// same way in every pass, so ; and r carry the state that can leak.
 enum { Patch_h = 6, Patch_w = 20 };
 static char const state_patch[Patch_h * Patch_w + 1] = "D1.....D1..........."
                                                        "...D1..............."
@@ -483,7 +752,8 @@ static char const state_patch[Patch_h * Patch_w + 1] = "D1.....D1..........."
 // The paused re-mark (AD-7): 100 preview passes, each on a fresh copy of
 // the live store, between two real ticks leave the second tick's grid and
 // events as they are with no preview. The same passes on the live store
-// would change them, so the check can fail.
+// would change them, through the ; step and the r bag, so the check can
+// fail.
 void test_sim_preview_isolation(void) {
   enum { H = Patch_h, W = Patch_w, Passes = 100 };
   Glyph live[H * W], control[H * W], scratch[H * W], leaky[H * W];

@@ -1233,8 +1233,10 @@ BEGIN_OPERATOR(random_upstream)
                 extra_params);
 END_OPERATOR
 
-// BOORCH's BOUNCER OP
-// Predefined waveform sequences
+// BOORCH's BOUNCER OP, tempo-synced since I3 (CAP-15, spine AD-5, AD-6).
+// Predefined waveform sequences: one cycle of each shape in 128 steps, each
+// step the output glyph over the full range 0-z. The table is kept as it was
+// written, quirks included, so each shape keeps its documented look.
 static char const *const waveforms[] = {
     // Triangle (0)
     "00112233445566778899aabbccddeeffgghhiijjkkllmmnnooppqqrrstuvwxyzzyxwvutsrr"
@@ -1262,11 +1264,19 @@ static char const *const waveforms[] = {
     "hhggggfffeeedddcccbbbaaa999888777666555444333222111000"};
 
 #define WAVE_LENGTH 128
+enum { Ticks_per_beat = 4 };
 
+// The rate is the length of one cycle in beats, at 4 ticks to a beat, so a
+// cycle is P = 4 x rate ticks and always lands on the grid. The phase is the
+// number of ticks since the anchor, floor-mod P: the anchor is the tick of
+// the last neighbouring bang, and 0 in a new entry, so a fresh & lines up
+// with tick 0 and every & with the same rate is in step. A rate or shape
+// change keeps the anchor. The shell sets every anchor back to 0 on an
+// external MIDI start or song position (opstate_reset_anchors, AD-6).
 BEGIN_OPERATOR(bouncer)
   PORT(0, 1, IN | PARAM, "Start"); // Start value (a)
   PORT(0, 2, IN | PARAM, "End"); // End value (b)
-  PORT(0, 3, IN | PARAM, "Rate"); // Rate (ticks per cycle)
+  PORT(0, 3, IN | PARAM, "Rate"); // Rate (the cycle length in beats)
   PORT(0, 4, IN | PARAM, "Shape"); // Shape (0-7 for different waveforms)
   PORT(1, 0, OUT, "");
 
@@ -1290,38 +1300,35 @@ BEGIN_OPERATOR(bouncer)
   Usz rate = index_of(rate_g);
   Usz shape = index_of(shape_g);
 
-  // Initialize or reset on bang
-  if (!state->initialized ||
-      oper_has_neighboring_bang(gbuffer, height, width, y, x) ||
-      rate != state->last_rate || shape != state->last_shape) {
-    state->current_index = 0;
-    state->initialized = true;
-    state->last_rate = rate;
-    state->last_shape = shape;
+  // A first visit seeds nothing: the zeroed anchor is tick 0. A bang moves
+  // the anchor to this tick, which then outputs phase 0, whatever the rate.
+  state->initialized = true;
+  if (oper_has_neighboring_bang(gbuffer, height, width, y, x))
+    state->anchor = Tick_number;
+
+  // The table index: elapsed x 128 / P, floored, with elapsed the floor-mod
+  // of (tick - anchor) by P in unsigned arithmetic, so an anchor above the
+  // tick (as after an undo) still gives 0 <= elapsed < P, never a wrapped or
+  // negative index. A rate worth 0 (`.`, `0`, `*`) holds index 0: the
+  // phase-0 output, Start for shapes 0, 2, 4 and 6, End for 1, 3, 5 and 7.
+  Usz idx = 0;
+  if (rate > 0) {
+    Usz period = Ticks_per_beat * rate;
+    Usz anchor = state->anchor;
+    Usz elapsed = Tick_number >= anchor
+                      ? (Tick_number - anchor) % period
+                      : (period - (anchor - Tick_number) % period) % period;
+    idx = elapsed * WAVE_LENGTH / period;
   }
 
-  // Only advance if rate > 0
-  if (rate > 0 && rate_g != '.') {
-    state->current_index = (state->current_index + rate) % WAVE_LENGTH;
-  }
-
-  // Get raw waveform value first
   shape = shape < 8 ? shape : 0;
-  char wave_value = waveforms[shape][state->current_index];
+  Usz v = index_of(waveforms[shape][idx]); // 0-35: the step over 0-z
 
-  // Get normalized position (0-1) in waveform range
-  float normalized_pos = (float)index_of(wave_value) / 35.0f;
-
-  // Map normalized position to output range
+  // v x range / 35 rounded half up, in integer math: (2 v range + 35) / 70.
+  // 35 is odd, so no product is a half and the rounding never ties.
   Usz range = end > start ? end - start : start - end;
-  Usz output_value = start;
-  if (range > 0) {
-    if (end > start) {
-      output_value = start + (Usz)(normalized_pos * (float)range);
-    } else {
-      output_value = start - (Usz)(normalized_pos * (float)range);
-    }
-  }
+  Usz delta = (2 * v * range + 35) / 70;
+  Usz output_value = end >= start ? start + delta : start - delta;
 
   POKE(1, 0, glyph_of(output_value));
 END_OPERATOR

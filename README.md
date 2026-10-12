@@ -212,7 +212,7 @@ The modular design allows for flexible combinations: use the arpeggiator with an
 
 The bouncer operator creates smooth transitions between two values using various waveform patterns. Useful for creating continuous value changes and modulations. Each waveform has a resolution of 128 steps (some steps are repeating to reflect the 'waveform' as precisely as possible, e.g: closer to peaks of a sine wave). 
 
-The Rate parameter controls the speed of waveform traversal: Rate 0 = no movement, Rate 1 = advance 1 step per tick (slowest), Rate 2 = advance 2 steps per tick (faster), etc. Higher rate values make the waveform cycle faster but with lower resolution. By setting the Start and End values, you control the amplitude/range of the waveform output.
+The Rate parameter is the length of one cycle in beats, at 4 ticks to a beat: `1` cycles every 4 ticks, `4` every 16 ticks, which is one bar of 4/4, and `z` every 140 ticks, so a cycle always ends on a beat, and on a bar when the rate is a multiple of 4. `.` and `0` hold the phase-0 output: Start for shapes 0, 2, 4 and 6, End for shapes 1, 3, 5 and 7. The phase counts from tick 0, or from the last tick a neighbouring bang (`*`) hit the operator, so every `&` with the same rate is in step wherever it sits, and a bang restarts the cycle; changing the rate or the shape keeps the anchor, the tick the cycle is counted from, so it stays in step with other `&`s (a shape change keeps the phase; a rate change re-takes the elapsed ticks mod the new cycle). An external MIDI start (`FA`) or song position (`F2`) sets every `&`'s anchor back to tick 0, so the cycles line up with tick 0 and the song position (see [Clock & Timing](#clock--timing)); Ctrl+R, opening a file and a new file also start every `&` from tick 0 (they clear its state, and Ctrl+R resets the tick count), while Stop and Play keep the tick count, so the cycle carries on. By setting the Start and End values, you control the amplitude/range of the waveform output; each step is scaled to that range with rounding, so it lands on its nearest value; shapes 0-5 reach both ends at every rate, the saws reach their far end only at rates `b` and up.
 
 ### Inputs
 
@@ -222,13 +222,13 @@ The Rate parameter controls the speed of waveform traversal: Rate 0 = no movemen
 
 - `A`: Start value (0-z)
 - `B`: End value (0-z)
-- `R`: Rate - Speed of transition (0-z, higher = faster)
+- `R`: Rate - The cycle length in beats (1-z; `.`, `0` or any non-alphanumeric glyph holds the phase-0 output)
 - `S`: Shape (0-7) - Selects waveform pattern
 
 ### Example
 
 - `&3a22`
-- Transitions between values 3 and a, with rate 2 (advances 2 steps per tick), using waveform shape 2 (Sine)
+- Cycles between 3 and a every 2 beats (8 ticks) with waveform shape 2 (Sine): from tick 0 it outputs `3469a964`, repeating every 8 ticks
 
 #### Waveform Shapes
 
@@ -353,6 +353,29 @@ On the uConsole, the appliance is built with `make appliance`: ALSA only, so it 
 ## Changelog
 
 Changes since boorch/bOrca `4f349cd` that alter how an existing patch plays, change what goes out over MIDI, or break the public `orca_run` API, newest first. Each entry has a one-line title, says what changed and why, shows a before/after example, and points at an updated or new patch under `examples/`. The id in brackets at the end of an entry (`P0.1`, `B2`, …) is the item in the fork's implementation spec, the same vocabulary the `.xfail` markers under `tests/` use.
+
+### `&` cycles in beats, counts its phase from tick 0 or the last bang, and keeps it across rate and shape changes
+
+The bouncer's Rate was a step size: every tick moved `rate` steps through its 128-step waveform, so a cycle took 128 / rate ticks, 42.7 at rate `3`, which drifted against the bars. Its phase started wherever the cell first ran, a rate or shape change restarted it, and the output was scaled through `float`, which truncated. Now the Rate is the length of one cycle in beats, at 4 ticks to a beat, so a cycle is 4 × rate ticks (`1` is a beat, `4` one bar of 4/4) and always lands on the beat grid. The phase counts from tick 0, or from the last tick a neighbouring bang hit the `&`: a `*` restarts one; a rate or shape change keeps the anchor, the tick the cycle is counted from, so it stays in step with other `&`s (a shape change keeps the phase; a rate change re-takes the elapsed ticks mod the new cycle); every `&` with the same rate is in step; and an external MIDI start (`FA`) or song position (`F2`) sets every anchor back to tick 0. `.` and `0` hold the phase-0 output: Start for shapes 0, 2, 4 and 6, End for 1, 3, 5 and 7. The output is scaled in integer math, rounded half up instead of truncating. The waveform table itself is unchanged, quirks included. This changes the sound of every patch with an `&`.
+
+Before → after, the output of each `&` on ticks 0–15 (`cli --events`):
+
+```
+&0z46   before: 123456789abcdefg    a 32-tick cycle, starting one step in
+        after:  02468acegikmpsux    16 ticks, one bar, from phase 0
+&3a22   before: 3333333344444566    a 64-tick cycle
+        after:  3469a9643469a964    8 ticks, two beats
+```
+
+The nearest new rate for an old one is 32 / old rate beats, exact for `1`, `2`, `4`, `8`, `g` and `w`:
+
+| Old rate | `1` | `2` | `3` | `4` | `5` | `6`–`7` | `8`–`9` | `a`–`c` | `d`–`l` | `m`–`z` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| New rate | `w` | `g` | `b` | `8` | `6` | `5` | `4` | `3` | `2` | `1` |
+
+Example: `examples/misc/midiccbouncerdemo.orca`, whose `&0y10` became `&0yw0` (`w` is 32 beats, 128 ticks), so it keeps its 128-tick cycle (it now starts at phase 0 one tick earlier, and the rounded output holds 0 for 4 ticks instead of 8), and the repro patches `tests/patches/bouncer_rate4.orca` (every shape at rate `4`) and `tests/patches/bouncer_shapes.orca` (a bang, a clocked rate and a clocked shape). The uConsole appliance is unaffected: its `default.orca` has no `&`.
+
+For embedders: `Opstate_bouncer` (`opstate.h`) is now `{ bool initialized; Usz anchor; }`, the tick of the last bang; `current_index`, `last_rate` and `last_shape` are gone, and `opstate_reset_anchors` sets every `&`'s anchor to 0. (I3)
 
 ### Turning beat clock on while playing sends MIDI continue, and keeps the tick grid
 
@@ -547,8 +570,8 @@ What changes in patches:
 - `&` and `;` work on any grid size. Before, an `&` at cell index y × width + x of 4096 or more read and wrote past its state array, and a `;` there output nothing.
 - Lowercase `r` now draws a different sequence. Each `r` keeps its own bag, shuffled by a PCG32 seeded from the run's seed (`--seed`) and its cell, so it is the same on every platform, follows `--seed`, and no longer shares one shuffle with every other `r` in the patch, which broke each one's no-repeat cycle. It can still repeat a value across a reshuffle until B6, which changes `r` again. The TUI's default seed is 1 and `cli`'s is 0, so run the TUI with `--seed 0` to hear the sequences in the test goldens.
 - The state resets on file open, new file and Ctrl+R, and a resize keeps it for every cell still inside the grid. Before, only Ctrl+R reset anything, and only `r`'s shuffle. Undo never touches the state: undoing an open, a new file or a resize brings back the grid, but not the state its `&`, `;` and `r` had.
-- Editing while paused no longer advances `&`, or a banged `;` or `r`: the redraw pass runs on a throwaway copy of the state.
-- Switching a cell directly between two stateful operators starts the new one fresh: `&` → `;` → `&` restarts the bouncer's phase, which the old separate arrays kept. Deleting an operator and typing it again, or passing through a stateless glyph (`&` → `A` → `&`), resumes its old state, as before.
+- Editing while paused no longer advances `&`, or a banged `;` or `r`: the redraw pass runs on a throwaway copy of the state (since I3, `&` has no phase to advance; a fresh `&` lines up with tick 0 instead).
+- Switching a cell directly between two stateful operators starts the new one fresh: `&` → `;` → `&` restarts the bouncer's phase, which the old separate arrays kept (since I3, a fresh `&` lines up with tick 0 instead). Deleting an operator and typing it again, or passing through a stateless glyph (`&` → `A` → `&`), resumes its old state, as before.
 
 Before → after, a caller:
 

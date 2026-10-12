@@ -142,6 +142,6 @@ void opstate_reset_anchors(Opstate_store *store) {
   for (Usz i = 0; i < store->capacity; ++i) {
     Opstate_entry *e = store->slots + i;
     if (e->glyph == '&')
-      e->u.bouncer.current_index = 0;
+      e->u.bouncer.anchor = 0;
   }
 }
