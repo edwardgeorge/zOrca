@@ -2388,9 +2388,9 @@ typedef enum {
 
 // Play or pause on Internal, and the stop under External too (the transport
 // machine's stop and clock lost, and the switch to External, come here with
-// false): note-offs, glides cancelled, /orca/stopped, and FC only while
-// clock-out is active (AD-16). Starting under External never comes here; see
-// ged_external_start.
+// false): tick_stop sends the note-offs, cancels the glides, sends
+// /orca/stopped, and FC only while clock-out is active (AD-14, AD-16).
+// Starting under External never comes here; see ged_external_start.
 staticni void ged_set_playing(Ged *a, bool playing) {
   if (playing == a->is_playing)
     return;
@@ -2408,17 +2408,22 @@ staticni void ged_set_playing(Ged *a, bool playing) {
     a->accum_secs -= 0.0001;
     send_control_message(a->oosc_dev, "/orca/started");
   } else {
-    // Pause, and quit through it: the note-offs, then every glide ends and
-    // the last values sent are kept, so the next glide starts from them
-    // (AD-9; tick.h, tick_pause).
-    Tick_sink const sink = ged_sink(a);
-    tick_pause(&sink, &a->susnote_list, &a->ccout);
+    // Pause, and quit through it (tick.h, tick_stop): the note-offs, every
+    // glide ended with the last values sent kept, so the next glide starts
+    // from them (AD-9), /orca/stopped, then FC only through the gate.
+    bool clock_out = clock_out_active(a);
     a->is_playing = false;
-    send_control_message(a->oosc_dev, "/orca/stopped");
-    if (clock_out_active(a))
-      ged_send_midi_byte(a, 0xFC); // "stop"
+    Tick_sink const sink = ged_sink(a);
+    tick_stop(&sink, &a->susnote_list, &a->ccout, clock_out);
   }
   a->is_draw_dirty = true;
+}
+
+// Quit's stop: ged_set_playing(false), then a second release-all, which finds
+// nothing sustained after a stop and sends nothing; it keeps quit's shape.
+staticni void ged_stop(Ged *a) {
+  ged_set_playing(a, false);
+  ged_stop_all_sustained_notes(a);
 }
 
 #ifdef BORCA_HAS_MIDI_IN
@@ -5502,10 +5507,9 @@ event_loop:;
   }
   goto event_loop;
 quit:
-  // Stop playback: note-offs, MIDI stop (FC) when clock-out is active, and
-  // OSC /orca/stopped when OSC output is set.
-  ged_set_playing(&t.ged, false);
-  ged_stop_all_sustained_notes(&t.ged);
+  // Stop playback: note-offs, OSC /orca/stopped when OSC output is set, and
+  // MIDI stop (FC) when clock-out is active.
+  ged_stop(&t.ged);
 #ifdef BORCA_HAS_MIDI_IN
   tui_input_close(&t); // the PortMidi input before Pm_Terminate
 #endif

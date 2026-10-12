@@ -15,10 +15,11 @@
 // The send sink, provided by the shell, which also sends its own single bytes
 // through it. u is the shell's context, passed back on every call.
 //   midi3:   every three-byte MIDI message, note-offs included;
-//   midi1:   single bytes (the shell's F8, FA, FB, FC);
+//   midi1:   single bytes (the shell's F8, FA, FB, FC; FC on stop is
+//            tick_stop's, the toggle's FC the shell's);
 //   osc:     OSC ints and UDP strings (Oevent_type_osc_ints, _udp_string);
-//   control: the shell's OSC control message /orca/stopped, by address; a
-//            NULL control sends nothing.
+//   control: the OSC control message /orca/stopped, by address, which only
+//            tick_stop sends; a NULL control sends nothing.
 // Note-offs and control messages are never Oevents.
 typedef struct {
   void *u;
@@ -117,6 +118,11 @@ typedef struct {
 //   6. the mono round: the note-offs of every sustained note on a channel
 //      with a new mono note, then the mono note-ons.
 // The shell sends nothing else for the tick.
+//
+// Outside any tick, a stop (tick_stop) sends the note-offs of every
+// sustained note and cancels the glides, then /orca/stopped, then FC only
+// when the clock-out gate is open (AD-14, AD-16); a start sends FA, when the
+// gate is open, before /orca/started, both from the shell.
 void tick_body(Tick_ctx const *ctx, Tick_sink const *sink);
 
 // One poll of the CC engine (spine AD-14, AD-16): clears engine, the engine
@@ -145,6 +151,11 @@ void tick_release_all(Tick_sink const *sink, Susnote_list *susnotes);
 // released and every glide ends, keeping the last values sent. No other call.
 void tick_pause(Tick_sink const *sink, Susnote_list *susnotes,
                 Ccout_engine *ccout);
+
+// Stop (AD-14, AD-16): tick_pause, then /orca/stopped through control when
+// it is set, then FC through midi1 only when clock_out, the gate, is true.
+void tick_stop(Tick_sink const *sink, Susnote_list *susnotes,
+               Ccout_engine *ccout, bool clock_out);
 
 // A new or opened patch (AD-9): ccout_cancel, then ccout_forget, so no glide
 // runs on and the next glide on each controller jumps. Sends nothing.

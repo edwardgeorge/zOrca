@@ -840,6 +840,84 @@ void test_tick_forget_patch(void) {
   oevent_list_deinit(&out);
 }
 
+// Stop with the clock-out gate open (tick_stop): over the pause fixture, the
+// two note-offs, /orca/stopped, then FC, with every note-off before any
+// midi1 and one midi1 in all; the list is empty and the engine idle.
+void test_tick_stop_order(void) {
+  Susnote_list susnotes;
+  seed_notes(&susnotes);
+  Ccout_engine ccout;
+  Oevent_list out;
+  oevent_list_init(&out);
+  seed_glide_step(&ccout, &out);
+  Recording rec;
+  Tick_sink const sink = rec_sink(&rec);
+  tick_stop(&sink, &susnotes, &ccout, true);
+  Log_entry const want[] = {
+      {.kind = Log_midi3, .status = 0x80, .d1 = 36, .d2 = 0},
+      {.kind = Log_midi3, .status = 0x89, .d1 = 127, .d2 = 0},
+      {.kind = Log_control, .address = "/orca/stopped"},
+      {.kind = Log_midi1, .status = 0xFC},
+  };
+  CHECK(log_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  CHECK(rec.midi3_count == 2);
+  for (Usz i = 0; i < rec.midi3_count; ++i)
+    CHECK(rec.midi3_pulses[i] == 0);
+  CHECK(rec.midi1_count == 1 && rec.control_count == 1 && rec.osc_count == 0);
+  CHECK(susnotes.count == 0 && engine_idle(&ccout));
+  oevent_list_deinit(&out);
+  susnote_list_deinit(&susnotes);
+}
+
+// Stop with the gate shut: the two note-offs, then /orca/stopped, and no
+// midi1 at all.
+void test_tick_stop_no_clock_out(void) {
+  Susnote_list susnotes;
+  seed_notes(&susnotes);
+  Ccout_engine ccout;
+  Oevent_list out;
+  oevent_list_init(&out);
+  seed_glide_step(&ccout, &out);
+  Recording rec;
+  Tick_sink const sink = rec_sink(&rec);
+  tick_stop(&sink, &susnotes, &ccout, false);
+  Log_entry const want[] = {
+      {.kind = Log_midi3, .status = 0x80, .d1 = 36, .d2 = 0},
+      {.kind = Log_midi3, .status = 0x89, .d1 = 127, .d2 = 0},
+      {.kind = Log_control, .address = "/orca/stopped"},
+  };
+  CHECK(log_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  CHECK(rec.midi1_count == 0);
+  CHECK(susnotes.count == 0 && engine_idle(&ccout));
+  oevent_list_deinit(&out);
+  susnote_list_deinit(&susnotes);
+}
+
+// A sink with no control callback: the stop sends the two note-offs, then
+// FC, and calls nothing through the NULL pointer.
+void test_tick_stop_control_optional(void) {
+  Susnote_list susnotes;
+  seed_notes(&susnotes);
+  Ccout_engine ccout;
+  Oevent_list out;
+  oevent_list_init(&out);
+  seed_glide_step(&ccout, &out);
+  Recording rec;
+  Tick_sink sink = rec_sink(&rec);
+  sink.control = NULL;
+  tick_stop(&sink, &susnotes, &ccout, true);
+  Log_entry const want[] = {
+      {.kind = Log_midi3, .status = 0x80, .d1 = 36, .d2 = 0},
+      {.kind = Log_midi3, .status = 0x89, .d1 = 127, .d2 = 0},
+      {.kind = Log_midi1, .status = 0xFC},
+  };
+  CHECK(log_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  CHECK(rec.control_count == 0 && rec.midi1_count == 1);
+  CHECK(susnotes.count == 0 && engine_idle(&ccout));
+  oevent_list_deinit(&out);
+  susnote_list_deinit(&susnotes);
+}
+
 // The note-length fixtures (B8). The grid holds D operators over note
 // operators. Dz bangs on ticks that are multiples of 35 only, so each of its
 // notes sounds once in a 35-tick window and no retrigger falls inside it.

@@ -1,6 +1,6 @@
 // The tick body, the sustained-note list, the event send and the shell's
-// pause and patch-forget sequences (architecture spine AD-12, AD-14). See
-// tick.h.
+// pause, stop and patch-forget sequences (architecture spine AD-12, AD-14).
+// See tick.h.
 #include "tick.h"
 #include "base.h"
 #include "ccout.h"
@@ -149,6 +149,15 @@ void tick_pause(Tick_sink const *sink, Susnote_list *susnotes,
                 Ccout_engine *ccout) {
   tick_release_all(sink, susnotes);
   ccout_cancel(ccout);
+}
+
+void tick_stop(Tick_sink const *sink, Susnote_list *susnotes,
+               Ccout_engine *ccout, bool clock_out) {
+  tick_pause(sink, susnotes, ccout);
+  if (sink->control)
+    sink->control(sink->u, "/orca/stopped");
+  if (clock_out)
+    sink->midi1(sink->u, 0xFC); // MIDI stop
 }
 
 void tick_forget_patch(Ccout_engine *ccout) {

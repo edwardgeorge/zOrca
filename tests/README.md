@@ -389,9 +389,11 @@ runner's defaults.
 `tool` defines the CORE list once (today `gbuffer.c vmio.c sim.c
 opstate.c ccout.c music.c transport.c tick.c tooltips.c`).
 `tick.c` and `tooltips.c` are shell code held to the core rules, the
-testable shell (spine AD-1, AD-2, AD-21): `tick.c` is the tick body and the
-sustained-note list (AD-14), which the unit tests drive through a recording
-sink, and `tooltips.c` the tooltip text and placement (I5), which reads the
+testable shell (spine AD-1, AD-2, AD-21): `tick.c` is the tick body, the
+sustained-note list and the shell's pause, stop and patch-forget sequences
+(`tick_pause`, `tick_stop`, `tick_forget_patch`; AD-14), which the unit tests
+drive through a recording sink that logs every call in order, and
+`tooltips.c` the tooltip text and placement (I5), which reads the
 label buffer the VM fills (`portlabel.h`) and formats its integers itself,
 with no `<stdio.h>`.
 `cli`, `orca` and `test` link all of it, and
