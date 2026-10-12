@@ -4,7 +4,7 @@ This is bOrca, boorch's C fork of Orca-c, worked on branch `spec/borca-fixes`, w
 
 Branches on `origin` (Ian's decision, 2026-10-10):
 - `spec/borca-fixes` is the working branch. Push each finished story there.
-- `main` is bOrca's release line. It is at `v3.0.0` (`42500fd`, the Phase 3 tip) since 2026-10-12, fast-forwarded from `v2.0.0` (`09fac7f`, 2026-10-11) and `v1.0.0` (`bb86eaf`), which was force-moved once from the JS Orca on 2026-10-10. It moves only at tagged releases, by fast-forward, and every move or tag push needs Ian's go-ahead. Never force-push it.
+- `main` is bOrca's release line. It is at `v3.0.1` (`a600168`, P3-7) since 2026-10-12, fast-forwarded from `v3.0.0` (`42500fd`), `v2.0.0` (`09fac7f`, 2026-10-11) and `v1.0.0` (`bb86eaf`), which was force-moved once from the JS Orca on 2026-10-10. It moves only at tagged releases, by fast-forward, and every move or tag push needs Ian's go-ahead. Never force-push it.
 - `js-orca` keeps the JS Orca that `main` held.
 
 - The work is specified in `_bmad-output/specs/spec-borca-fixes-improvements/`. Start with `SPEC.md`; its frontmatter lists the companions to read with it.
