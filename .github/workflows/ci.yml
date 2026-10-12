@@ -756,8 +756,8 @@ jobs:
   # realloc hook's included, reaches the armhf runner.
   # Release, not debug: ASan does not run under qemu-user. The job never
   # builds or runs cli, so the R and ; pattern c goldens, which assume a
-  # 64-bit Usz, stay out of it. The job is optional until its first green
-  # run.
+  # 64-bit Usz, stay out of it. The job is required: a red result fails
+  # the run (optional before P3-6's first green run).
   #
   # The compile step checks each source's portability, cli and readme-gen
   # included, one file at a time. It calls the cross compiler directly, with
@@ -771,7 +771,6 @@ jobs:
   armhf:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
 

@@ -819,9 +819,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `prng.h`'s PCG32 relies on, and neither is about UB. `check-nm.sh` and
   `check-includes.sh` call gcc by name, so the gcc legs own them, with the
   examples, doc-sync, upstream and shellcheck steps.
-- **armhf** (`ubuntu-24.04-arm`, optional until its first green run; P3-6,
-  deferred-work #14): the one job that runs the unit tests where `Usz` is
-  32-bit. It cross-compiles each file in the union of `./tool sources cli`,
+- **armhf** (`ubuntu-24.04-arm`, required since P3-6, deferred-work #14):
+  the one job that runs the unit tests where `Usz` is 32-bit. It
+  cross-compiles each file in the union of `./tool sources cli`,
   `./tool sources test` and `./tool sources readme-gen` with
   `arm-linux-gnueabihf-gcc` and the warning flags copied by hand from
   `tool`; that step compiles `tests/unit/alloc_hook.c` with no define, where
@@ -842,8 +842,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   guarded with `#if SIZE_MAX == 0xffffffff` in its file (`Usz` is
   `size_t`; the coordinator's call over the spec's `UINTPTR_MAX`, which
   follows pointer width and is optional in C99), with a comment naming the
-  `Usz` arithmetic that differs; none does today. Until its first green
-  run a red result does not fail the run.
+  `Usz` arithmetic that differs; none does today. A red result fails the
+  run.
 
 `tool` adds `CFLAGS_EXTRA` after its own compiler flags, split on spaces. To
 reproduce a red `build` or `unsigned-char` step on the uConsole:
