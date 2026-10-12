@@ -2917,7 +2917,7 @@ static void push_opers_guide_msg(Orca_dialect dialect) {
       {'=', Guide_borca, "midichord", "Sends preset chords over MIDI."},
       {'=', Guide_upstream, "osc", "Sends OSC message."},
       {';', Guide_borca, "arpeggiator",
-       "Outputs degree numbers for Scale operator."},
+       "Outputs scale degrees by length and step."},
       {';', Guide_upstream, "udp", "Sends UDP message."},
       {'&', Guide_borca, "bouncer", "LFO; rate is its cycle in beats."},
   };

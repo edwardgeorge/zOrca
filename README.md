@@ -152,19 +152,29 @@ Both swap min and max when min is the larger, and both take their right input's 
 
 
 ## Arpeggiator Operator (`;`):
-The Arpeggiator operator (`;`) is a simplified degree-based arpeggiator that outputs degree numbers (0, 1, 2, 3...) instead of MIDI directly. This creates a modular system where the arpeggiator feeds degree numbers to the Scale operator (`$`), which then feeds notes to the MIDI operator (`:`). It only executes when banged (lowercase `;`) and uses internal state tracking.
+The Arpeggiator operator (`;`) is a simplified degree-based arpeggiator that outputs degree numbers (0, 1, 2, 3...) instead of MIDI directly. This creates a modular system where the arpeggiator feeds degree numbers to the Scale operator (`$`), which then feeds notes to the MIDI operator (`:`). It runs only when banged: like a lowercase operator, `;` outputs only on a tick when a bang (`*`) sits next to it, whether its Step input is set or not.
 
-The operator reduces complexity by requiring only 2 inputs (pattern and range) while maintaining all pattern functionality through a cleaner separation of concerns:
+The arpeggiator only counts out degrees, and leaves the notes, timing, velocity and duration to the operators it feeds:
 - `;` (arpeggiator) → `$` (scale) → `:` (midi)
 
 ### Inputs
 
-| Operator | Range | Pattern |
-|:--------:|:-----:|:-------:|
-|    ;     |   R   |    P    |
+| Operator | Range | Pattern | Length | Step |
+|:--------:|:-----:|:-------:|:------:|:----:|
+|    ;     |   R   |    P    |   L    |  S   |
 
-- `R`: Range (1-4) - Sets the octave range for arpeggiation
-- `P`: Pattern (0-9, a-d) - Selects the arpeggiation pattern
+- `R`: Range (1-4) - Sets the octave range for arpeggiation; `0` counts as 1, and anything above 4 as 4
+- `P`: Pattern (0-9, a-d) - Selects the arpeggiation pattern (below)
+- `L`: Length - The number of notes in one octave of the scale or chord, `.` for 7. Any other glyph is its value, `1`-`9` and `a`-`z` for 10 to 35, and uppercase reads like lowercase; `0`, or any other glyph worth 0 (such as `*` or `#`), counts as 1, as Range `0` does
+- `S`: Step - `.` steps through the pattern by itself: each bang outputs the next step. Any other glyph is the step to output: `0`-`9`, then `a`-`z` for 10 to 35, uppercase reading like lowercase, and any other glyph worth 0, so a `*` is step 0. A `C`, a `T` or any other operator can write it, which drives the arpeggio from the grid
+
+Like any uppercase letter, an uppercase Length or Step runs as an operator on the ticks when `;` is not banged, so write them as digits or lowercase.
+
+Set Length to the number of notes of the `$` selector the arpeggiator feeds: 7 for scales `0`-`4`, 5 for `5`-`7`, 4 for `8` and 2 for `9`, and for a chord the number of notes in its Root Notes column (3, 4 or 5). `$` carries a degree past its last note into the next octave, so only then does each octave of the range start on the root. A chord with a note above the octave (`k`, `l`, `m`, `n` and `t` to `y`, and the inversion `Y`) still dips back at each octave boundary: `$3Cm` fed by `;204` plays 36 40 43 50 48 52 55 62. With Length `.` a triad over range 1 spans 7 degrees, two whole octaves.
+
+The arpeggio spans Length × Range degrees, at most 36, so the output is always one glyph, `0` to `z`: `;40z` asks for 35 × 4 = 140 degrees, which caps at 36, so it counts from `0` to `z` and wraps.
+
+A set Step is taken modulo the pattern's period, the Period column below: Up over 3 degrees at Step `4` outputs degree 1. Step is one glyph, so in a pattern whose period is longer than 36 (Up-Down+ over 36 degrees repeats every 72 steps) it reaches only the first 36 positions. Random has no period: each Step gives the random degree for that step, which follows the seed (`--seed`). While Step is set the arpeggiator keeps no state of its own: its output depends only on its inputs and the seed, so Ctrl+R or reopening the file cannot shift it. When Step goes back to `.`, its own count carries on from where it stopped. The count starts over when a bang finds Range, Pattern or Length different from the last time it counted (a change undone before then goes unnoticed; Range above 4 counts as 4), and after Ctrl+R, a new file or an open.
 
 ### Output
 - Outputs degree numbers directly below the operator
@@ -172,38 +182,42 @@ The operator reduces complexity by requiring only 2 inputs (pattern and range) w
 ### Example
 
 ```
-.............
-.......D2....
-........;12..
-D2..$3C03....
-.:03Fa8......
-.............
+.......D2............
+........;103.........
+D2..$3Ca.............
+.:0..a4..............
 ```
 
-This example:
+This example, the first voice of `examples/misc/arpeggiator.orca`:
 1. Delay (`D`) with value 2 bangs the arpeggiator every 2 ticks
-2. Arpeggiator (`;`) uses range 1, pattern 2 (Up-Down) 
-3. Scale operator (`$`) converts degrees to notes using octave 3, C major scale, degree received from Arpeggiator
-4. MIDI operator (`:`), banged from the west by a second `D2` every 2 ticks, plays the notes on channel 0 with velocity a, duration 8
+2. Arpeggiator (`;`) uses range 1, pattern 0 (Up) and length 3, the three notes of a triad, so it outputs the degrees 0 1 2 0 1 2 …
+3. Scale operator (`$`) converts degrees to notes using octave 3, root C and chord `a` (C major), degree received from Arpeggiator
+4. MIDI operator (`:`), banged from the west by a second `D2` every 2 ticks, plays C, E and G (MIDI notes 36, 40 and 43) over and over on channel 0, with velocity a and duration 4
+
+The example's second voice, `;224` with its Step written by `1Ce`, plays Up-Down over two octaves of Major7 (`$4Ce`, length 4): 8 degrees, a period of 14 steps, which the `C` counts out one per tick.
 
 ### Arpeggio Patterns
 
-| Pattern | Description | Pattern Style |
-|:-------:|-------------|---------------|
-| 0 | Up | Ascending notes in scale |
-| 1 | Down | Descending notes in scale |
-| 2 | Up-Down | Ascending then descending (no repeat at turn points) |
-| 3 | Down-Up | Descending then ascending (no repeat at turn points) |
-| 4 | Up-Down+ | Ascending then descending (with repeated turn points) |
-| 5 | Down-Up+ | Descending then ascending (with repeated turn points) |
-| 6 | Converge | Outside in (highest, lowest, 2nd highest, 2nd lowest...) |
-| 7 | Diverge | Inside out (middle notes outward) |
-| 8 | Pinky Up | Alternate between notes and highest note |
-| 9 | Thumb Up | Alternate between lowest and other notes |
-| a | Up-Down Alt | Up-down alternating pattern |
-| b | Down-Up Alt | Down-up alternating pattern |
-| c | Random | Random selection from scale degrees |
-| d | Bounce | Bouncing pattern |
+In the Period column, t is the total number of degrees, min(Length × Range, 36), and the period is the number of steps after which the pattern repeats. At a total of 1 every pattern outputs `0`.
+
+| Pattern | Description | Pattern Style | Period |
+|:-------:|-------------|---------------|:------:|
+| 0 | Up | Ascending notes in scale | t |
+| 1 | Down | Descending notes in scale | t |
+| 2 | Up-Down | Ascending then descending (no repeat at turn points) | 2t−2 |
+| 3 | Down-Up | Descending then ascending (no repeat at turn points) | 2t−2 |
+| 4 | Up-Down+ | Ascending then descending (with repeated turn points) | 2t |
+| 5 | Down-Up+ | Descending then ascending (with repeated turn points) | 2t |
+| 6 | Converge | Outside in (highest, lowest, 2nd highest, 2nd lowest...) | t |
+| 7 | Diverge | Inside out (middle notes outward) | t |
+| 8 | Pinky Up | Alternate between notes and highest note | 2t−2 |
+| 9 | Thumb Up | Alternate between lowest and other notes | 2t−2 |
+| a | Up-Down Alt | Same as 4 | 2t |
+| b | Down-Up Alt | Same as 5 | 2t |
+| c | Random | Random selection from scale degrees | none |
+| d | Bounce | Bouncing pattern | 4·max(1, ⌊t/3⌋) |
+
+Bounce moves over only the lowest ⌊t/3⌋ degrees, and outputs only `0` below a total of 6: a triad, a four-note or a five-note chord at range 1 (`;1d3`, `;1d4`, `;1d5`) outputs `0` on every bang, so use range 2 or more with a chord.
 
 The modular design allows for flexible combinations: use the arpeggiator with any scale/chord from the Scale operator, and route the output to any MIDI operator for complete control over timing, velocity, and duration.
 
@@ -353,6 +367,23 @@ On the uConsole, the appliance is built with `make appliance`: ALSA only, so it 
 ## Changelog
 
 Changes since boorch/bOrca `4f349cd` that alter how an existing patch plays, change what goes out over MIDI, or break the public `orca_run` API, newest first. Each entry has a one-line title, says what changed and why, shows a before/after example, and points at an updated or new patch under `examples/`. The id in brackets at the end of an entry (`P0.1`, `B2`, …) is the item in the fork's implementation spec, the same vocabulary the `.xfail` markers under `tests/` use.
+
+### `;` takes a Length and a Step, so an arpeggio fits its chord and can be stepped from the grid
+
+The arpeggiator assumed a 7-note scale: range 1 spanned 7 degrees, so fed to a `$` playing a triad it climbed two whole octaves, C to C to C, and Up repeated every 7 bangs instead of every 3. Its step lived only in the cell's hidden state, so the grid could neither sync it nor reset it. `;` now reads two more inputs right of Pattern. Length (x+3) is the number of notes per octave of the `$` selector it feeds; `.` is 7, and `0` or any glyph worth 0 counts as 1. Step (x+4) is `.` to keep the cell's own counter; any other glyph is the step to output, taken modulo the pattern's period, so a `C` or a `T` can drive the arpeggio. The arpeggio spans Length × Range degrees, at most 36, so the output is always one glyph, and at a total of 1 every pattern outputs `0`. A Length change restarts the counter, as a Range or Pattern change does, and `;` still needs a bang to output, Step or not. See [Arpeggiator Operator](#arpeggiator-operator-).
+
+This breaks patches that keep anything in the two cells right of a `;`'s Pattern: an operator or a value at x+3 or x+4 now sets the `;`'s Length or Step, and is locked whenever the `;` is banged. A `*` that a neighbouring `D` leaves at x+4 is step 0, which freezes the arpeggio on one degree, so move such operators right: `tests/patches/arp_patterns.orca` and `tests/patches/seeded_random.orca` now space their `;`s 6 columns apart for this. With both cells empty, a `;` plays exactly as before.
+
+Before → after, the first seven notes of `;103` banged every 2 ticks into `$3Ca` (`cli --events`):
+
+```
+before: 36 40 43 48 52 55 60    the 3 at x+3 is ignored: 7 degrees, two octaves
+after:  36 40 43 36 40 43 36    Length 3: C E G, repeating every 3 bangs
+```
+
+Example: `examples/misc/arpeggiator.orca`, whose first voice is that `;103`, and whose second voice takes its Step from a `C` (`;224` into `$4Ce`, Up-Down over two octaves of Major7, a period of 14), and the repro patch `tests/patches/arp_length_step.orca` (Length `z` at range 4, a total of 1 under Up-Down and Down-Up, Length `0`, and a Step from a clock). The uConsole appliance is unaffected: its `default.orca` has no `;`.
+
+For embedders: `Opstate_arp` (`opstate.h`) gains `Usz last_length`, the effective Length the counter last ran at, and `Opstate_entry` keeps its size. While Step is set, `;` does not look up the op-state store. (I4)
 
 ### `&` cycles in beats, counts its phase from tick 0 or the last bang, and keeps it across rate and shape changes
 

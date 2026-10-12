@@ -905,14 +905,14 @@ typedef enum {
   ARP_PATTERN_COUNT
 } ArpPatternType;
 
-// Function to get the degree based on pattern type and step
-static Usz get_arp_degree(ArpPatternType pattern, Usz step, Usz range, 
-                         Oper_extra_params *extra_params) {
-  // Assume a 7-note scale and multiply by range for total degrees
-  Usz scale_length = 7;
-  Usz total_degrees = scale_length * range;
-  
-  if (total_degrees == 0)
+// The degree of a pattern at a step, below total_degrees, which is 1 to 36.
+// Each pattern takes the step modulo its own period, so any step is valid,
+// whether it comes from the cell's counter or from the Step input; Random has
+// no period and hashes the seed and the step. At a total of 1 every pattern
+// gives 0: without that guard Up-Down and Down-Up would alternate 0 and 1.
+static Usz get_arp_degree(ArpPatternType pattern, Usz step, Usz total_degrees,
+                          Usz random_seed) {
+  if (total_degrees <= 1)
     return 0;
 
   switch (pattern) {
@@ -924,14 +924,12 @@ static Usz get_arp_degree(ArpPatternType pattern, Usz step, Usz range,
 
   case ARP_UP_DOWN: {
     Usz period = (total_degrees * 2) - 2;
-    if (period < 2) period = 2;
     Usz pos = step % period;
     return pos < total_degrees ? pos : period - pos;
   }
 
   case ARP_DOWN_UP: {
     Usz period = (total_degrees * 2) - 2;
-    if (period < 2) period = 2;
     Usz pos = step % period;
     return pos < total_degrees ? (total_degrees - 1) - pos : pos - total_degrees + 1;
   }
@@ -969,14 +967,12 @@ static Usz get_arp_degree(ArpPatternType pattern, Usz step, Usz range,
   }
 
   case ARP_PINKY_UP: {
-    if (total_degrees <= 1) return 0;
     Usz highest = total_degrees - 1;
     Usz pos = step % (total_degrees * 2 - 2);
     return (pos % 2 == 0) ? pos / 2 : highest;
   }
 
   case ARP_THUMB_UP: {
-    if (total_degrees <= 1) return 0;
     Usz pos = step % ((total_degrees - 1) * 2);
     return (pos % 2 == 0) ? 0 : (pos / 2) + 1;
   }
@@ -1002,7 +998,7 @@ static Usz get_arp_degree(ArpPatternType pattern, Usz step, Usz range,
   }
 
   case ARP_RANDOM: {
-    Usz key = (extra_params->random_seed + step) ^ (step << 16);
+    Usz key = (random_seed + step) ^ (step << 16);
     key = (key ^ 61) ^ (key >> 16);
     key = key + (key << 3);
     key = key ^ (key >> 4);
@@ -1026,18 +1022,49 @@ static Usz get_arp_degree(ArpPatternType pattern, Usz step, Usz range,
   }
 }
 
+// The arpeggiator (CAP-16, I4). Length is the number of notes per octave of
+// the $ it feeds, `.` for 7; total degrees = min(Length x Range, 36), so the
+// output is always one glyph. Step `.` steps the cell's own counter in the
+// op-state store; any other glyph is the step itself, and then the store is
+// not touched (spine AD-5, AD-7), so Ctrl+R, a file open or the paused
+// preview cannot change the output. The counter resumes where it stopped
+// when Step goes back to `.`, and restarts when Pattern, Range or Length
+// changes.
 BEGIN_OPERATOR(arpeggiator)
   LOWERCASE_REQUIRES_BANG;
-  PORT(0, 1, IN | PARAM, "Range");  // Range (1-4)
-  PORT(0, 2, IN | PARAM, "Pattern");  // Pattern (0-9, a-d)
-  PORT(1, 0, OUT, "");         // Degree output
+  PORT(0, 1, IN | PARAM, "Range");   // Range (1-4)
+  PORT(0, 2, IN | PARAM, "Pattern"); // Pattern (0-9, a-d)
+  PORT(0, 3, IN | PARAM, "Length");  // Notes per octave (`.` is 7)
+  PORT(0, 4, IN | PARAM, "Step");    // `.` for the counter, else the step
+  PORT(1, 0, OUT, "");               // Degree output
 
   // Get inputs
   Glyph range_g = PEEK(0, 1);
   Glyph pattern_g = PEEK(0, 2);
+  Glyph length_g = PEEK(0, 3);
+  Glyph step_g = PEEK(0, 4);
 
   if (range_g == '.' || pattern_g == '.')
     return;
+
+  Usz range = index_of(range_g);
+  Usz pattern = index_of(pattern_g) % ARP_PATTERN_COUNT;
+  if (range == 0) range = 1;
+  if (range > 4) range = 4;
+  // A glyph worth 0 counts as 1, as Range 0 does.
+  Usz length = length_g == '.' ? 7 : index_of(length_g);
+  if (length == 0) length = 1;
+  Usz total = length * range;
+  if (total > Glyphs_index_count) total = Glyphs_index_count;
+
+  // A set Step: no store lookup, so the counter is not read, advanced or
+  // created.
+  if (step_g != '.') {
+    POKE(1, 0,
+         glyph_of(get_arp_degree((ArpPatternType)pattern, index_of(step_g),
+                                 total, extra_params->random_seed)));
+    return;
+  }
 
   // This cell's state, from the caller's op-state store (AD-5)
   Opstate_entry *entry = opstate_lookup(extra_params->ctx->opstate, y, x,
@@ -1046,22 +1073,19 @@ BEGIN_OPERATOR(arpeggiator)
     return;
   Opstate_arp *state = &entry->u.arp;
 
-  Usz range = index_of(range_g);
-  Usz pattern = index_of(pattern_g) % ARP_PATTERN_COUNT;
-  if (range == 0) range = 1;
-  if (range > 4) range = 4;
-
-  // Reset counter on the first visit or if pattern or range changed
+  // Reset counter on the first visit or if pattern, range or length changed
   if (!state->initialized || state->last_pattern != pattern ||
-      state->last_range != range) {
+      state->last_range != range || state->last_length != length) {
     state->step_counter = 0;
     state->initialized = true;
     state->last_pattern = pattern;
     state->last_range = range;
+    state->last_length = length;
   }
 
   // Get degree for current step
-  Usz degree = get_arp_degree((ArpPatternType)pattern, state->step_counter, range, extra_params);
+  Usz degree = get_arp_degree((ArpPatternType)pattern, state->step_counter,
+                              total, extra_params->random_seed);
 
   // Output degree
   POKE(1, 0, glyph_of(degree));

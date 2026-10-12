@@ -36,7 +36,9 @@ typedef struct {
   Usz step_counter;
   Usz last_pattern;
   Usz last_range;
-} Opstate_arp; // ';'
+  Usz last_length; // the effective Length (`.` is 7, a glyph worth 0 is 1);
+                   // a change restarts the counter, as Pattern and Range do
+} Opstate_arp; // ';'; not looked up while its Step input is set (I4)
 
 enum { Opstate_random_max_size = 36 }; // the values 0-9 and a-z
 

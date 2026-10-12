@@ -102,16 +102,21 @@ on fixed patches.
 
 Eight characterization goldens pin, unmarked, what the operators that
 Phase 1 touches produce today, so a refactor that changes their output
-fails a case. Two are replaced, not marked, by the Phase 2 item that
-redefines their operator: `arp_patterns` and the `;` rows of
-`seeded_random` by I4. `bouncer_shapes` was replaced that way by I3, and
+fails a case. Three were replaced, not marked, by the Phase 2 item that
+redefines their operator. `bouncer_shapes` was replaced that way by I3, and
 now records the anchored, tempo-synced `&`, regenerated with `--update`.
+I4 replaced `arp_patterns` and the `;` rows of `seeded_random`, whose `;`s
+now sit in 6-column groups, so that no `D` bangs the Step input I4 added
+at x+4; with Length and Step empty, each `;` outputs exactly the sequence
+the old golden held. `seeded_random` keeps its width and its first four
+rows byte for byte, because uppercase `R` hashes y × width + x, so its `R`
+outputs are unchanged too.
 
 | Case | Pins | `.args` | Replaced by |
 | --- | --- | --- | --- |
 | `bouncer_shapes` | `&` shapes 0–7 at rate 5 over `0`–`z`, an end below the start, a partial range, rate `.`, shape `z`, a `D` bang every 7 ticks, and a rate and a shape that a `C` clock changes; a bang restarts the phase; rate and shape changes keep the anchor (a shape change keeps the phase, a rate change re-takes the elapsed ticks mod the new cycle) | none | none (I3 replaced it) |
-| `arp_patterns` | `;` ranges 1–4 with every non-random pattern, ranges `0` and `z`, a bang every 3 ticks, and a clocked pattern change that restarts the step | none | I4 |
-| `seeded_random` | `R` with a lowercase, an uppercase and a `0` max, and `;` pattern `c`, under a non-zero seed | `--seed 7` | I4 (its `;` rows) |
+| `arp_patterns` | `;` ranges 1–4 with every non-random pattern, ranges `0` and `z`, a bang every 3 ticks, and a clocked pattern change that restarts the step, each `;` in a 6-column group with Length and Step empty | none | none (I4 replaced it) |
+| `seeded_random` | `R` with a lowercase, an uppercase and a `0` max, and `;` pattern `c` with Length and Step empty, under a non-zero seed | `--seed 7` | none (I4 replaced its `;` rows) |
 | `cc_instant` | `!` at rate `.` on CC 1 and CC 74 with values `0`, `g`, `v` and `w` (clamped to 127), sent again on every tick; a channel above 15 that sends nothing, a hundreds digit (CC 100), and controller 130 clamped to 127 | `-t 2` | none |
 | `cc_rates` | the VM's classification of `!` at rates `0` and `z`: still `CCI`, with the rate index (0 and 35) (B3, spine AD-11). `cli` runs no CC engine, so the unit test `tick_cci_same_tick` checks that both go out in the tick that bangs them | `-t 2` | none |
 | `pitch_bend` | `?` with MSB and LSB at `0`, `z` and between, and a channel above 15 that sends nothing | `-t 2` | none |
@@ -136,6 +141,17 @@ differ where `Usz` is 32-bit, as on armhf, whose CI job only compiles.
 upstream "Allow wires to grow" cherry-pick (P0.1) and replaced by it; together
 with `j_reads_locked_J`, added with that pick, they now pin the grown-wire
 behaviour.
+
+`arp_length_step` (I4) pins `;`'s Length and Step: Length `z` at range 4,
+which counts `0` to `z` and wraps; a total of 1 under Up-Down and Down-Up,
+and Length `0`, which output `0` on every bang; and a Step written by a
+`1C3` into `;103` and `$3Ca`, banged every 2 ticks, which plays 36 43 40
+36 43 where the counter would play 36 40 43 36 40, so a Step that is
+ignored changes the golden. Captured with `--update`. The unit tests
+`arp_*` in `tests/unit/test_arp.c` cover the rest: the 36 cap and the
+total-1 guard on every pattern, range 1–4 and Length at every Step and over
+150 counter bangs, Step as the counter's step, and a Step that never
+touches the op-state store.
 
 `bouncer_rate4` (I3) pins all eight `&` shapes at rate `4` over `0`–`z`,
 which repeat every 16 ticks: ticks 0–15 are the rate-4 table in
@@ -175,7 +191,9 @@ carried an `I1` marker; I1 deleted the markers.
 `benchmarks/io` drives `:`, `!`, `;`, `=`, `?` and `$` from clocked tracks.
 Its bOrca-dialect coverage stays in `tests/patches/io_borca.orca`, a copy of
 the patch, whose `tests/expected/patches/io_borca.events` is the golden
-`benchmarks/io` had before the move, unchanged.
+`benchmarks/io` had before the move but for one cell: I4 reads x+3, which
+the K rewrites every tick, as Length on each banged tick, so the `;` output
+cell changed on those ticks while every event line stayed as it was.
 
 The unit tests `dialect_*` in `tests/unit/test_dialect.c` check the rest of
 the dialect on small grids: a context that names no dialect runs bOrca's

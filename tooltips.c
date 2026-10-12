@@ -60,7 +60,9 @@ static Port_tooltip midichord_tooltips[] = {
 
 static Port_tooltip arpeggiator_tooltips[] = {
   {0, 1, "Range"},
-  {0, 2, "Pattern"}
+  {0, 2, "Pattern"},
+  {0, 3, "Length"},
+  {0, 4, "Step"}
 };
 
 static Port_tooltip bouncer_tooltips[] = {

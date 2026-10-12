@@ -185,7 +185,8 @@ void test_opstate_retag(void) {
     CHECK(e->glyph == ';' && e->y == 3 && e->x == 4);
     CHECK(payload_is_zero(e));
     CHECK(!e->u.arp.initialized && e->u.arp.step_counter == 0 &&
-          e->u.arp.last_pattern == 0 && e->u.arp.last_range == 0);
+          e->u.arp.last_pattern == 0 && e->u.arp.last_range == 0 &&
+          e->u.arp.last_length == 0);
     e->u.arp.initialized = true;
     e->u.arp.step_counter = 9;
   }

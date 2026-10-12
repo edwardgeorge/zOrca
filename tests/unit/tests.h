@@ -32,6 +32,19 @@
   X(sim_r_first_visit_and_clear)                                               \
   X(sim_preview_isolation)                                                     \
   X(sim_clear_and_prune)                                                       \
+  X(arp_cap16_triad)                                                           \
+  X(arp_cap_36)                                                                \
+  X(arp_total_1)                                                               \
+  X(arp_length_change)                                                         \
+  X(arp_step_from_clock)                                                       \
+  X(arp_step_wraps)                                                            \
+  X(arp_step_star)                                                             \
+  X(arp_step_skips_store)                                                      \
+  X(arp_step_unset_resumes)                                                    \
+  X(arp_small_totals)                                                          \
+  X(arp_bounds)                                                                \
+  X(arp_step_is_counter_step)                                                  \
+  X(arp_length_dot_and_zero)                                                   \
   X(dialect_names)                                                             \
   X(dialect_default_is_borca)                                                  \
   X(dialect_upstream_cc)                                                       \
