@@ -122,6 +122,7 @@ outputs are unchanged too.
 | `pitch_bend` | `?` with MSB and LSB at `0`, `z` and between, and a channel above 15 that sends nothing | `-t 2` | none |
 | `scale_selectors` | `$` with every digit and lowercase selector at degrees 0, 2, 5 and 9 (with `$3Ca2` and `$3C02`), other roots, no octave, input octave `a` clamped to 9, and a result above octave 9 that writes nothing | `-t 1` | none |
 | `chord_notes` | `=` with every digit and lowercase chord at velocity `.` and at `z`, an octave-9 chord that drops the notes above 127, input octave `a` clamped to 9, a channel above 15, and `:13Cf1` | `-t 1` | none |
+| `note_same_tick` | the VM's two NOTE lines for one tick: `:03C.4` then `:03Ca6` (channel 0, note 36, velocity 127 then 79, length 4 then 6), both banged at tick 0 by a `D8`. P3-1 merges them on the wire in `tick.c`, which `cli` never runs, so the golden is identical before and after; the unit test `tick_note_same_batch` checks the wire: one note-on at 79 and one note-off 6 ticks later | `-t 1` | none |
 
 Their patches avoid what Phase 1 changes on purpose: no lowercase `r`
 operator (B1 and B6 changed it; `r` appears only as a `$` or `=` selector,
@@ -133,6 +134,12 @@ before B1, `&` indexed its state with no bounds check and `;` returned early
 from cell 4096 on. Each case was captured with `--update`. When the cases
 were written, a throwaway model of the operators' source checked each cell;
 it is not committed.
+
+`note_same_tick`, the table's last row, is P3-1's repro patch, not a
+Phase 1 characterization, and cannot catch a P3-1 regression: it pins the
+VM's two NOTE lines for one tick, which P3-1 leaves as they were, since its
+change is in `tick.c` and `cli` never runs `tick.c`. The unit test
+`tick_note_same_batch` in `tests/unit/test_tick.c` checks the wire.
 
 The `R` and `;` pattern `c` goldens assume a 64-bit `Usz`: their hashes
 differ where `Usz` is 32-bit, as on armhf, whose CI job only compiles.

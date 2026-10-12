@@ -128,6 +128,7 @@ static inline Usz oevent_size(U8 type) {
   X(tick_note_release_order)                                                   \
   X(tick_note_retrigger)                                                       \
   X(tick_note_mono)                                                            \
+  X(tick_note_same_batch)                                                      \
   X(tick_note_empty_list)                                                      \
   X(tick_run_vm_clears_list)                                                   \
   X(tick_len_us)                                                               \

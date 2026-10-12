@@ -21,6 +21,14 @@ void susnote_list_clear(Susnote_list *sl) { sl->count = 0; }
 bool susnote_list_add_notes(Susnote_list *sl, Susnote const *restrict notes,
                             Usz added_count, Usz *restrict start_removed,
                             Usz *restrict end_removed) {
+#ifndef NDEBUG
+  // The batch holds each channel and note at most once: tick_send_events
+  // merges a second one into the first (P3-1).
+  for (Usz i = 0; i < added_count; ++i) {
+    for (Usz j = i + 1; j < added_count; ++j)
+      assert(notes[i].chan_note != notes[j].chan_note);
+  }
+#endif
   Susnote *buffer = sl->buffer;
   Usz count = sl->count;
   Usz cap = sl->capacity;
@@ -191,13 +199,27 @@ static void tick_send_events(Tick_ctx const *ctx, Tick_sink const *sink,
                                                 .velocity = em->velocity,
                                                 .duration = em->duration};
       } else {
+        // The same channel and note twice in a tick (two `:` on one note,
+        // or a `=` chord sharing a note with a `:`) is one note-on, in the
+        // first event's slot, with the later event's velocity and length.
+        // So the batch holds each chan_note once, and add_notes below
+        // matches only notes already sounding (P3-1).
+        U16 chan_note = (U16)((channel << 8u) | note_number);
+        Usz slot = 0;
+        while (slot < midi_note_count &&
+               new_susnotes[slot].chan_note != chan_note)
+          ++slot;
+        if (slot < midi_note_count) {
+          midi_note_ons[slot].velocity = em->velocity;
+          new_susnotes[slot].remaining = em->duration;
+          break;
+        }
         midi_note_ons[midi_note_count] =
             (Midi_note_on){.channel = (U8)channel,
                            .note_number = (U8)note_number,
                            .velocity = em->velocity};
         new_susnotes[midi_note_count] =
-            (Susnote){.remaining = em->duration,
-                      .chan_note = (U16)((channel << 8u) | note_number)};
+            (Susnote){.remaining = em->duration, .chan_note = chan_note};
         ++midi_note_count;
       }
       break;

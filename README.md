@@ -370,6 +370,26 @@ On the uConsole, the appliance is built with `make appliance`: ALSA only, so it 
 
 Changes since boorch/bOrca `4f349cd` that alter how an existing patch plays, change what goes out over MIDI, or break the public `orca_run` API, newest first. Each entry has a one-line title, says what changed and why, shows a before/after example, and points at an updated or new patch under `examples/`. The id in brackets at the end of an entry (`P0.1`, `B2`, …) is the item in the fork's implementation spec, the same vocabulary the `.xfail` markers under `tests/` use.
 
+### The same note twice in one tick sends one note-off and one note-on
+
+When one tick emitted the same channel and MIDI note twice, as two `:` on one note do, or a `=` chord that shares a note with a `:` beside it, the second was taken for a retrigger of the first: the wire carried a note-off for a note that had not sounded yet, then two note-ons, then one note-off at the later length. A synth that starts a voice per note-on was left with a voice that never got its off. Now the batch of a tick's note-ons holds each channel and note once: a second event for a note already in the batch replaces that entry's velocity and length and takes no slot of its own, so the tick sends at most one note-off, only when the note was already sounding, and one note-on per channel and note, with the later event's velocity and length (below the tick's 512-note batch limit, past which further notes are dropped, as before). The note-on keeps the first event's place among the tick's note-ons, so every other note-on keeps its order. The rule is the same channel and MIDI note, not the same glyph: `:09Y` and `:09z`, which both clamp to note 127, merge too.
+
+- This breaks patches that play one note twice in a tick. With nothing sounding they sent a note-off, then both note-ons; they now send one note-on, at the later event's velocity. With the note already sounding they sent two note-offs, then both note-ons; they now send one note-off, then one note-on. In both cases the note ends at the later event's length, as it did before.
+- A mono note (`%`) is unchanged: one note per channel with the later velocity and length, as before. A `:` and a `%` on one channel and note in the same tick still send the `:`'s note-on, its note-off, then the `%`'s note-on.
+
+Nothing else about what goes out, or its order, changes. For code that uses `tick.h`: `susnote_list_add_notes` is unchanged, and now expects a batch that holds each channel and note at most once, which `tick_body` guarantees.
+
+Before → after, two `:` on note 36 banged in one tick, `:03C.4` (velocity 127, length 4) then `:03Ca6` (velocity 79, length 6), as the unit test's timeline records the wire (`aseqdump` shows the same messages); the second case has note 36 already sounding and the two the other way round, `:03Ca6` then `:03C.4`, so the later event is the shorter one:
+
+```
+nothing sounding   before: Note off 36, Note on 36 vel 127, Note on 36 vel 79 … Note off 36, 6 ticks later
+                   after:                                   Note on 36 vel 79 … Note off 36, 6 ticks later
+already sounding   before: Note off 36, Note off 36, Note on 36 vel 79, Note on 36 vel 127 … Note off 36, 4 ticks later
+                   after:  Note off 36,                                 Note on 36 vel 127 … Note off 36, 4 ticks later
+```
+
+No example patch: every patch under `examples/` plays as before (none emits one channel and note twice in a tick); the appliance's `default.orca` shows it. Repro patch: `tests/patches/note_same_tick.orca`, those two `:` banged at tick 0, whose golden pins the VM's two NOTE lines (`cli --events` runs no tick body, so its output does not change); the unit test `tick_note_same_batch` in `tests/unit/test_tick.c` checks the wire for both cases and for the order. The uConsole appliance is affected: at tick 0 and every 16th tick its `default.orca` bangs `=03C0ff` and `:03Ef4` together, and both emit note 40 on channel 0 at velocity 119, so each of those ticks sent a note-off for 40 with nothing sounding and then five note-ons, 40 twice; it now sends four note-ons, 40 once, and the E still ends 4 ticks later, at the `:`'s length, as it did. (P3-1)
+
 ### `;` takes a Length and a Step, so an arpeggio fits its chord and can be stepped from the grid
 
 The arpeggiator assumed a 7-note scale: range 1 spanned 7 degrees, so fed to a `$` playing a triad it climbed two whole octaves, C to C to C, and Up repeated every 7 bangs instead of every 3. Its step lived only in the cell's hidden state, so the grid could neither sync it nor reset it. `;` now reads two more inputs right of Pattern. Length (x+3) is the number of notes per octave of the `$` selector it feeds; `.` is 7, and `0` or any glyph worth 0 counts as 1. Step (x+4) is `.` to keep the cell's own counter; any other glyph is the step to output, taken modulo the pattern's period, so a `C` or a `T` can drive the arpeggio. The arpeggio spans Length × Range degrees, at most 36, so the output is always one glyph, and at a total of 1 every pattern outputs `0`. A Length change restarts the counter, as a Range or Pattern change does, and `;` still needs a bang to output, Step or not. See [Arpeggiator Operator](#arpeggiator-operator-).

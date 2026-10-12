@@ -873,6 +873,133 @@ void test_tick_note_mono(void) {
   CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
 }
 
+// P3-1: the same channel and note twice in one tick body is one note-on,
+// in the first event's slot, with the later event's velocity and length,
+// so a synth that starts a voice per note-on is not left with one that
+// never gets its off. Part A, nothing sounding: note 36 at velocity 127
+// for 4 ticks, then at 79 for 6, in one body: one on at 79, one off at
+// body 6. Before, the batch's own first entry was taken for a sounding
+// note: off, on 127, on 79, then the off. Part A2: with note 38 between
+// the two, the merged on keeps the first event's place, before 38's.
+// Part B, already sounding: note 36 for 8 ticks from body 0, then at 79
+// for 6 and at 127 for 4 in body 1: the sounding note's off at once, then
+// one on at 127, and the off at body 5, the later length, not the longer
+// one (nothing at body 7 or 8). Before: off, off, on 79, on 127. Part C:
+// the same note on two channels is two notes, never merged. Part D: the
+// appliance's pair, a `=03C0ff` chord (C E G C', velocity 119, 15 ticks)
+// beside `:03Ef4` (E, 4 ticks): the E merges into the chord's second slot,
+// so four note-ons, 40 once, and 40 goes off at the E's length. Part E:
+// the merge is by MIDI note, not glyph: `:09Y` and `:09z` both clamp to
+// note 127.
+void test_tick_note_same_batch(void) {
+  {
+    // Part A: both Dz bang at tick 0.
+    Glyph grid[Note_h * Note_w];
+    note_grid(grid);
+    put(grid, Note_w, 0, 0, "Dz");
+    put(grid, Note_w, 2, 0, ":03C.4"); // note 36, velocity 127, 4 ticks
+    put(grid, Note_w, 0, 8, "Dz");
+    put(grid, Note_w, 2, 8, ":03Ca6"); // note 36, velocity 79, 6 ticks
+    Recording rec;
+    run_note_bodies(grid, 0, Note_window, false, &rec);
+    Stamped const want[] = {{0, {0x90, 36, 79}}, {6, {0x80, 36, 0}}};
+    CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  }
+  {
+    // Part A2: note 38 emitted between the two.
+    Glyph grid[Note_h * Note_w];
+    note_grid(grid);
+    put(grid, Note_w, 0, 0, "Dz");
+    put(grid, Note_w, 2, 0, ":03C.4"); // note 36, velocity 127, 4 ticks
+    put(grid, Note_w, 0, 8, "Dz");
+    put(grid, Note_w, 2, 8, ":03D.4"); // note 38, velocity 127, 4 ticks
+    put(grid, Note_w, 0, 16, "Dz");
+    put(grid, Note_w, 2, 16, ":03Ca6"); // note 36 again, velocity 79, 6
+    Recording rec;
+    run_note_bodies(grid, 0, Note_window, false, &rec);
+    Stamped const want[] = {
+        {0, {0x90, 36, 79}}, // the first event's slot, the later velocity
+        {0, {0x90, 38, 127}},
+        {4, {0x80, 38, 0}},
+        {6, {0x80, 36, 0}}, // the later length
+    };
+    CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  }
+  {
+    // Part B: Dz bangs at tick 35, both 6D6 at tick 36.
+    Glyph grid[Note_h * Note_w];
+    note_grid(grid);
+    put(grid, Note_w, 0, 0, "Dz");
+    put(grid, Note_w, 2, 0, ":03C.8"); // note 36, 8 ticks, at tick 35
+    put(grid, Note_w, 0, 7, "6D6");
+    put(grid, Note_w, 2, 8, ":03Ca6"); // velocity 79, 6 ticks, at tick 36
+    put(grid, Note_w, 0, 15, "6D6");
+    put(grid, Note_w, 2, 16, ":03C.4"); // velocity 127, 4 ticks, at tick 36
+    Recording rec;
+    run_note_bodies(grid, Late_start, Note_window, false, &rec);
+    Stamped const want[] = {
+        {0, {0x90, 36, 127}},
+        {1, {0x80, 36, 0}},   // step 5: the sounding note's off, at once,
+        {1, {0x90, 36, 127}}, //         then the one note-on
+        {5, {0x80, 36, 0}},   // body 1 + 4, the later length
+    };
+    CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  }
+  {
+    // Part C: note 36 on channels 0 and 1.
+    Glyph grid[Note_h * Note_w];
+    note_grid(grid);
+    put(grid, Note_w, 0, 0, "Dz");
+    put(grid, Note_w, 2, 0, ":03C.4"); // channel 0, velocity 127, 4 ticks
+    put(grid, Note_w, 0, 8, "Dz");
+    put(grid, Note_w, 2, 8, ":13Ca6"); // channel 1, velocity 79, 6 ticks
+    Recording rec;
+    run_note_bodies(grid, 0, Note_window, false, &rec);
+    Stamped const want[] = {
+        {0, {0x90, 36, 127}},
+        {0, {0x91, 36, 79}},
+        {4, {0x80, 36, 0}},
+        {6, {0x81, 36, 0}},
+    };
+    CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  }
+  {
+    // Part D: the appliance's `=03C0ff` and `:03Ef4` in one body.
+    Glyph grid[Note_h * Note_w];
+    note_grid(grid);
+    put(grid, Note_w, 0, 0, "Dz");
+    put(grid, Note_w, 2, 0, "=03C0ff"); // notes 36 40 43 48, 119, 15 ticks
+    put(grid, Note_w, 0, 12, "Dz");
+    put(grid, Note_w, 2, 12, ":03Ef4"); // note 40, 119, 4 ticks
+    Recording rec;
+    run_note_bodies(grid, 0, Note_window, false, &rec);
+    Stamped const want[] = {
+        {0, {0x90, 36, 119}},
+        {0, {0x90, 40, 119}}, // the E, merged into the chord's slot
+        {0, {0x90, 43, 119}},
+        {0, {0x90, 48, 119}},
+        {4, {0x80, 40, 0}},  // at the E's length
+        {15, {0x80, 48, 0}}, // the chord's other notes, in step 2's
+        {15, {0x80, 43, 0}}, // swap order
+        {15, {0x80, 36, 0}},
+    };
+    CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  }
+  {
+    // Part E: `:09Y` (146) and `:09z` (149) are both note 127 on the wire.
+    Glyph grid[Note_h * Note_w];
+    note_grid(grid);
+    put(grid, Note_w, 0, 0, "Dz");
+    put(grid, Note_w, 2, 0, ":09Y.4"); // note 127, velocity 127, 4 ticks
+    put(grid, Note_w, 0, 8, "Dz");
+    put(grid, Note_w, 2, 8, ":09za6"); // note 127, velocity 79, 6 ticks
+    Recording rec;
+    run_note_bodies(grid, 0, Note_window, false, &rec);
+    Stamped const want[] = {{0, {0x90, 127, 79}}, {6, {0x80, 127, 0}}};
+    CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
+  }
+}
+
 // B8: with no sustained notes, release-all and the aging step send nothing
 // and touch no buffer: a list that never held a note keeps its NULL buffer.
 // The empty-list guards themselves (no NULL + 0) are checked by reading the

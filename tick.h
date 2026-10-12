@@ -55,6 +55,7 @@ void susnote_list_clear(Susnote_list *sl);
 // list cannot grow: then the list is unchanged and the out-params are not
 // set, and the caller sends none of this batch's note-ons, so no note is left
 // sounding without a sustained entry.
+// notes holds each channel and note at most once: the caller merges them.
 bool susnote_list_add_notes(Susnote_list *sl, Susnote const *restrict notes,
                             Usz count, Usz *restrict start_removed,
                             Usz *restrict end_removed);
@@ -106,7 +107,10 @@ typedef struct {
 //      steps later, from the wait point's sub-tick polls (at glide_hz,
 //      between ticks) and step 3 of later ticks;
 //   5. the note-offs of retriggered notes (a new note on a sustained channel
-//      and note), then the note-ons;
+//      and note), then the note-ons; the same channel and note twice in a
+//      tick sends one note-on, with the later event's velocity and length
+//      (below the tick's 512-note batch limit, past which further notes are
+//      dropped, as before);
 //   6. the mono round: the note-offs of every sustained note on a channel
 //      with a new mono note, then the mono note-ons.
 // The shell sends nothing else for the tick.
