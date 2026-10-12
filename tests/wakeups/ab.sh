@@ -14,7 +14,10 @@
 #      tests/wakeups/4f349cd-counter.patch applied (`patch -p1`), built with
 #      its own tool;
 #    - borca: a copy of this working tree's tracked files, built with
-#      CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS.
+#      CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS. A new source file must be
+#      tracked (`git add`) before the A/B copies it: the copy is plain
+#      `git ls-files`, since the untracked files include planning trees
+#      whose names tar cannot read.
 #    Both print `bOrca wakeups: <n> waits, <z> zero-timeout in <s> s` to
 #    stderr on quit: <n> counts the loop's waits entered with a timeout
 #    above 0, <z> those entered with timeout 0, over <s> seconds.

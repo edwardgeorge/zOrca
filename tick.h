@@ -15,7 +15,7 @@
 // The send sink, provided by the shell, which also sends its own single bytes
 // through it. u is the shell's context, passed back on every call.
 //   midi3: every three-byte MIDI message, note-offs included;
-//   midi1: single bytes (the shell's F8, FA, FC);
+//   midi1: single bytes (the shell's F8, FA, FB, FC);
 //   osc:   OSC ints and UDP strings (Oevent_type_osc_ints, _udp_string).
 // Note-offs are never Oevents.
 typedef struct {

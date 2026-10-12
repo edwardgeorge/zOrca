@@ -104,12 +104,43 @@
   X(music_velocity_midichord)                                                  \
   X(music_velocity_scale_points)                                               \
   X(music_velocity_midi_unchanged)                                             \
-  X(music_velocity_zero)
+  X(music_velocity_zero)                                                       \
+  X(transport_cap18_start)                                                     \
+  X(transport_cap18_songpos)                                                   \
+  X(transport_cap18_stop)                                                      \
+  X(transport_cap18_clock_lost)                                                \
+  X(transport_stale_poll)                                                      \
+  X(transport_restart_after_loss)                                              \
+  X(transport_continue_keeps_phase)                                            \
+  X(transport_clock_while_stopped)                                             \
+  X(transport_start_while_running)                                             \
+  X(transport_redundant)                                                       \
+  X(transport_burst)                                                           \
+  X(transport_estimate)                                                        \
+  X(transport_window_refills)                                                  \
+  X(transport_refill_anchor)                                                   \
+  X(transport_estimate_drops)                                                  \
+  X(transport_hysteresis)                                                      \
+  X(transport_reset)                                                           \
+  X(transport_rearm)                                                           \
+  X(transport_parse)                                                           \
+  X(transport_hud_text)                                                        \
+  X(transport_stale_stamp_refill)                                              \
+  X(transport_deadline_while_stopped)                                          \
+  X(transport_gap_keeps_running)                                               \
+  X(transport_songpos_moves_anchor)                                            \
+  X(transport_start_clears_lost)
 
 // The full list for each adapter FEAT_ flag, and for the runner's failure
 // canary, whatever the flags.
-#define PORTMIDI_TESTS_ALL(X) X(portmidi_error_text_and_filters)
-#define ALSA_TESTS_ALL(X) X(alsa_version_and_open_modes)
+#define PORTMIDI_TESTS_ALL(X)                                                  \
+  X(portmidi_error_text_and_filters)                                           \
+  X(portmidi_in_filter)
+#define ALSA_TESTS_ALL(X)                                                      \
+  X(alsa_version_and_open_modes)                                               \
+  X(alsa_in_mapping)                                                           \
+  X(alsa_in_announce)                                                          \
+  X(alsa_in_split)
 #define CANARY_TESTS_ALL(X) X(unit_check_canary)
 
 // Every test's prototype, generated from the lists and outside any #ifdef:

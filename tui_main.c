@@ -2,6 +2,7 @@
 #include "ccout.h"
 #include "field.h"
 #include "gbuffer.h"
+#include "midi_in.h"
 #include "opstate.h"
 #include "osc_out.h"
 #include "oso.h"
@@ -10,6 +11,7 @@
 #include "term_util.h"
 #include "tick.h"
 #include "tooltips.h"
+#include "transport.h"
 #include "vmio.h"
 #include <getopt.h>
 #include <locale.h>
@@ -23,8 +25,10 @@
 #endif
 
 #ifdef FEAT_ALSA
+#include <alloca.h> // the snd_seq_*_alloca macros, under -std=c99
 #include <alsa/asoundlib.h>
 #include <errno.h>
+#include <poll.h>
 #include <signal.h>
 
 // SIGTERM, SIGHUP and SIGINT quit gracefully in --alsa builds: the handler
@@ -94,18 +98,38 @@ fprintf(stderr,
 "        The path argument is the path of the Plogue OSC MIDI device.\n"
 "        Example: /OSC_MIDI_0/MIDI\n"
 );
+#ifdef BORCA_HAS_MIDI_IN
+fprintf(stderr,
+"\n"
+"    --clock-source internal|external\n"
+"        Set the clock source for this session: internal (orca's own\n"
+"        tempo, the default) or external (orca follows the MIDI clock\n"
+"        of the MIDI input, which runs, stops and positions playback;\n"
+"        sending MIDI beat clock is suspended meanwhile). Overrides the\n"
+"        clock_source saved in orca.conf without changing it; the\n"
+"        Clock & Timing menu changes and saves it.\n"
+"    --midi-in <name>\n"
+"        Set the MIDI input to follow for this session, over the one\n"
+"        saved in orca.conf, without changing it. In an ALSA build the\n"
+"        name is client:port, as the MIDI Input menu lists them; in a\n"
+"        PortMidi build it is the device name. A name that is not found\n"
+"        is reported on screen, and an ALSA build then waits for it.\n"
+);
+#endif
 #ifdef FEAT_ALSA
 fprintf(stderr,
 "\n"
-"ALSA MIDI output (this build):\n"
+"ALSA MIDI (this build):\n"
 "    MIDI goes out through an ALSA sequencer client named bOrca, or\n"
 "    $BORCA_ALSA_CLIENT_NAME when that is set and non-empty, with one\n"
-"    port named MIDI out. The client opens at startup even with\n"
-"    --osc-midi-bidule, whose output then replaces it. If the sequencer\n"
-"    cannot be opened, or another client already has the name (checked\n"
-"    once, at startup), orca exits with status 1. SIGTERM, SIGHUP and\n"
-"    SIGINT quit cleanly, stopping playback first, unless the signal was\n"
-"    already ignored when orca started.\n"
+"    port named MIDI out, and comes in through its port MIDI in, which\n"
+"    orca itself subscribes to the MIDI input while the clock source is\n"
+"    external. The client opens at startup even with --osc-midi-bidule,\n"
+"    whose output then replaces it. If the sequencer cannot be opened,\n"
+"    or another client already has the name (checked once, at startup),\n"
+"    orca exits with status 1. SIGTERM, SIGHUP and SIGINT quit cleanly,\n"
+"    stopping playback first, unless the signal was already ignored when\n"
+"    orca started.\n"
 );
 #endif
 } // clang-format on
@@ -511,10 +535,17 @@ staticni void advance_faketab(WINDOW *win, int offset_x, int tabstop) {
   wmove(win, y, x);
 }
 
+// bpm_text, when set, replaces the BPM number: the External clock's text
+// (ext_bpm_text in midi_in.h), at most 8 characters, printed left-aligned in
+// 9 columns, so the next field sits two tab stops on whatever the text or
+// the HUD offset, and the HUD does not jump when the estimate appears.
+// Internal keeps its %zu at one tab stop, as it always was, so a switch of
+// source shifts the fields after this one by 8 columns.
 staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
                        char const *filename, Usz field_h, Usz field_w,
                        Usz ruler_spacing_y, Usz ruler_spacing_x, Usz tick_num,
-                       Usz bpm, Ged_cursor const *ged_cursor,
+                       Usz bpm, char const *bpm_text,
+                       Ged_cursor const *ged_cursor,
                        Ged_input_mode input_mode, Usz activity_counter,
                        Glyph const *gbuffer, Mark const *mbuffer,
                        bool midi_err) {
@@ -527,7 +558,10 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
   advance_faketab(win, win_x, Tabstop);
   wprintw(win, "%zuf", tick_num);
   advance_faketab(win, win_x, Tabstop);
-  wprintw(win, "%zu", bpm);
+  if (bpm_text)
+    wprintw(win, "%-9s", bpm_text);
+  else
+    wprintw(win, "%zu", bpm);
   advance_faketab(win, win_x, Tabstop);
   print_activity_indicator(win, activity_counter);
   // Where the MIDI err field goes, if a send has failed; it is drawn last.
@@ -887,13 +921,20 @@ typedef struct {
 
 #ifdef FEAT_ALSA
 // The shell's ALSA sequencer context (architecture spine AD-17): one
-// nonblocking client per process, opened before initscr in every --alsa
-// build, independent of Midi_mode. The alsa Midi_mode variant borrows it, and
-// only quit closes it. The send path sees the Midi_mode as const, so the
-// counters live here, reached through the variant's pointer.
+// nonblocking duplex client per process, opened before initscr in every
+// --alsa build, independent of Midi_mode. The alsa Midi_mode variant borrows
+// it for its sends, the input reader borrows it through its own pointer (so
+// the reader also works under --osc-midi-bidule), and only quit closes it.
+// The send path sees the Midi_mode as const, so the counters live here,
+// reached through the variant's pointer.
 typedef struct {
   snd_seq_t *seq;
-  int port; // "MIDI out"
+  int port;    // "MIDI out": readable and subscribable, port 0
+  int in_port; // "MIDI in": write-only, the input reader's port
+  // The source bOrca has subscribed to MIDI in, while one is stored; the
+  // subscriptions exist only while the clock source is External.
+  Alsa_in_addr source;
+  bool announce_subscribed; // System Announce (0:1) is connected to MIDI in
   // Sends that did not go out, dropped or failed; saturating. Nonzero shows
   // the sticky "MIDI err" field on the HUD.
   Usz send_failures;
@@ -932,16 +973,18 @@ staticni int alsa_client_name_taken(snd_seq_t *seq, char const *name) {
   return taken;
 }
 
-// Opens the client named alsa_client_name(), with one port "MIDI out" that
-// others can read and subscribe to. The appliance's router and verify match
-// this name, port and capability set exactly. Returns 0, -EEXIST if another
+// Opens the client named alsa_client_name(), duplex, with the port "MIDI
+// out" that others can read and subscribe to, then "MIDI in", write-only,
+// that the input reader subscribes sources to. The appliance's router and
+// verify match the name, "MIDI out", its port number and its capability set
+// exactly, and neither sees a write-only port. Returns 0, -EEXIST if another
 // client already has the name, or another negative ALSA error code, with
 // nothing left open.
 staticni int alsa_ctx_open(Alsa_ctx *ctx) {
-  *ctx = (Alsa_ctx){.seq = NULL, .port = -1};
+  *ctx = (Alsa_ctx){.seq = NULL, .port = -1, .in_port = -1};
   snd_seq_t *seq;
   int err =
-      snd_seq_open(&seq, "default", SND_SEQ_OPEN_OUTPUT, SND_SEQ_NONBLOCK);
+      snd_seq_open(&seq, "default", SND_SEQ_OPEN_DUPLEX, SND_SEQ_NONBLOCK);
   if (err < 0)
     return err;
   char const *client_name = alsa_client_name();
@@ -966,8 +1009,14 @@ staticni int alsa_ctx_open(Alsa_ctx *ctx) {
       SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
   if (err < 0)
     goto fail;
-  ctx->seq = seq;
   ctx->port = err;
+  err = snd_seq_create_simple_port(
+      seq, "MIDI in", SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
+      SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
+  if (err < 0)
+    goto fail;
+  ctx->in_port = err;
+  ctx->seq = seq;
   return 0;
 fail:
   snd_seq_close(seq);
@@ -978,6 +1027,91 @@ staticni void alsa_ctx_close(Alsa_ctx *ctx) {
   if (ctx->seq)
     snd_seq_close(ctx->seq);
   ctx->seq = NULL;
+}
+
+// The input reader's subscriptions (AD-17). They exist only while the clock
+// source is External; the shell waits for System Announce while no source
+// address is stored, and never retries on a timer.
+
+// Finds the first readable, subscribable port whose client name is the
+// first client_len bytes of name and whose port name is port_name, both
+// exact. True with its address.
+staticni bool alsa_in_find(snd_seq_t *seq, char const *name, Usz client_len,
+                           char const *port_name, int *client, int *port) {
+  snd_seq_client_info_t *cinfo;
+  snd_seq_port_info_t *pinfo;
+  snd_seq_client_info_alloca(&cinfo);
+  snd_seq_port_info_alloca(&pinfo);
+  snd_seq_client_info_set_client(cinfo, -1);
+  while (snd_seq_query_next_client(seq, cinfo) >= 0) {
+    char const *cname = snd_seq_client_info_get_name(cinfo);
+    if (strlen(cname) != client_len || strncmp(cname, name, client_len) != 0)
+      continue;
+    int cid = snd_seq_client_info_get_client(cinfo);
+    snd_seq_port_info_set_client(pinfo, cid);
+    snd_seq_port_info_set_port(pinfo, -1);
+    while (snd_seq_query_next_port(seq, pinfo) >= 0) {
+      // A write-only port of the same name cannot be subscribed to.
+      unsigned const want = SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ;
+      if ((snd_seq_port_info_get_capability(pinfo) & want) != want)
+        continue;
+      if (strcmp(snd_seq_port_info_get_name(pinfo), port_name) == 0) {
+        *client = cid;
+        *port = snd_seq_port_info_get_port(pinfo);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Matches the `client:port` name and subscribes it to MIDI in, storing its
+// address. Returns 0 when subscribed (-EBUSY, already connected, counts as
+// subscribed, so a re-match is idempotent), 1 when no port matches, 2 when
+// the name does not split (so no port ever will), or a negative ALSA error.
+staticni int alsa_in_match(Alsa_ctx *ctx, char const *name) {
+  Usz client_len;
+  char const *port_name;
+  if (!alsa_in_split(name, &client_len, &port_name))
+    return 2;
+  int client, port;
+  if (!alsa_in_find(ctx->seq, name, client_len, port_name, &client, &port))
+    return 1;
+  int err = snd_seq_connect_from(ctx->seq, ctx->in_port, client, port);
+  if (err < 0 && err != -EBUSY)
+    return err;
+  ctx->source = (Alsa_in_addr){.has = true, .client = client, .port = port};
+  return 0;
+}
+
+// Subscribes System Announce (0:1) first, then the source. The caller drops
+// the queued input before this, never after: an announce queued once 0:1 is
+// connected must be read. Returns as alsa_in_match does; with 1 the shell
+// waits for PORT_START.
+staticni int alsa_in_subscribe(Alsa_ctx *ctx, char const *name) {
+  if (!ctx->announce_subscribed) {
+    int err = snd_seq_connect_from(ctx->seq, ctx->in_port,
+                                   SND_SEQ_CLIENT_SYSTEM,
+                                   SND_SEQ_PORT_SYSTEM_ANNOUNCE);
+    if (err < 0 && err != -EBUSY)
+      return err;
+    ctx->announce_subscribed = true;
+  }
+  return alsa_in_match(ctx, name);
+}
+
+// Leaving External: disconnects the source and System Announce.
+staticni void alsa_in_unsubscribe(Alsa_ctx *ctx) {
+  if (ctx->source.has) {
+    snd_seq_disconnect_from(ctx->seq, ctx->in_port, ctx->source.client,
+                            ctx->source.port);
+    ctx->source.has = false;
+  }
+  if (ctx->announce_subscribed) {
+    snd_seq_disconnect_from(ctx->seq, ctx->in_port, SND_SEQ_CLIENT_SYSTEM,
+                            SND_SEQ_PORT_SYSTEM_ANNOUNCE);
+    ctx->announce_subscribed = false;
+  }
 }
 
 // After initscr, libasound's default error handler would print over the
@@ -1140,6 +1274,39 @@ static bool portmidi_find_name_of_device_id(PmDeviceID id, PmError *out_pmerror,
   osoput(out_name, info->name);
   return true;
 }
+// The input-direction variants (I6): an exact name, and the first hit wins.
+staticni bool portmidi_find_input_id_by_name(char const *name,
+                                             PmError *out_pmerror,
+                                             PmDeviceID *out_id) {
+  *out_pmerror = portmidi_init_if_necessary();
+  if (*out_pmerror)
+    return false;
+  int num = Pm_CountDevices();
+  for (int i = 0; i < num; ++i) {
+    PmDeviceInfo const *info = Pm_GetDeviceInfo(i);
+    if (!info || !info->input)
+      continue;
+    if (strcmp(name, info->name) == 0) {
+      *out_id = i;
+      return true;
+    }
+  }
+  return false;
+}
+static bool portmidi_find_name_of_input_id(PmDeviceID id, PmError *out_pmerror,
+                                           oso **out_name) {
+  *out_pmerror = portmidi_init_if_necessary();
+  if (*out_pmerror)
+    return false;
+  int num = Pm_CountDevices();
+  if (id < 0 || id >= num)
+    return false;
+  PmDeviceInfo const *info = Pm_GetDeviceInfo(id);
+  if (!info || !info->input)
+    return false;
+  osoput(out_name, info->name);
+  return true;
+}
 #endif
 staticni void midi_mode_deinit(Midi_mode *mm) {
   switch (mm->any.type) {
@@ -1203,11 +1370,21 @@ typedef struct {
   Ccout_engine ccout;
   Susnote_list susnote_list;
   Ged_cursor ged_cursor;
+  // The clock source (AD-15, AD-16). Internal is the 4f349cd timing path:
+  // ged_do_stuff runs the ticks on its deadline. Under External the
+  // transport machine runs them from the MIDI input's clock, is_playing
+  // changes only through its actions, and clock-out is suspended. Changed
+  // only through tui_set_clock_source, which resets the machine.
+  Clock_source clock_source;
+  Transport transport;
   Usz tick_num;
   Usz ruler_spacing_y, ruler_spacing_x;
   Ged_input_mode input_mode;
   Usz bpm;
-  U64 tick_len; // one tick at bpm, in microseconds; set with bpm (AD-14)
+  // One tick at bpm, in microseconds, set with bpm (AD-14); under External
+  // it is the transport machine's estimate while that is valid, and bpm's
+  // otherwise, so glide lengths follow the master's tempo.
+  U64 tick_len;
   U64 clock;
   double accum_secs;
   Oosc_dev *oosc_dev;
@@ -1231,10 +1408,23 @@ typedef struct {
 } Ged;
 
 // Every write of the tempo goes through here, so tick_len always matches it.
-// The tick body hands it to the CC engine's glide submits (tick.h).
+// The tick body hands it to the CC engine's glide submits (tick.h). Under
+// External nothing writes the tempo (Set BPM is blocked, < and > are
+// ignored) and tick_len follows the estimate instead; every return to
+// Internal comes through here, adopting the estimate's shown value when one
+// is valid, so the invariant holds again.
 static void ged_set_bpm(Ged *a, Usz bpm) {
   a->bpm = bpm;
   a->tick_len = tick_len_us(bpm);
+}
+
+// Clock-out (AD-16): every F8, FA, FB and FC bOrca sends is gated by this one
+// predicate, the stored Send MIDI Beat Clock setting while the clock source
+// is Internal. External suspends clock-out for the session without clearing
+// the setting, so nothing echoes transport back to a master. No other code
+// reads midi_bclock to decide a send.
+static bool clock_out_active(Ged const *a) {
+  return a->midi_bclock && a->clock_source == Clock_source_internal;
 }
 
 // Every change of the operator dialect goes through here (spine AD-6), from
@@ -1272,6 +1462,8 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   ccout_configure(&a->ccout, Ccout_glide_hz_default);
   susnote_list_init(&a->susnote_list);
   ged_cursor_init(&a->ged_cursor);
+  a->clock_source = Clock_source_internal;
+  transport_reset(&a->transport);
   a->tick_num = 0;
   a->ruler_spacing_y = a->ruler_spacing_x = 8;
   a->input_mode = Ged_input_mode_normal;
@@ -1383,7 +1575,7 @@ staticni void send_midi_3bytes(Oosc_dev *oosc_dev, Midi_mode const *midi_mode,
 }
 
 // The send sink (AD-14) over the backend dispatch above. tick.c sends every
-// event through it, and the shell sends its own F8, FA and FC through it.
+// event through it, and the shell sends its own F8, FA, FB and FC through it.
 // Each call reads the OSC device and the MIDI mode as they are at that
 // moment: both change at runtime (the PortMidi output menu, the OSC form,
 // ged_clear_osc_udp).
@@ -1441,7 +1633,8 @@ static Tick_sink ged_sink(Ged *a) {
                      .osc = ged_sink_osc};
 }
 
-// Sends one byte, such as the beat clock's F8, FA or FC, through the sink.
+// Sends one byte, the beat clock's F8, FA, FB or FC, through the sink. Every
+// caller is gated by clock_out_active() (AD-16).
 static void ged_send_midi_byte(Ged *a, int byte) {
   Tick_sink const sink = ged_sink(a);
   sink.midi1(sink.u, byte);
@@ -1502,15 +1695,17 @@ static ORCA_FORCEINLINE double ms_to_sec(double ms) { return ms / 1000.0; }
 
 // Seconds to the next tick or beat-clock deadline, and no other: note-offs
 // only ever go out in a tick body, so they need no deadline of their own.
+// Under External, as when stopped, there is none: the transport machine runs
+// the ticks, so the internal tick deadline drops out of the wait (AD-16).
 static double ged_secs_to_deadline(Ged const *a) {
-  if (!a->is_playing)
+  if (!a->is_playing || a->clock_source == Clock_source_external)
     return 1.0;
   double secs_span = 60.0 / (double)a->bpm / 4.0;
   // If MIDI beat clock output is enabled, we need to send an event every 24
   // parts per quarter note. Since we've already divided quarter notes into 4
   // for ORCA's timing semantics, divide it by a further 6. This same logic is
   // mirrored in ged_do_stuff().
-  if (a->midi_bclock)
+  if (clock_out_active(a))
     secs_span /= 6.0;
   double rem = secs_span - (stm_sec(stm_since(a->clock)) + a->accum_secs);
   if (rem < 0.0)
@@ -1518,14 +1713,44 @@ static double ged_secs_to_deadline(Ged const *a) {
   return rem;
 }
 
+// One tick body (AD-14), for both callers: the internal deadline in
+// ged_do_stuff and the transport machine's tick due under External. The tick
+// body (tick.c) sends everything for the tick: note-offs that are due, the
+// CC engine's glide steps, then the VM's events, each CC through the engine.
+// The clock is read once, here, after the caller's sixths gate or the
+// event's stamp, never from the stamp itself: the engine's poll and every
+// submit in the body share this time (AD-13).
+staticni void ged_run_tick_body(Ged *a) {
+  Tick_sink const sink = ged_sink(a);
+  Tick_ctx const ctx = {.gbuffer = a->field.buffer,
+                        .mbuffer = a->mbuf_r.buffer,
+                        .height = a->field.height,
+                        .width = a->field.width,
+                        .random_seed = a->random_seed,
+                        .opstate = &a->opstate,
+                        .dialect = a->dialect,
+                        .tick_num = &a->tick_num,
+                        .tick_list = &a->oevent_list,
+                        .engine_list = &a->engine_oevent_list,
+                        .susnotes = &a->susnote_list,
+                        .ccout = &a->ccout,
+                        .now_us = now_us(),
+                        .tick_len = a->tick_len};
+  tick_body(&ctx, &sink);
+  a->needs_remarking = true;
+  a->is_draw_dirty = true;
+  // Engine events do not count as activity.
+  a->activity_counter += a->oevent_list.count;
+}
+
 staticni void ged_do_stuff(Ged *a) {
-  if (!a->is_playing)
+  if (!a->is_playing || a->clock_source == Clock_source_external)
     return;
   // The span to the next deadline: one tick, or a sixth of a tick under beat
   // clock. It only times the deadlines: sustained notes age by one tick per
   // tick body (tick.c), so they keep their length under beat clock.
   double secs_span = 60.0 / (double)a->bpm / 4.0;
-  if (a->midi_bclock) // see also ged_secs_to_deadline()
+  if (clock_out_active(a)) // see also ged_secs_to_deadline()
     secs_span /= 6.0;
   bool crossed_deadline = false;
 #if TIME_DEBUG
@@ -1565,37 +1790,14 @@ staticni void ged_do_stuff(Ged *a) {
 #endif
   if (!crossed_deadline)
     return;
-  Tick_sink const sink = ged_sink(a);
-  if (a->midi_bclock) {
-    sink.midi1(sink.u, 0xF8); // MIDI beat clock
+  if (clock_out_active(a)) {
+    ged_send_midi_byte(a, 0xF8); // MIDI beat clock
     Usz sixths = a->midi_bclock_sixths;
     a->midi_bclock_sixths = (U8)((sixths + 1) % 6);
     if (sixths != 0)
       return;
   }
-  // The tick body (tick.c) sends everything else for this tick: note-offs
-  // that are due, the CC engine's glide steps, then the VM's events, each CC
-  // through the engine. The clock is read once, after the sixths gate: the
-  // engine's poll and every submit in the body share this time (AD-13).
-  Tick_ctx const ctx = {.gbuffer = a->field.buffer,
-                        .mbuffer = a->mbuf_r.buffer,
-                        .height = a->field.height,
-                        .width = a->field.width,
-                        .random_seed = a->random_seed,
-                        .opstate = &a->opstate,
-                        .dialect = a->dialect,
-                        .tick_num = &a->tick_num,
-                        .tick_list = &a->oevent_list,
-                        .engine_list = &a->engine_oevent_list,
-                        .susnotes = &a->susnote_list,
-                        .ccout = &a->ccout,
-                        .now_us = now_us(),
-                        .tick_len = a->tick_len};
-  tick_body(&ctx, &sink);
-  a->needs_remarking = true;
-  a->is_draw_dirty = true;
-  // Engine events do not count as activity.
-  a->activity_counter += a->oevent_list.count;
+  ged_run_tick_body(a);
 }
 
 static inline Isz isz_clamp(Isz x, Isz low, Isz high) {
@@ -1713,9 +1915,18 @@ staticni void ged_draw(Ged *a, WINDOW *win, char const *filename,
   if (a->is_hud_visible) {
     filename = filename ? filename : "unnamed";
     int hud_x = win_w > 50 + a->softmargin_x * 2 ? a->softmargin_x : 0;
+    // Under External the BPM field shows the clock's state: ext lost, ext
+    // <shown> or ext --.
+    char ext_text[9];
+    char const *bpm_text = NULL;
+    if (a->clock_source == Clock_source_external) {
+      ext_bpm_text(a->transport.lost, a->transport.est_valid,
+                   a->transport.shown, ext_text);
+      bpm_text = ext_text;
+    }
     draw_hud(win, a->grid_h, hud_x, Hud_height, win_w, filename,
              a->field.height, a->field.width, a->ruler_spacing_y,
-             a->ruler_spacing_x, a->tick_num, a->bpm, &a->ged_cursor,
+             a->ruler_spacing_x, a->tick_num, a->bpm, bpm_text, &a->ged_cursor,
              a->input_mode, a->activity_counter, a->field.buffer, a->mbuf_r.buffer,
              midi_mode_send_failed(&a->midi_mode));
   }
@@ -2092,6 +2303,11 @@ typedef enum {
   Ged_input_cmd_escape,
 } Ged_input_cmd;
 
+// Play or pause on Internal, and the stop under External too (the transport
+// machine's stop and clock lost, and the switch to External, come here with
+// false): note-offs, glides cancelled, /orca/stopped, and FC only while
+// clock-out is active (AD-16). Starting under External never comes here; see
+// ged_external_start.
 staticni void ged_set_playing(Ged *a, bool playing) {
   if (playing == a->is_playing)
     return;
@@ -2102,7 +2318,7 @@ staticni void ged_set_playing(Ged *a, bool playing) {
     a->midi_bclock_sixths = 0;
     // dumb'n'dirty, get us close to the next step time, but not quite
     a->accum_secs = 60.0 / (double)a->bpm / 4.0;
-    if (a->midi_bclock) {
+    if (clock_out_active(a)) {
       ged_send_midi_byte(a, 0xFA); // "start"
       a->accum_secs /= 6.0;
     }
@@ -2115,11 +2331,69 @@ staticni void ged_set_playing(Ged *a, bool playing) {
     ccout_cancel(&a->ccout);
     a->is_playing = false;
     send_control_message(a->oosc_dev, "/orca/stopped");
-    if (a->midi_bclock)
+    if (clock_out_active(a))
       ged_send_midi_byte(a, 0xFC); // "stop"
   }
   a->is_draw_dirty = true;
 }
+
+#ifdef BORCA_HAS_MIDI_IN
+// The transport machine's start (AD-15): FA or FB from the master. Unlike
+// ged_set_playing(true) it pushes no undo snapshot, re-arms no internal
+// deadline, sends no MIDI and never cancels glides (FA, FB and F2 leave
+// them alone); it only marks the shell playing and tells OSC.
+static void ged_external_start(Ged *a) {
+  if (a->is_playing)
+    return;
+  a->is_playing = true;
+  a->is_draw_dirty = true;
+  send_control_message(a->oosc_dev, "/orca/started");
+}
+
+// Applies one event's or poll's actions, in the spine's order (AD-15): stop
+// or clock lost; set tick; reset anchors; start; one tick body if a tick is
+// due and the shell is playing. Then the estimate: tick_len follows it while
+// valid, and on shown_changed the HUD redraws and /orca/bpm carries the shown
+// value while it is valid (nothing on becoming invalid).
+staticni void ged_apply_transport_actions(Ged *a,
+                                          Transport_actions const *act) {
+  if (act->stop || act->clock_lost) {
+    ged_set_playing(a, false); // note-offs, glides cancelled, no FC
+    a->is_draw_dirty = true;   // the HUD shows ext lost even with no estimate
+  }
+  if (act->set_tick) {
+    a->tick_num = act->tick;
+    a->needs_remarking = true;
+    a->is_draw_dirty = true;
+  }
+  if (act->reset_anchors)
+    opstate_reset_anchors(&a->opstate);
+  if (act->start)
+    ged_external_start(a);
+  if (act->tick_due && a->is_playing)
+    ged_run_tick_body(a);
+  a->tick_len = act->est_valid ? act->tick_len : tick_len_us(a->bpm);
+  if (act->shown_changed) {
+    a->is_draw_dirty = true;
+    if (act->est_valid)
+      ged_send_osc_bpm(a, (I32)act->shown);
+  }
+}
+
+// One input event, stamped by the reader at read time, through the machine.
+static void ged_transport_event(Ged *a, Transport_event const *e) {
+  Transport_actions act;
+  transport_event(&a->transport, e, &act);
+  ged_apply_transport_actions(a, &act);
+}
+
+// The machine's timeouts. now is a fresh now_us() read made after the drain.
+static void ged_transport_poll(Ged *a, U64 now) {
+  Transport_actions act;
+  transport_poll(&a->transport, now, &act);
+  ged_apply_transport_actions(a, &act);
+}
+#endif // BORCA_HAS_MIDI_IN
 
 staticni void ged_input_cmd(Ged *a, Ged_input_cmd ev) {
   switch (ev) {
@@ -2264,6 +2538,10 @@ enum {
   Glide_rate_menu_id,
 #ifdef FEAT_PORTMIDI
   Portmidi_output_device_menu_id,
+#endif
+#ifdef BORCA_HAS_MIDI_IN
+  Clock_source_menu_id,
+  Midi_input_menu_id,
 #endif
 };
 enum {
@@ -2418,15 +2696,47 @@ static void push_dialect_menu(Orca_dialect dialect) {
 enum {
   Playback_menu_midi_bclock = 1,
   Playback_menu_glide_rate,
+  Playback_menu_clock_source,
+  Playback_menu_midi_input,
 };
-static void push_playback_menu(bool midi_bclock_enabled) {
+// Clock & Timing. The beat-clock item shows the stored setting; under
+// External it reads (suspended), since clock-out is gated off (AD-16). Clock
+// Source and MIDI Input exist only in a build with an input reader.
+static void push_playback_menu(bool midi_bclock_enabled, bool external) {
   Qmenu *qm = qmenu_create(Playback_menu_id);
   qmenu_set_title(qm, "Clock & Timing");
-  qmenu_add_printf(qm, Playback_menu_midi_bclock, "[%c] Send MIDI Beat Clock",
-                   midi_bclock_enabled ? '*' : ' ');
+  qmenu_add_printf(qm, Playback_menu_midi_bclock, "[%c] Send MIDI Beat Clock%s",
+                   midi_bclock_enabled ? '*' : ' ',
+                   external ? " (suspended)" : "");
   qmenu_add_choice(qm, Playback_menu_glide_rate, "Glide Rate...");
+#ifdef BORCA_HAS_MIDI_IN
+  qmenu_add_choice(qm, Playback_menu_clock_source, "Clock Source...");
+  qmenu_add_choice(qm, Playback_menu_midi_input, "MIDI Input...");
+#else
+  (void)external;
+#endif
   qmenu_push_to_nav(qm);
 }
+#ifdef BORCA_HAS_MIDI_IN
+// The clock source (AD-15, AD-20): a radio with the active one marked, as
+// the dialect radio. Picking it again changes nothing.
+enum {
+  Clock_source_menu_internal = 1,
+  Clock_source_menu_external,
+};
+static void push_clock_source_menu(Clock_source source) {
+  bool external = source == Clock_source_external;
+  Qmenu *qm = qmenu_create(Clock_source_menu_id);
+  qmenu_set_title(qm, "Clock Source");
+  qmenu_add_printf(qm, Clock_source_menu_internal, "(%c) Internal",
+                   !external ? '*' : ' ');
+  qmenu_add_printf(qm, Clock_source_menu_external, "(%c) External",
+                   external ? '*' : ' ');
+  if (external)
+    qmenu_set_current_item(qm, Clock_source_menu_external);
+  qmenu_push_to_nav(qm);
+}
+#endif
 // The CC engine's glide_hz, the most glide steps per second on one
 // controller (ccout.h, spine AD-20): a radio of the three valid rates with
 // the active one marked, as the dialect radio. Picking it again changes
@@ -2802,7 +3112,10 @@ static char const *const conf_file_name = "orca.conf";
   _(grid_dot_type)                                                             \
   _(grid_ruler_type)                                                           \
   _(dialect)                                                                   \
-  _(glide_hz)
+  _(glide_hz)                                                                  \
+  _(clock_source)                                                              \
+  _(portmidi_input_device)                                                     \
+  _(alsa_input_device)
 char const *const confopts[] = {CONFOPTS(CONFOPT_STRING)};
 enum { Confoptslen = ORCA_ARRAY_COUNTOF(confopts) };
 enum { CONFOPTS(CONFOPT_ENUM) };
@@ -2870,15 +3183,44 @@ staticni bool conf_read_glide_hz(char const *val, Usz *out) {
 // the key's stored line verbatim until a menu change touches the key again.
 // A new override adds its value here and one branch to tui_apply_overrides.
 typedef struct {
-  U32 keys;             // TOUCHFLAG(Confopt_...) of each overridden key
-  Orca_dialect dialect; // --dialect
+  U32 keys;                   // TOUCHFLAG(Confopt_...) of each overridden key
+  Orca_dialect dialect;       // --dialect
+  Clock_source clock_source;  // --clock-source
+  oso *midi_in;               // --midi-in, the compiled backend's input key
 } Tui_overrides;
+
+// The input key of the compiled backend (AD-20): the ALSA `client:port`
+// name, or the PortMidi input device name.
+#ifdef FEAT_ALSA
+#define Confopt_midi_input_device Confopt_alsa_input_device
+#elif defined(FEAT_PORTMIDI)
+#define Confopt_midi_input_device Confopt_portmidi_input_device
+#endif
 
 typedef struct {
   Ged ged;
   Tui_overrides overrides;
   oso *file_name;
   oso *osc_address, *osc_port, *osc_midi_bidule_path;
+  // The MIDI input for this session, in the compiled backend's naming
+  // (Confopt_midi_input_device); NULL or empty when none is set. Its conf
+  // line is copied verbatim until the MIDI Input menu changes it.
+  oso *midi_in_name;
+  // The clock source the conf or --clock-source asks for, applied once at
+  // startup by tui_apply_clock_source, after the overrides and before
+  // auto-play.
+  Clock_source startup_clock_source;
+#ifdef FEAT_ALSA
+  Alsa_ctx *alsa; // the input reader's own pointer to the one ALSA context
+#endif
+#ifdef FEAT_PORTMIDI
+  PortMidiStream *midi_in_stream; // open only while External
+#endif
+#if defined(BORCA_DEBUG_COUNTERS) && defined(BORCA_HAS_MIDI_IN)
+  // The input reader's overflows (-ENOSPC, pmBufferOverflow) and other read
+  // errors. Printed to stderr after endwin.
+  Usz midi_in_overflows, midi_in_errors;
+#endif
   int undo_history_limit;
   int softmargin_y, softmargin_x;
   int hardmargin_y, hardmargin_x;
@@ -2988,6 +3330,31 @@ staticni void tui_load_conf(Tui *t) {
       }
       break;
     }
+    case Confopt_clock_source: {
+      // internal or external, applied once at startup. Anything else, and
+      // external in a build with no input reader, is ignored and its line
+      // kept, which leaves Internal (AD-20).
+      Clock_source source;
+      if (clock_source_from_name(ez.value, &source)) {
+#ifndef BORCA_HAS_MIDI_IN
+        if (source == Clock_source_external)
+          break;
+#endif
+        t->startup_clock_source = source;
+        touched |= TOUCHFLAG(Confopt_clock_source);
+      }
+      break;
+    }
+    case Confopt_portmidi_input_device:
+#ifdef FEAT_PORTMIDI
+      osoput(&t->midi_in_name, ez.value);
+#endif
+      break; // parsed only in a build with its backend; the line is kept
+    case Confopt_alsa_input_device:
+#ifdef FEAT_ALSA
+      osoput(&t->midi_in_name, ez.value);
+#endif
+      break; // parsed only in a build with its backend; the line is kept
     }
   }
 
@@ -3036,6 +3403,12 @@ staticni void tui_apply_overrides(Tui *t) {
   Tui_overrides const *o = &t->overrides;
   if (o->keys & TOUCHFLAG(Confopt_dialect))
     ged_set_dialect(&t->ged, o->dialect);
+  if (o->keys & TOUCHFLAG(Confopt_clock_source))
+    t->startup_clock_source = o->clock_source;
+#ifdef BORCA_HAS_MIDI_IN
+  if (o->keys & TOUCHFLAG(Confopt_midi_input_device))
+    osoputoso(&t->midi_in_name, o->midi_in);
+#endif
   t->prefs_touched &= ~o->keys;
 }
 
@@ -3116,6 +3489,16 @@ staticni void tui_save_prefs(Tui *t) {
       break;
     case Confopt_glide_hz:
       fprintf(ez.file, "%zu", t->ged.ccout.glide_hz);
+      break;
+    case Confopt_clock_source:
+      fputs(clock_source_name(t->ged.clock_source), ez.file);
+      break;
+    case Confopt_portmidi_input_device:
+    case Confopt_alsa_input_device:
+      // Touched only by a MIDI Input pick, which sets the name; the other
+      // backend's key is never touched.
+      if (osolen(t->midi_in_name))
+        fputs(osoc(t->midi_in_name), ez.file);
       break;
     }
   }
@@ -3206,6 +3589,424 @@ staticni void glide_rate_menu_was_picked(Tui *t, int picked_id) {
   t->prefs_touched |= TOUCHFLAG(Confopt_glide_hz);
   tui_save_prefs(t);
 }
+
+#ifdef BORCA_HAS_MIDI_IN
+// The MIDI input (AD-17). It is open, as an ALSA subscription or a PortMidi
+// input stream, only while the clock source is External. A missing or failed
+// source shows a qnav message and never prints after initscr.
+
+// Closes the input: unsubscribes the source and System Announce, or closes
+// the PortMidi stream. Nothing happens when it is not open.
+staticni void tui_input_close(Tui *t) {
+#ifdef FEAT_ALSA
+  alsa_in_unsubscribe(t->alsa);
+#endif
+#ifdef FEAT_PORTMIDI
+  if (t->midi_in_stream) {
+    Pm_Close(t->midi_in_stream);
+    t->midi_in_stream = NULL;
+  }
+#endif
+}
+
+// Opens the input named by midi_in_name: subscribes it to MIDI in (ALSA),
+// or opens its stream with the drop list and discards what arrived before
+// the filter (PortMidi). On a failure the message says so; under ALSA the
+// shell then waits for PORT_START.
+staticni void tui_input_open(Tui *t) {
+  char const *name = osolen(t->midi_in_name) ? osoc(t->midi_in_name) : "";
+#ifdef FEAT_ALSA
+  int result = alsa_in_subscribe(t->alsa, name);
+  if (!*name) {
+    qmsg_printf_push("MIDI Input", "No MIDI input chosen. Pick one under "
+                                   "Clock & Timing, MIDI Input...");
+  } else if (result == 2) {
+    qmsg_printf_push("MIDI Input", "'%s' is not a client:port name", name);
+  } else if (result == 1) {
+    qmsg_printf_push("MIDI Input",
+                     "No MIDI input matches:\n%s\n\nWaiting for it to appear. "
+                     "Pick one under Clock & Timing, MIDI Input...",
+                     name);
+  } else if (result < 0) {
+    qmsg_printf_push("MIDI Input", "Cannot subscribe to %s:\n%s", name,
+                     snd_strerror(result));
+  }
+#endif
+#ifdef FEAT_PORTMIDI
+  if (t->midi_in_stream)
+    return;
+  if (!portmidi_is_initialized)
+    print_loading_message("Waiting on PortMidi...");
+  PmError pmerr = pmNoError; // an empty name never asks PortMidi
+  PmDeviceID devid;
+  if (!*name || !portmidi_find_input_id_by_name(name, &pmerr, &devid)) {
+    if (pmerr) {
+      qmsg_printf_push("PortMidi Error",
+                       "PortMidi error during initialization:\n%s",
+                       Pm_GetErrorText(pmerr));
+    } else {
+      qmsg_printf_push("MIDI Input",
+                       "No PortMidi input matches:\n%s\n\nPick one under "
+                       "Clock & Timing, MIDI Input... (a device plugged in "
+                       "after orca started needs a restart)",
+                       name);
+    }
+    return;
+  }
+  enum { Portmidi_in_buffer = 256 };
+  pmerr = Pm_OpenInput(&t->midi_in_stream, devid, NULL, Portmidi_in_buffer,
+                       portmidi_timeproc, NULL);
+  if (pmerr) {
+    t->midi_in_stream = NULL;
+    qmsg_printf_push("PortMidi Error", "Error opening MIDI input %s:\n%s",
+                     name, Pm_GetErrorText(pmerr));
+    return;
+  }
+  Pm_SetFilter(t->midi_in_stream, BORCA_PM_IN_DROP);
+  // Discard whatever arrived before the filter.
+  PmEvent discard[32];
+  while (Pm_Read(t->midi_in_stream, discard, 32) > 0) {
+  }
+#endif
+}
+
+// Drains every queued input event, each stamped with now_us() at read time
+// and passed through the machine, its actions applied before the next is
+// read (AD-13, AD-15). -ENOSPC and pmBufferOverflow are counted and the
+// drain goes on; any other error is counted and ends it. Nothing happens
+// while the input is not open.
+staticni void tui_input_drain(Tui *t) {
+#ifdef FEAT_ALSA
+  Alsa_ctx *ctx = t->alsa;
+  int own_client = snd_seq_client_id(ctx->seq);
+  for (;;) {
+    snd_seq_event_t *ev;
+    int err = snd_seq_event_input(ctx->seq, &ev);
+    if (err == -EAGAIN)
+      break;
+    if (err == -ENOSPC) {
+#ifdef BORCA_DEBUG_COUNTERS
+      ++t->midi_in_overflows;
+#endif
+      // The kernel's overflow flush emptied the whole input FIFO, announces
+      // included, so a CLIENT_EXIT, PORT_EXIT or PORT_UNSUBSCRIBED for the
+      // stored source may be lost: clear it if its port is gone, and while
+      // none is stored match once, as a lost PORT_START would have.
+      if (ctx->source.has) {
+        snd_seq_port_info_t *pinfo;
+        snd_seq_port_info_alloca(&pinfo);
+        if (snd_seq_get_any_port_info(ctx->seq, ctx->source.client,
+                                      ctx->source.port, pinfo) < 0)
+          ctx->source.has = false;
+      }
+      if (!ctx->source.has && osolen(t->midi_in_name))
+        (void)alsa_in_match(ctx, osoc(t->midi_in_name));
+      continue;
+    }
+    if (err < 0) {
+#ifdef BORCA_DEBUG_COUNTERS
+      ++t->midi_in_errors;
+#endif
+      break;
+    }
+    U64 stamp = now_us();
+    if (ev->source.client == SND_SEQ_CLIENT_SYSTEM &&
+        ev->source.port == SND_SEQ_PORT_SYSTEM_ANNOUNCE) {
+      // System Announce first: the stored address is cleared when the kernel
+      // has dropped the subscription, and matched again on PORT_START.
+      switch (alsa_in_announce(ev, &ctx->source, own_client, ctx->in_port)) {
+      case Alsa_in_clear:
+        ctx->source.has = false;
+        break;
+      case Alsa_in_rematch:
+        if (osolen(t->midi_in_name))
+          (void)alsa_in_match(ctx, osoc(t->midi_in_name));
+        break;
+      case Alsa_in_keep:
+        break;
+      }
+      continue;
+    }
+    Transport_event te;
+    if (alsa_in_map_event(ev, stamp, &te))
+      ged_transport_event(&t->ged, &te);
+    // Every other event is read and discarded.
+  }
+#endif
+#ifdef FEAT_PORTMIDI
+  if (!t->midi_in_stream)
+    return;
+  PmEvent buffer[64];
+  for (;;) {
+    int n = Pm_Read(t->midi_in_stream, buffer, 64);
+    if (n == 0)
+      break;
+    if (n < 0) {
+      if (n == pmBufferOverflow) {
+#ifdef BORCA_DEBUG_COUNTERS
+        ++t->midi_in_overflows;
+#endif
+        continue;
+      }
+#ifdef BORCA_DEBUG_COUNTERS
+      ++t->midi_in_errors;
+#endif
+      break;
+    }
+    for (int i = 0; i < n; ++i) {
+      PmMessage msg = buffer[i].message; // the timestamp is never read
+      Transport_event te;
+      if (transport_parse(Pm_MessageStatus(msg), Pm_MessageData1(msg),
+                          Pm_MessageData2(msg), now_us(), &te))
+        ged_transport_event(&t->ged, &te);
+    }
+  }
+#endif
+}
+
+// Stops without transmitting, resets the machine, drains and discards the
+// queued input, then opens the input: entering External, and changing the
+// input while External (AD-15, AD-17).
+staticni void tui_input_restart(Tui *t) {
+  Ged *a = &t->ged;
+  ged_set_playing(a, false); // clock_out_active() is already false: no FC
+  transport_reset(&a->transport);
+  a->tick_len = tick_len_us(a->bpm);
+  tui_input_close(t);
+#ifdef FEAT_ALSA
+  snd_seq_drop_input(t->alsa->seq);
+#endif
+  tui_input_open(t);
+  a->is_draw_dirty = true;
+}
+
+// The clock-source switch (AD-15, AD-16). Entering External stops playback
+// without transmitting (the source changes first, so clock_out_active() is
+// false), resets the machine, drains the input and opens it. Leaving
+// External closes the input, adopts the estimate's shown value as the BPM
+// when one is valid (sending /orca/bpm when it changed), and if playing
+// re-arms the internal deadline with no undo push, so the first internal
+// tick comes one tick span after the switch, with FB when clock-out is then
+// active. Nothing else is sent, and nothing at all while stopped. The same
+// source changes nothing.
+staticni void tui_set_clock_source(Tui *t, Clock_source source) {
+  Ged *a = &t->ged;
+  if (source == a->clock_source)
+    return;
+  if (source == Clock_source_external) {
+    a->clock_source = Clock_source_external;
+    tui_input_restart(t);
+  } else {
+    tui_input_close(t);
+    bool est_valid = a->transport.est_valid;
+    U16 shown = a->transport.shown;
+    transport_reset(&a->transport);
+    a->clock_source = Clock_source_internal;
+    Usz old_bpm = a->bpm;
+    ged_set_bpm(a, est_valid ? (Usz)shown : a->bpm);
+    if (a->bpm != old_bpm)
+      ged_send_osc_bpm(a, (I32)a->bpm);
+    if (a->is_playing) {
+      double S = 60.0 / (double)a->bpm / 4.0;
+      Rearm r =
+          rearm_compute(Rearm_internal, S, 0.0, 0, clock_out_active(a));
+      a->clock = stm_now();
+      a->accum_secs = r.accum_secs;
+      a->midi_bclock_sixths = r.sixths;
+      if (clock_out_active(a))
+        ged_send_midi_byte(a, 0xFB); // "continue"
+    }
+    a->is_draw_dirty = true;
+  }
+}
+
+// Once, at startup, after tui_apply_overrides and before auto-play.
+staticni void tui_apply_clock_source(Tui *t) {
+  tui_set_clock_source(t, t->startup_clock_source);
+}
+
+staticni void clock_source_menu_was_picked(Tui *t, int picked_id) {
+  Clock_source source = picked_id == Clock_source_menu_external
+                            ? Clock_source_external
+                            : Clock_source_internal;
+  qnav_stack_pop();
+  if (source == t->ged.clock_source)
+    return; // already the source: nothing changes, nothing is saved
+  tui_set_clock_source(t, source);
+  t->prefs_touched |= TOUCHFLAG(Confopt_clock_source);
+  tui_save_prefs(t);
+}
+
+#ifdef FEAT_ALSA
+// The ports a user may follow: readable and subscribable, not NO_EXPORT,
+// not System's and not bOrca's own, in client then port order, shown as
+// client:port. An item's id encodes the address, so a pick needs no list.
+enum { Alsa_in_menu_ports = 256 };
+static int alsa_in_menu_id(int client, int port) {
+  return client * Alsa_in_menu_ports + port + 1;
+}
+staticni void push_alsa_input_menu(Tui *t) {
+  snd_seq_t *seq = t->alsa->seq;
+  int own = snd_seq_client_id(seq);
+  Qmenu *qm = qmenu_create(Midi_input_menu_id);
+  qmenu_set_title(qm, "MIDI Input");
+  snd_seq_client_info_t *cinfo;
+  snd_seq_port_info_t *pinfo;
+  snd_seq_client_info_alloca(&cinfo);
+  snd_seq_port_info_alloca(&pinfo);
+  snd_seq_client_info_set_client(cinfo, -1);
+  int listed = 0;
+  int current = 0;
+  Usz cur_client_len = 0;
+  char const *cur_port = NULL;
+  bool has_cur = osolen(t->midi_in_name) &&
+                 alsa_in_split(osoc(t->midi_in_name), &cur_client_len,
+                               &cur_port);
+  while (snd_seq_query_next_client(seq, cinfo) >= 0) {
+    int client = snd_seq_client_info_get_client(cinfo);
+    if (client == SND_SEQ_CLIENT_SYSTEM || client == own)
+      continue;
+    char const *cname = snd_seq_client_info_get_name(cinfo);
+    snd_seq_port_info_set_client(pinfo, client);
+    snd_seq_port_info_set_port(pinfo, -1);
+    while (snd_seq_query_next_port(seq, pinfo) >= 0) {
+      unsigned caps = snd_seq_port_info_get_capability(pinfo);
+      unsigned const want = SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ;
+      if ((caps & want) != want || (caps & SND_SEQ_PORT_CAP_NO_EXPORT))
+        continue;
+      char const *pname = snd_seq_port_info_get_name(pinfo);
+      int port = snd_seq_port_info_get_port(pinfo);
+      int id = alsa_in_menu_id(client, port);
+      bool is_cur = has_cur && strlen(cname) == cur_client_len &&
+                    strncmp(cname, osoc(t->midi_in_name), cur_client_len) == 0 &&
+                    strcmp(pname, cur_port) == 0;
+      if (is_cur && !current)
+        current = id;
+      qmenu_add_printf(qm, id, "(%c) %s:%s", is_cur ? '*' : ' ', cname, pname);
+      ++listed;
+    }
+  }
+  if (listed == 0) {
+    qmenu_destroy(qm);
+    qmsg_printf_push("No MIDI Inputs", "No ALSA ports to follow were found.");
+    return;
+  }
+  if (current)
+    qmenu_set_current_item(qm, current);
+  qmenu_push_to_nav(qm);
+}
+// The picked address's names, as client:port; false if it is gone.
+staticni bool alsa_in_menu_name(Tui *t, int id, oso **out_name) {
+  snd_seq_t *seq = t->alsa->seq;
+  int client = (id - 1) / Alsa_in_menu_ports;
+  int port = (id - 1) % Alsa_in_menu_ports;
+  snd_seq_client_info_t *cinfo;
+  snd_seq_port_info_t *pinfo;
+  snd_seq_client_info_alloca(&cinfo);
+  snd_seq_port_info_alloca(&pinfo);
+  if (snd_seq_get_any_client_info(seq, client, cinfo) < 0 ||
+      snd_seq_get_any_port_info(seq, client, port, pinfo) < 0)
+    return false;
+  osoput(out_name, snd_seq_client_info_get_name(cinfo));
+  osocat(out_name, ":");
+  osocat(out_name, snd_seq_port_info_get_name(pinfo));
+  return true;
+}
+#endif
+#ifdef FEAT_PORTMIDI
+// The PortMidi input devices, by device id, with the current one marked.
+staticni void push_portmidi_input_menu(Tui *t) {
+  Qmenu *qm = qmenu_create(Midi_input_menu_id);
+  qmenu_set_title(qm, "MIDI Input");
+  PmError e = portmidi_init_if_necessary();
+  if (e) {
+    qmenu_destroy(qm);
+    qmsg_printf_push("PortMidi Error",
+                     "PortMidi error during initialization:\n%s",
+                     Pm_GetErrorText(e));
+    return;
+  }
+  int num = Pm_CountDevices();
+  int listed = 0;
+  int current = -1;
+  char const *cur = osolen(t->midi_in_name) ? osoc(t->midi_in_name) : NULL;
+  for (int i = 0; i < num; ++i) {
+    PmDeviceInfo const *info = Pm_GetDeviceInfo(i);
+    if (!info || !info->input)
+      continue;
+    bool is_cur = cur && strcmp(cur, info->name) == 0;
+    if (is_cur && current < 0)
+      current = i;
+    qmenu_add_printf(qm, i, "(%c) #%d - %s", is_cur ? '*' : ' ', i,
+                     info->name);
+    ++listed;
+  }
+  if (listed == 0) {
+    qmenu_destroy(qm);
+    qmsg_printf_push("No MIDI Inputs", "No PortMidi input devices found.");
+    return;
+  }
+  if (current >= 0)
+    qmenu_set_current_item(qm, current);
+  qmenu_push_to_nav(qm);
+}
+#endif
+
+staticni void push_midi_input_menu(Tui *t) {
+#ifdef FEAT_ALSA
+  push_alsa_input_menu(t);
+#endif
+#ifdef FEAT_PORTMIDI
+  push_portmidi_input_menu(t);
+#endif
+}
+
+// A pick saves only on change. Under External the new input is a source
+// switch: stop without transmitting, reset, drain, then open it.
+staticni void midi_input_menu_was_picked(Tui *t, int picked_id) {
+  oso *name = NULL;
+  bool found = false;
+#ifdef FEAT_ALSA
+  found = alsa_in_menu_name(t, picked_id, &name);
+#endif
+#ifdef FEAT_PORTMIDI
+  {
+    PmError pmerr;
+    found = portmidi_find_name_of_input_id(picked_id, &pmerr, &name);
+  }
+#endif
+  qnav_stack_pop();
+  if (!found || !osolen(name)) {
+    qmsg_printf_push("MIDI Input", "That MIDI input is no longer there.");
+    osofree(name);
+    return;
+  }
+  bool same = osolen(t->midi_in_name) == osolen(name) &&
+              strcmp(osoc(t->midi_in_name), osoc(name)) == 0;
+  if (same) {
+    osofree(name);
+    // Already the input: nothing is saved. Under External with the input
+    // not open (its source was cleared and no PORT_START followed, or the
+    // stream failed to open), picking it again opens it again.
+    bool open = false;
+#ifdef FEAT_ALSA
+    open = t->alsa->source.has;
+#endif
+#ifdef FEAT_PORTMIDI
+    open = t->midi_in_stream != NULL;
+#endif
+    if (t->ged.clock_source == Clock_source_external && !open)
+      tui_input_restart(t);
+    return;
+  }
+  ososwap(&t->midi_in_name, &name);
+  osofree(name);
+  t->prefs_touched |= TOUCHFLAG(Confopt_midi_input_device);
+  tui_save_prefs(t);
+  if (t->ged.clock_source == Clock_source_external)
+    tui_input_restart(t);
+}
+#endif // BORCA_HAS_MIDI_IN
 
 staticni bool tui_restart_osc_udp_if_enabled_diderror(Tui *t) {
   bool error = false;
@@ -3333,7 +4134,8 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
         case Main_menu_quit:
           return Tui_menus_quit;
         case Main_menu_playback:
-          push_playback_menu(t->ged.midi_bclock);
+          push_playback_menu(t->ged.midi_bclock, t->ged.clock_source ==
+                                                     Clock_source_external);
           break;
         case Main_menu_cosmetics:
           push_cosmetics_menu();
@@ -3366,7 +4168,11 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           push_save_as_form(osoc(t->file_name));
           break;
         case Main_menu_set_tempo:
-          push_set_tempo_form(t->ged.bpm);
+          // Under External the tempo is the master's (AD-15).
+          if (t->ged.clock_source == Clock_source_external)
+            qmsg_printf_push("Set BPM", "BPM follows the external clock");
+          else
+            push_set_tempo_form(t->ged.bpm);
           break;
         case Main_menu_set_grid_dims:
           push_set_grid_dims_form(t->ged.field.height, t->ged.field.width);
@@ -3457,28 +4263,58 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
       case Playback_menu_id:
         switch (act.picked.id) {
         case Playback_menu_midi_bclock: {
-          bool new_enabled = !t->ged.midi_bclock;
-          t->ged.midi_bclock = new_enabled;
-          if (t->ged.is_playing) {
-            int msgbyte = new_enabled ? 0xFA /* start */ : 0xFC /* stop */;
-            ged_send_midi_byte(&t->ged, msgbyte);
-            // TODO timing judder will be experienced here, because the
-            // deadline calculation conditions will have been changed by
-            // toggling the midi_bclock flag. We would have to transfer the
-            // current remaining time from the reference clock point into the
-            // accum time, and mutiply or divide it.
+          // The stored setting flips and is saved whatever the source.
+          // While playing on Internal, clock-out resumes with FB and the
+          // sixths counter at 0, or stops with FC; either way the next tick
+          // keeps its due time (midi_in.h, rearm_compute). Under External
+          // nothing is sent: clock-out stays suspended (AD-16).
+          Ged *a = &t->ged;
+          bool new_enabled = !a->midi_bclock;
+          a->midi_bclock = new_enabled;
+          bool external = a->clock_source == Clock_source_external;
+          if (a->is_playing && !external) {
+            double S = 60.0 / (double)a->bpm / 4.0;
+            U64 now = stm_now();
+            double e = stm_sec(stm_diff(now, a->clock)) + a->accum_secs;
+            Rearm r = rearm_compute(new_enabled ? Rearm_clock_out_on
+                                                : Rearm_clock_out_off,
+                                    S, e, a->midi_bclock_sixths, new_enabled);
+            a->clock = now;
+            a->accum_secs = r.accum_secs;
+            a->midi_bclock_sixths = r.sixths;
+            if (clock_out_active(a))
+              ged_send_midi_byte(a, 0xFB); // "continue"
+            else
+              ged_send_midi_byte(a, 0xFC); // "stop"
           }
           t->prefs_touched |= TOUCHFLAG(Confopt_midi_beat_clock);
           qnav_stack_pop();
-          push_playback_menu(new_enabled);
+          push_playback_menu(new_enabled, external);
           tui_save_prefs(t);
+          a->is_draw_dirty = true;
           break;
         }
         case Playback_menu_glide_rate:
           push_glide_rate_menu(t->ged.ccout.glide_hz);
           break;
+#ifdef BORCA_HAS_MIDI_IN
+        case Playback_menu_clock_source:
+          push_clock_source_menu(t->ged.clock_source);
+          break;
+        case Playback_menu_midi_input:
+          push_midi_input_menu(t);
+          break;
+#endif
         }
         break;
+#ifdef BORCA_HAS_MIDI_IN
+      case Clock_source_menu_id:
+        clock_source_menu_was_picked(t, act.picked.id);
+        break;
+      case Midi_input_menu_id:
+        midi_input_menu_was_picked(t, act.picked.id);
+        break;
+#endif
       case Glide_rate_menu_id:
         glide_rate_menu_was_picked(t, act.picked.id);
         break;
@@ -3709,6 +4545,8 @@ enum {
   Argopt_portmidi_deprecated,
   Argopt_osc_deprecated,
   Argopt_dialect,
+  Argopt_clock_source,
+  Argopt_midi_in,
 };
 
 int main(int argc, char **argv) {
@@ -3722,6 +4560,11 @@ int main(int argc, char **argv) {
       {"bpm", required_argument, 0, Argopt_bpm},
       {"seed", required_argument, 0, Argopt_seed},
       {"dialect", required_argument, 0, Argopt_dialect},
+#ifdef BORCA_HAS_MIDI_IN
+      // Unknown options in a build with no input reader.
+      {"clock-source", required_argument, 0, Argopt_clock_source},
+      {"midi-in", required_argument, 0, Argopt_midi_in},
+#endif
       {"portmidi-list-devices", no_argument, 0, Argopt_portmidi_deprecated},
       {"portmidi-output-device", required_argument, 0,
        Argopt_portmidi_deprecated},
@@ -3785,6 +4628,25 @@ int main(int argc, char **argv) {
       }
       usage(); // then the error, last, where it shows
       OPTFAIL("Must be borca or upstream.");
+    case Argopt_clock_source:
+      // A session-only override through the pending overrides (AD-20).
+      if (clock_source_from_name(optarg, &t.overrides.clock_source)) {
+        t.overrides.keys |= TOUCHFLAG(Confopt_clock_source);
+        break;
+      }
+      usage();
+      OPTFAIL("Must be internal or external.");
+    case Argopt_midi_in:
+#ifdef BORCA_HAS_MIDI_IN
+      // Any non-empty name is accepted here and resolved after initscr, as
+      // the conf key is; one that does not match shows a message then.
+      if (optarg[0] != '\0') {
+        osoput(&t.overrides.midi_in, optarg);
+        t.overrides.keys |= TOUCHFLAG(Confopt_midi_input_device);
+        break;
+      }
+#endif
+      OPTFAIL("Must not be empty.");
     case Argopt_init_grid_size:
       if (sscanf(optarg, "%dx%d", &init_grid_dim_x, &init_grid_dim_y) != 2)
         OPTFAIL("Bad format or count. Expected something like: 40x30");
@@ -3838,6 +4700,7 @@ int main(int argc, char **argv) {
               alsa_client_name());
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
+      osofree(t.overrides.midi_in);
       return 1;
     }
     if (err < 0) {
@@ -3845,8 +4708,10 @@ int main(int argc, char **argv) {
               snd_strerror(err));
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
+      osofree(t.overrides.midi_in);
       return 1;
     }
+    t.alsa = &alsa_ctx; // the input reader's own pointer
   }
 #endif
   qnav_init(); // Initialize the menu/navigation global state
@@ -3864,6 +4729,7 @@ int main(int argc, char **argv) {
       alsa_ctx_close(&alsa_ctx);
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
+      osofree(t.overrides.midi_in);
       return 1;
     }
   }
@@ -3916,6 +4782,7 @@ int main(int argc, char **argv) {
       alsa_ctx_close(&alsa_ctx);
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
+      osofree(t.overrides.midi_in);
       return 1;
     }
   }
@@ -4007,13 +4874,23 @@ int main(int argc, char **argv) {
   mbuf_reusable_ensure_size(&t.ged.mbuf_r, t.ged.field.height,
                             t.ged.field.width);
   ged_make_cursor_visible(&t.ged);
-  ged_send_osc_bpm(&t.ged, (I32)t.ged.bpm); // Send initial BPM
+  // The clock source and its input, once: after the overrides, before
+  // auto-play (AD-20). Under External the startup /orca/bpm is skipped (the
+  // estimate's shown value goes out when it becomes valid) and so is
+  // auto-play: the master starts playback (AD-15).
+#ifdef BORCA_HAS_MIDI_IN
+  tui_apply_clock_source(&t);
+#endif
+  bool const startup_external = t.ged.clock_source == Clock_source_external;
+  if (!startup_external)
+    ged_send_osc_bpm(&t.ged, (I32)t.ged.bpm); // Send initial BPM
 #ifdef FEAT_ALSA
   // A shutdown signal before auto-play quits without starting playback.
   if (alsa_shutdown_requested)
     goto quit;
 #endif
-  ged_set_playing(&t.ged, true);            // Auto-play
+  if (!startup_external)
+    ged_set_playing(&t.ged, true); // Auto-play
 #ifdef BORCA_DEBUG_COUNTERS
   debug_waits_since = stm_now();
 #endif
@@ -4024,10 +4901,16 @@ event_loop:;
     goto quit;
 #endif
 #ifdef BORCA_DEBUG_COUNTERS
-  if (cur_timeout > 0)
-    ++debug_waits;
-  else
-    ++debug_zero_waits;
+  // Under External with ALSA the wait is the poll() below, counted there.
+#ifdef FEAT_ALSA
+  if (t.ged.clock_source != Clock_source_external)
+#endif
+  {
+    if (cur_timeout > 0)
+      ++debug_waits;
+    else
+      ++debug_zero_waits;
+  }
 #endif
   int key = wgetch(stdscr);
   if (cur_timeout != 0) {
@@ -4036,6 +4919,18 @@ event_loop:;
   }
   switch (key) {
   case ERR: { // ERR indicates no more events.
+#ifdef BORCA_HAS_MIDI_IN
+    // Under External (AD-15, AD-16): every queued input event is drained
+    // first, each stamped at read time, and only then the machine's
+    // timeouts are polled, with a fresh now read after the drain, so a wait
+    // that ends with an F8 already queued never false-fires clock lost. On
+    // Internal nothing here runs: that path is 4f349cd's.
+    bool const external = t.ged.clock_source == Clock_source_external;
+    if (external) {
+      tui_input_drain(&t);
+      ged_transport_poll(&t.ged, now_us());
+    }
+#endif
     ged_do_stuff(&t.ged);
     bool drew_any = false;
     if (ged_is_draw_dirty(&t.ged) || qnav_stack.occlusion_dirty) {
@@ -4114,6 +5009,58 @@ event_loop:;
           new_timeout = (int)wait_ms;
       }
     }
+#ifdef BORCA_HAS_MIDI_IN
+    if (external) {
+      // The transport machine's deadline (clock lost, or the idle drop of
+      // the estimate), a sibling of the engine's: the tick deadline is
+      // absent under External, so the table gave its 50 ms ceiling, which
+      // stays the cap. A deadline at or before now counts as 1 ms.
+      U64 now = now_us();
+      U64 deadline;
+      if (transport_next_deadline(&t.ged.transport, &deadline)) {
+        U64 wait_ms = 1;
+        if (deadline > now) {
+          U64 wait_us = deadline - now;
+          wait_ms = wait_us / 1000;
+          if (wait_us % 1000 != 0)
+            ++wait_ms; // rounded up
+          if (wait_ms < 1)
+            wait_ms = 1;
+        }
+        if (wait_ms < (U64)new_timeout)
+          new_timeout = (int)wait_ms;
+      }
+#ifdef FEAT_PORTMIDI
+      // PortMidi has no descriptor to wait on: while a stream is open the
+      // input is read each pass; with none there is nothing to read.
+      if (t.midi_in_stream && new_timeout > 1)
+        new_timeout = 1;
+#endif
+#ifdef FEAT_ALSA
+      // The wait is a poll() over stdin and the sequencer's descriptors;
+      // curses stays at timeout 0. EINTR (a shutdown signal) and any other
+      // error go back to event_loop, as a timeout does, where the shutdown
+      // flag is checked.
+      {
+        enum { Alsa_poll_max = 4 };
+        struct pollfd fds[1 + Alsa_poll_max];
+        fds[0] = (struct pollfd){.fd = STDIN_FILENO, .events = POLLIN};
+        int n = snd_seq_poll_descriptors(t.alsa->seq, fds + 1, Alsa_poll_max,
+                                         POLLIN);
+        if (n < 0)
+          n = 0;
+#ifdef BORCA_DEBUG_COUNTERS
+        if (new_timeout > 0)
+          ++debug_waits;
+        else
+          ++debug_zero_waits;
+#endif
+        (void)poll(fds, (nfds_t)(1 + n), new_timeout);
+      }
+      goto event_loop;
+#endif
+    }
+#endif
     if (new_timeout != cur_timeout) {
       wtimeout(stdscr, new_timeout);
       cur_timeout = new_timeout;
@@ -4281,10 +5228,13 @@ event_loop:;
     ged_input_character(&t.ged, '?');
     break;
   case '<':
-    ged_adjust_bpm(&t.ged, -1);
+    // Under External the tempo is the master's: < and > are ignored.
+    if (t.ged.clock_source == Clock_source_internal)
+      ged_adjust_bpm(&t.ged, -1);
     break;
   case '>':
-    ged_adjust_bpm(&t.ged, 1);
+    if (t.ged.clock_source == Clock_source_internal)
+      ged_adjust_bpm(&t.ged, 1);
     break;
   case CTRL_PLUS('f'):
     ged_input_cmd(&t.ged, Ged_input_cmd_step_forward);
@@ -4335,8 +5285,9 @@ event_loop:;
   case ' ':
     if (t.ged.input_mode == Ged_input_mode_append)
       ged_input_character(&t.ged, '.');
-    else
+    else if (t.ged.clock_source == Clock_source_internal)
       ged_input_cmd(&t.ged, Ged_input_cmd_toggle_play_pause);
+    // Under External the master runs playback: Space is ignored (AD-15).
     break;
   case 27: // Escape
     // Check for escape sequences we're interested in that ncurses didn't
@@ -4456,10 +5407,13 @@ event_loop:;
   }
   goto event_loop;
 quit:
-  // Stop playback: note-offs, MIDI stop (FC) when beat clock is on, and OSC
-  // /orca/stopped when OSC output is set.
+  // Stop playback: note-offs, MIDI stop (FC) when clock-out is active, and
+  // OSC /orca/stopped when OSC output is set.
   ged_set_playing(&t.ged, false);
   ged_stop_all_sustained_notes(&t.ged);
+#ifdef BORCA_HAS_MIDI_IN
+  tui_input_close(&t); // the PortMidi input before Pm_Terminate
+#endif
   qnav_deinit();
   if (cont_window)
     delwin(cont_window);
@@ -4477,6 +5431,10 @@ quit:
           "in all\n",
           alsa_ctx.send_drops, alsa_ctx.send_failures);
 #endif
+#if defined(BORCA_DEBUG_COUNTERS) && defined(BORCA_HAS_MIDI_IN)
+  fprintf(stderr, "bOrca MIDI in: %zu overflows, %zu read errors\n",
+          t.midi_in_overflows, t.midi_in_errors);
+#endif
 #ifdef BORCA_DEBUG_COUNTERS
   fprintf(stderr, "bOrca wakeups: %zu waits, %zu zero-timeout in %.3f s\n",
           debug_waits, debug_zero_waits,
@@ -4490,6 +5448,8 @@ quit:
   osofree(t.osc_address);
   osofree(t.osc_port);
   osofree(t.osc_midi_bidule_path);
+  osofree(t.midi_in_name);
+  osofree(t.overrides.midi_in);
 #ifdef FEAT_PORTMIDI
   if (portmidi_is_initialized)
     Pm_Terminate();

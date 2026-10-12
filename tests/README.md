@@ -330,8 +330,8 @@ without `UBSAN_OPTIONS`. CI and the commands above still set
 runner's defaults.
 
 `tool` defines the CORE list once (today `gbuffer.c vmio.c sim.c
-opstate.c ccout.c music.c tick.c`; the other extracted core modules join it
-later).
+opstate.c ccout.c music.c transport.c tick.c`; the other extracted core
+modules join it later).
 `tick.c` is shell code, the tick body and the sustained-note list, held to
 the core rules (spine AD-14), so the unit tests can drive it through a
 recording sink.
@@ -347,8 +347,8 @@ flag. The adapter lists in `tests/unit/tests.h` today:
 
 | Flag | List | Tests |
 | --- | --- | --- |
-| `--portmidi` (`FEAT_PORTMIDI`) | `PORTMIDI_TESTS_ALL` | `portmidi_error_text_and_filters`: `Pm_GetErrorText` returns text; the clock, play and song-position filter bits are set and disjoint |
-| `--alsa` (`FEAT_ALSA`, Linux only) | `ALSA_TESTS_ALL` | `alsa_version_and_open_modes`: `snd_asoundlib_version()` is non-empty; `SND_SEQ_OPEN_DUPLEX` is `SND_SEQ_OPEN_OUTPUT \| SND_SEQ_OPEN_INPUT`; `SND_SEQ_NONBLOCK` is non-zero |
+| `--portmidi` (`FEAT_PORTMIDI`) | `PORTMIDI_TESTS_ALL` | `portmidi_error_text_and_filters`: `Pm_GetErrorText` returns text; the clock, play and song-position filter bits are set and disjoint. `portmidi_in_filter`: PortMidi 217's filter logic over `BORCA_PM_IN_DROP` passes F8, FA, FB, FC and F2 and drops notes, controls and realtime noise |
+| `--alsa` (`FEAT_ALSA`, Linux only) | `ALSA_TESTS_ALL` | `alsa_version_and_open_modes`: `snd_asoundlib_version()` is non-empty; `SND_SEQ_OPEN_DUPLEX` is `SND_SEQ_OPEN_OUTPUT \| SND_SEQ_OPEN_INPUT`; `SND_SEQ_NONBLOCK` is non-zero. `alsa_in_mapping`: sequencer events map to transport events, SONGPOS clamped. `alsa_in_announce`: the stored source is cleared on its CLIENT_EXIT, PORT_EXIT or PORT_UNSUBSCRIBED and re-matched on PORT_START only while none is stored. `alsa_in_split`: `client:port` splits at the last colon, both sides non-empty |
 
 The PortMidi build needs `libportmidi-dev`, so it runs in CI only, not on
 the uConsole. The ALSA build needs `libasound2-dev`, which the uConsole has;
@@ -439,8 +439,9 @@ PASS  sim.c
 PASS  opstate.c
 PASS  ccout.c
 PASS  music.c
+PASS  transport.c
 PASS  tick.c
-include check: 7 files, 7 pass, 0 xfail, 0 fail, 0 xpass; canary detected
+include check: 8 files, 8 pass, 0 xfail, 0 fail, 0 xpass; canary detected
 $ tests/check-nm.sh
 PASS  canary (detected: D canary_extern_init, B canary_extern_zero, d canary_static_init, b canary_static_zero; marker path: canary_extern_zero unmarked, canary_absent matches none)
 PASS  gbuffer.c
@@ -449,8 +450,9 @@ PASS  sim.c
 PASS  opstate.c
 PASS  ccout.c
 PASS  music.c
+PASS  transport.c
 PASS  tick.c
-nm check: 7 files, 7 pass, 0 xfail, 0 fail, 0 xpass; canary detected
+nm check: 8 files, 8 pass, 0 xfail, 0 fail, 0 xpass; canary detected
 ```
 
 In the summaries, `pass` counts clean files, and `xfail`, `fail` and `xpass`
