@@ -1406,3 +1406,30 @@ void test_ccout_glide_rate_example(void) {
   CHECK(i3 + 3 <= seq.count && seq.values[i3] == 32 &&
         seq.values[i3 + 1] == 36 && seq.values[i3 + 2] == 40);
 }
+
+// Only "50", "100" and "200" are glide_hz names, exactly, and each names its
+// rate back; anything else leaves the output alone, which orca.conf's
+// glide_hz key relies on: an unknown value is kept verbatim (spec item I2,
+// P3-4b).
+void test_ccout_glide_hz_names(void) {
+  static char const *const names[] = {"50", "100", "200"};
+  static Usz const rates[] = {50, 100, 200};
+  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(names); ++i) {
+    Usz hz = 7;
+    CHECK(ccout_glide_hz_from_name(names[i], &hz) && hz == rates[i]);
+    char const *name = ccout_glide_hz_name(rates[i]);
+    CHECK(name && strcmp(name, names[i]) == 0);
+  }
+  static char const *const bad[] = {"",    "0",   "150", "abc", " 50",
+                                    "100 ", "1e2", "050", "50Hz"};
+  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(bad); ++i) {
+    Usz hz = 7;
+    CHECK(!ccout_glide_hz_from_name(bad[i], &hz));
+    CHECK(hz == 7);
+  }
+  static Usz const unnamed[] = {0, 1, 49, 51, 99, 101, 150, 199, 201, 1000};
+  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(unnamed); ++i)
+    CHECK(ccout_glide_hz_name(unnamed[i]) == NULL);
+  // The default is one of the three.
+  CHECK(ccout_glide_hz_name(Ccout_glide_hz_default) != NULL);
+}

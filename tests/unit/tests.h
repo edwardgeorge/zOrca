@@ -142,6 +142,7 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(ccout_glide_hz_change_applies)                                             \
   X(ccout_budget_first_held_slot)                                              \
   X(ccout_glide_rate_example)                                                  \
+  X(ccout_glide_hz_names)                                                      \
   X(tick_cap9_resume_after_edit)                                               \
   X(tick_cap9_resume_without_edit)                                             \
   X(tick_wire_order)                                                           \

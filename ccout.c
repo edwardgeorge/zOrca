@@ -156,6 +156,30 @@ void ccout_configure(Ccout_engine *engine, Usz glide_hz) {
   engine->step_gap = hz >= 1000000 ? 1 : (1000000 + hz - 1) / hz;
 }
 
+// The glide_hz settings, the one place the three rates are named.
+static struct {
+  char const *name;
+  Usz hz;
+} const glide_hz_names[] = {{"50", 50}, {"100", 100}, {"200", 200}};
+
+bool ccout_glide_hz_from_name(char const *name, Usz *out) {
+  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(glide_hz_names); ++i) {
+    if (strcmp(name, glide_hz_names[i].name) == 0) {
+      *out = glide_hz_names[i].hz;
+      return true;
+    }
+  }
+  return false;
+}
+
+char const *ccout_glide_hz_name(Usz hz) {
+  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(glide_hz_names); ++i) {
+    if (glide_hz_names[i].hz == hz)
+      return glide_hz_names[i].name;
+  }
+  return NULL;
+}
+
 void ccout_submit_instant(Ccout_engine *engine, U8 ch, U8 cc, U8 value, U64 now,
                           Oevent_list *out) {
   assert(ch < Ccout_channels && cc < Ccout_controls && value <= 127);

@@ -3229,19 +3229,6 @@ staticni bool conf_read_boolish(char const *val, bool *out) {
   return false;
 }
 
-// glide_hz: 50, 100 or 200, written as such. Anything else is not a value.
-staticni bool conf_read_glide_hz(char const *val, Usz *out) {
-  static char const *const names[] = {"50", "100", "200"};
-  static Usz const rates[] = {50, 100, 200};
-  for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(names); i++) {
-    if (strcmp(val, names[i]) != 0)
-      continue;
-    *out = rates[i];
-    return true;
-  }
-  return false;
-}
-
 // Settings given on the command line (spine AD-20). main() parses each flag
 // into a pending override before curses starts: it sets the key's TOUCHFLAG
 // in keys and its value below. tui_apply_overrides applies them after
@@ -3391,7 +3378,7 @@ staticni void tui_load_conf(Tui *t) {
       // 50, 100 or 200; anything else is ignored, which leaves 100, and its
       // value is kept until the Glide Rate menu sets a rate.
       Usz glide_hz;
-      if (conf_read_glide_hz(ez.value, &glide_hz)) {
+      if (ccout_glide_hz_from_name(ez.value, &glide_hz)) {
         ccout_configure(&t->ged.ccout, glide_hz);
         touched |= TOUCHFLAG(Confopt_glide_hz);
       }

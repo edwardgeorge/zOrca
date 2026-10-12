@@ -108,6 +108,14 @@ void ccout_init(Ccout_engine *engine);
 // on every change of it.
 void ccout_configure(Ccout_engine *engine, Usz glide_hz);
 
+// The names orca.conf's glide_hz key takes: "50", "100" and "200", exactly,
+// the three settings of the Glide Rate menu. False, leaving *out alone, for
+// anything else.
+bool ccout_glide_hz_from_name(char const *name, Usz *out);
+// The name ccout_glide_hz_from_name reads as hz: "50", "100" or "200"; NULL
+// for any other value.
+char const *ccout_glide_hz_name(Usz hz);
+
 // An instant CC: an Oevent_midi_cc, or a CCI at rate 0 or 35.
 void ccout_submit_instant(Ccout_engine *engine, U8 ch, U8 cc, U8 value, U64 now,
                           Oevent_list *out);
