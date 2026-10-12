@@ -53,6 +53,35 @@ void test_gbuffer_bounds(void) {
   CHECK(guards_hit == 0);
 }
 
+// The reference implementation in sim.c's comment, the table's oracle.
+static Usz glyph_index_reference(Glyph c) {
+  if (c >= '0' && c <= '9')
+    return (Usz)(c - '0');
+  if (c >= 'A' && c <= 'Z')
+    return (Usz)(c - 'A' + 10);
+  if (c >= 'a' && c <= 'z')
+    return (Usz)(c - 'a' + 10);
+  return 0;
+}
+
+// gbuffer.h's one glyph index table (AD-19) against the reference, over
+// every byte: '0'..'9' are 0..9, letters 10..35 in either case, anything
+// else 0, and a byte above 127 reads as its low 7 bits. A typo in any of
+// the 128 entries fails here.
+void test_glyph_index_of_reference(void) {
+  Usz mismatches = 0;
+  for (int i = 0; i < 256; ++i) {
+    Glyph c = (Glyph)i;
+    if (glyph_index_of(c) != glyph_index_reference((Glyph)(i & 0x7f)))
+      ++mismatches;
+  }
+  CHECK(mismatches == 0);
+  CHECK(glyph_index_of('0') == 0 && glyph_index_of('9') == 9);
+  CHECK(glyph_index_of('a') == 10 && glyph_index_of('Z') == 35);
+  CHECK(glyph_index_of('.') == 0 && glyph_index_of('#') == 0);
+  CHECK(glyph_index_of((Glyph)(0x80 | 'f')) == 15);
+}
+
 // Growing past the initial capacity and several reallocations keeps every
 // item, in order. Copy and clear keep them too.
 void test_oevent_list_growth(void) {

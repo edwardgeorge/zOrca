@@ -1,6 +1,24 @@
 #pragma once
 #include "base.h"
 
+// A glyph's value as an operand (spine AD-19, the one table): '0'..'9' are
+// 0..9, letters are 10..35 in either case ('F' is 'f'), and any other glyph
+// is 0. A byte above 127 reads as its low 7 bits. sim.c and tooltips.c both
+// read it; test_core.c checks it against the reference implementation in
+// sim.c.
+static U8 const glyph_index_table[128] = {
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //   0-15
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //  16-31
+    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //  32-47
+    0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  0,  0,  0,  0,  0,  //  48-63
+    0,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, //  64-79
+    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0,  0,  0,  0,  0,  //  80-95
+    0,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, //  96-111
+    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0,  0,  0,  0,  0}; // 112-127
+ORCA_FORCEINLINE static Usz glyph_index_of(Glyph c) {
+  return glyph_index_table[c & 0x7f];
+}
+
 ORCA_PURE static inline Glyph gbuffer_peek_relative(Glyph *gbuf, Usz height,
                                                     Usz width, Usz y, Usz x,
                                                     Isz delta_y, Isz delta_x) {

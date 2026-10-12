@@ -1,4 +1,5 @@
 #include "tooltips.h"
+#include "gbuffer.h"
 #include "music.h"
 #include "portlabel.h"
 #include <string.h>
@@ -6,18 +7,6 @@
 // The tooltips (spec item I5, spine AD-19). Testable shell: no I/O, no
 // writable globals, and only the core include allow-list, so the unit runner
 // links this file (spine AD-1, AD-2, AD-21). See tooltips.h.
-
-// Local index_of (duplicated from sim.c): a glyph's 0-35, 0 for any other.
-static U8 const index_table[128] = {
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //   0-15
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //  16-31
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //  32-47
-    0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  0,  0,  0,  0,  0,  //  48-63
-    0,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, //  64-79
-    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0,  0,  0,  0,  0,  //  80-95
-    0,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, //  96-111
-    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0,  0,  0,  0,  0}; // 112-127
-static Usz index_of(Glyph c) { return index_table[c & 0x7f]; }
 
 // Copies text into buf, which holds Tooltip_line_max bytes, cut to fit.
 static void put_text(char *buf, char const *text) {
@@ -80,17 +69,17 @@ bool tooltip_at(Port_label_cell const *labels, Usz labels_h, Usz labels_w,
       }
       break;
     case Port_label_cc_value: {
-      Usz v = index_of(g) * 4;
+      Usz v = glyph_index_of(g) * 4;
       put_text(line1, "Value:");
       put_text_uint(line2, "", v > 127 ? 127 : v);
       return true;
     }
     case Port_label_cc_value_upstream:
       put_text(line1, "Value:");
-      put_text_uint(line2, "", index_of(g) * 127 / 35);
+      put_text_uint(line2, "", glyph_index_of(g) * 127 / 35);
       return true;
     case Port_label_glide_rate: {
-      Usz rate = index_of(g);
+      Usz rate = glyph_index_of(g);
       put_text(line1, "Interpolation:");
       if (rate == 0 || rate == 35) // the instant class (ccout.h)
         put_text(line2, "instant");

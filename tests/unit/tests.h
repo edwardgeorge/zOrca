@@ -57,6 +57,7 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
 // CORE_TESTS: tests that link CORE against libc only.
 #define CORE_TESTS(X)                                                          \
   X(gbuffer_bounds)                                                            \
+  X(glyph_index_of_reference)                                                  \
   X(oevent_list_growth)                                                        \
   X(orca_run_smoke)                                                            \
   X(prng_pcg32_reference)                                                      \

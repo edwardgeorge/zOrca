@@ -27,18 +27,11 @@ static inline Glyph glyph_of(Usz index) {
   return glyph_table[index];
 }
 
-static U8 const index_table[128] = {
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //   0-15
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //  16-31
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //  32-47
-    0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  0,  0,  0,  0,  0,  //  48-63
-    0,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, //  64-79
-    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0,  0,  0,  0,  0,  //  80-95
-    0,  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, //  96-111
-    25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 0,  0,  0,  0,  0}; // 112-127
-static ORCA_FORCEINLINE Usz index_of(Glyph c) { return index_table[c & 0x7f]; }
+// A glyph's value: gbuffer.h's glyph_index_of, the one table (AD-19).
+static ORCA_FORCEINLINE Usz index_of(Glyph c) { return glyph_index_of(c); }
 
-// Reference implementation:
+// Reference implementation (test_core.c's glyph_index_of_reference checks
+// the table against it):
 // static Usz index_of(Glyph c) {
 //   if (c >= '0' && c <= '9') return (Usz)(c - '0');
 //   if (c >= 'A' && c <= 'Z') return (Usz)(c - 'A' + 10);
