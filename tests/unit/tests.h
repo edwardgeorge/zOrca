@@ -251,7 +251,8 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(opstate_copy_alloc_fail)
 #define PORTMIDI_TESTS_ALL(X)                                                  \
   X(portmidi_error_text_and_filters)                                           \
-  X(portmidi_in_filter)
+  X(portmidi_in_filter)                                                        \
+  X(portmidi_in_decode)
 #define ALSA_TESTS_ALL(X)                                                      \
   X(alsa_version_and_open_modes)                                               \
   X(alsa_in_mapping)                                                           \

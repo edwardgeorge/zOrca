@@ -3823,8 +3823,7 @@ staticni void tui_input_drain(Tui *t) {
     for (int i = 0; i < n; ++i) {
       PmMessage msg = buffer[i].message; // the timestamp is never read
       Transport_event te;
-      if (transport_parse(Pm_MessageStatus(msg), Pm_MessageData1(msg),
-                          Pm_MessageData2(msg), now_us(), &te))
+      if (pm_in_decode(msg, now_us(), &te))
         ged_transport_event(&t->ged, &te);
     }
   }

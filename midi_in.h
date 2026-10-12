@@ -7,10 +7,11 @@
 // The MIDI input side of the shell (architecture spine AD-2, AD-16, AD-17):
 // the pure parts, shared by tui_main.c and the unit tests, which link none of
 // tui_main.c, among them the clock-out state Clock_out and its inlines, which
-// send the beat clock through the tick.h sink; it also holds the ALSA
-// client-name scan that the startup guard runs (the scan's I/O is the
-// caller's `next` callback). Everything here is static inline, reads no
-// clock and does no I/O but through a sink or a callback.
+// send the beat clock through the tick.h sink, and the PortMidi reader's
+// decode, pm_in_decode; it also holds the ALSA client-name scan that the
+// startup guard runs (the scan's I/O is the caller's `next` callback).
+// Everything here is static inline, reads no clock and does no I/O but
+// through a sink or a callback.
 // The backend-specific helpers sit behind their FEAT_ flags and may include
 // that backend's header (an adapter, not core). BORCA_HAS_MIDI_IN is defined
 // when a build has a reader; with none, External is hidden and the
@@ -240,6 +241,16 @@ static inline bool alsa_in_split(char const *name, Usz *client_len,
    PM_FILT_RESET | PM_FILT_MTC | PM_FILT_SONG_SELECT | PM_FILT_TUNE |          \
    PM_FILT_NOTE | PM_FILT_AFTERTOUCH | PM_FILT_PROGRAM | PM_FILT_CONTROL |     \
    PM_FILT_PITCHBEND)
+
+// The PortMidi reader's decode (AD-13, AD-17): a message's status, Data1 and
+// Data2, in that order, to transport_parse, with stamp, the shell's now_us()
+// at read time; the PortMidi timestamp is never read. False, leaving *out
+// alone, for anything but F8, FA, FB, FC and F2.
+static inline bool pm_in_decode(PmMessage msg, U64 stamp,
+                                Transport_event *out) {
+  return transport_parse(Pm_MessageStatus(msg), Pm_MessageData1(msg),
+                         Pm_MessageData2(msg), stamp, out);
+}
 #endif
 
 #ifdef FEAT_ALSA

@@ -79,4 +79,52 @@ void test_portmidi_in_filter(void) {
   CHECK((mask & (uint32_t)PM_FILT_CONTROL) != 0);
   CHECK((mask & (uint32_t)PM_FILT_PITCHBEND) != 0);
 }
+
+// The reader's decode (pm_in_decode, AD-17) on PortMidi's own message
+// packing: F2 with Data1 16 is song position 16 (Data1 and Data2 swapped
+// would give 16 << 7), FB is continue, F8 a clock, each with its stamp, and a
+// note is refused with *out left alone. Applied in order to a reset machine,
+// as the shell applies them (AD-15): F2 sets tick 16, FB starts, and of six
+// F8s only the first makes a tick due, so a tick counter ends at 17.
+void test_portmidi_in_decode(void) {
+  Transport_event ev[8];
+  CHECK(pm_in_decode(Pm_Message(0xF2, 16, 0), 1, &ev[0]));
+  CHECK(ev[0].type == Transport_songpos && ev[0].value == 16 &&
+        ev[0].stamp == 1);
+  CHECK(pm_in_decode(Pm_Message(0xFB, 0, 0), 2, &ev[1]));
+  CHECK(ev[1].type == Transport_continue && ev[1].stamp == 2);
+  for (int k = 0; k < 6; ++k) {
+    U64 stamp = (U64)(3 + k);
+    CHECK(pm_in_decode(Pm_Message(0xF8, 0, 0), stamp, &ev[2 + k]));
+    CHECK(ev[2 + k].type == Transport_clock && ev[2 + k].stamp == stamp);
+  }
+  Transport_event note = {.type = Transport_stop, .value = 7, .stamp = 99};
+  CHECK(!pm_in_decode(Pm_Message(0x90, 60, 100), 9, &note));
+  CHECK(note.type == Transport_stop && note.value == 7 && note.stamp == 99);
+
+  Transport m;
+  transport_reset(&m);
+  Usz tick = 0, due = 0;
+  bool playing = false, set_16 = false, first_due = false;
+  for (int i = 0; i < 8; ++i) {
+    Transport_actions act;
+    transport_event(&m, &ev[i], &act);
+    if (act.stop || act.clock_lost)
+      playing = false;
+    if (act.set_tick) {
+      tick = act.tick;
+      set_16 = i == 0 && act.tick == 16;
+    }
+    if (act.start)
+      playing = true;
+    if (act.tick_due && playing) {
+      ++tick;
+      ++due;
+      first_due = i == 2;
+    }
+  }
+  CHECK(set_16 && playing);
+  CHECK(due == 1 && first_due);
+  CHECK(tick == 17);
+}
 #endif

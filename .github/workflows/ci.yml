@@ -428,8 +428,9 @@ jobs:
       - name: Build debug unit tests with PortMidi
         run: CFLAGS_EXTRA=-Werror ./tool build -d --portmidi test
 
-      # Fails unless the PortMidi adapter test actually ran, so a build in
-      # which FEAT_PORTMIDI never reaches the compiler cannot pass.
+      # Fails unless the PortMidi adapter tests actually ran, so a build in
+      # which FEAT_PORTMIDI never reaches the compiler cannot pass, nor one
+      # in which the reader's decode test is not registered.
       - name: Unit tests with the PortMidi adapter tests (ASan + UBSan)
         env:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
@@ -444,6 +445,10 @@ jobs:
           fi
           if ! grep -qx 'ok portmidi_error_text_and_filters' "$log"; then
             echo "the PortMidi adapter test did not run"
+            exit 1
+          fi
+          if ! grep -qx 'ok portmidi_in_decode' "$log"; then
+            echo "the PortMidi decode test did not run"
             exit 1
           fi
           tests/check-debug-build.sh build/debug/unit_tests "$log"

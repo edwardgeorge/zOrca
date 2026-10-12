@@ -412,7 +412,7 @@ flag. The adapter lists in `tests/unit/tests.h` today:
 
 | Flag | List | Tests |
 | --- | --- | --- |
-| `--portmidi` (`FEAT_PORTMIDI`) | `PORTMIDI_TESTS_ALL` | `portmidi_error_text_and_filters`: `Pm_GetErrorText` returns text; the clock, play and song-position filter bits are set and disjoint. `portmidi_in_filter`: PortMidi 217's filter logic over `BORCA_PM_IN_DROP` passes F8, FA, FB, FC and F2 and drops notes, controls and realtime noise |
+| `--portmidi` (`FEAT_PORTMIDI`) | `PORTMIDI_TESTS_ALL` | `portmidi_error_text_and_filters`: `Pm_GetErrorText` returns text; the clock, play and song-position filter bits are set and disjoint. `portmidi_in_filter`: PortMidi 217's filter logic over `BORCA_PM_IN_DROP` passes F8, FA, FB, FC and F2 and drops notes, controls and realtime noise. `portmidi_in_decode`: the reader's `pm_in_decode` reads status, Data1 and Data2 in that order (F2 with Data1 16 is song position 16), and F2(16), FB and six F8s on a reset machine give tick 17 |
 | `--alsa` (`FEAT_ALSA`, Linux only) | `ALSA_TESTS_ALL` | `alsa_version_and_open_modes`: `snd_asoundlib_version()` is non-empty; `SND_SEQ_OPEN_DUPLEX` is `SND_SEQ_OPEN_OUTPUT \| SND_SEQ_OPEN_INPUT`; `SND_SEQ_NONBLOCK` is non-zero. `alsa_in_mapping`: sequencer events map to transport events, SONGPOS clamped. `alsa_in_announce`: the stored source is cleared on its CLIENT_EXIT, PORT_EXIT or PORT_UNSUBSCRIBED and re-matched on PORT_START only while none is stored. `alsa_in_split`: `client:port` splits at the last colon, both sides non-empty. `alsa_name_scan`: the client-name scan is free only when its list ends on `-ENOENT`, taken on another client of the name, and returns any other error |
 
 The PortMidi build needs `libportmidi-dev`, so it runs in CI only, not on
@@ -762,9 +762,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   which need no build, builds and runs the debug unit tests without and
   with `--portmidi` and with `--alsa` (ASan, UBSan with `halt_on_error=1`;
   the plain run fails unless it prints `ok tick_note_alloc_fail` and
-  `ok realloc_hook_builtin_null`, the
-  `--portmidi` run unless it prints
-  `ok portmidi_error_text_and_filters`, the `--alsa` run unless it prints
+  `ok realloc_hook_builtin_null`, the `--portmidi` run unless it prints
+  both `ok portmidi_error_text_and_filters` and `ok portmidi_in_decode`,
+  the `--alsa` run unless it prints
   `ok alsa_version_and_open_modes`), and runs
   `tests/check-debug-build.sh` on each runner with its log before the next
   build replaces it. Six steps prove the checks' failure paths on every
