@@ -2,9 +2,9 @@
 // CAP-14; spine AD-9, AD-10): one test or more for each row of the stories'
 // I/O matrices, at the API level, on engines built on the stack. The
 // tick-level rows (rates 0 and z on the wire, the step-3 poll order, the
-// sub-tick poll) are in test_tick.c. The pause row is ged_set_playing's
-// ccout_cancel, checked by code reading together with
-// ccout_cancel_keeps_last_value.
+// sub-tick poll) are in test_tick.c. The pause row is tick_pause's
+// ccout_cancel, tested in test_tick.c (tick_pause); that ged_set_playing
+// calls it is checked by code reading.
 //
 // Rate w (index 32) glides over 36 - 32 = 4 ticks, and one tick is 125 000 us
 // at 120 BPM, so a glide at w lasts 500 000 us. The budget holds 80 tokens

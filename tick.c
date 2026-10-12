@@ -1,5 +1,6 @@
-// The tick body, the sustained-note list and the event send (architecture
-// spine AD-12, AD-14). See tick.h.
+// The tick body, the sustained-note list, the event send and the shell's
+// pause and patch-forget sequences (architecture spine AD-12, AD-14). See
+// tick.h.
 #include "tick.h"
 #include "base.h"
 #include "ccout.h"
@@ -142,6 +143,17 @@ void tick_release_all(Tick_sink const *sink, Susnote_list *susnotes) {
     return; // the buffer may be NULL, and NULL + 0 is undefined
   send_note_offs(sink, susnotes->buffer, susnotes->buffer + susnotes->count);
   susnote_list_clear(susnotes);
+}
+
+void tick_pause(Tick_sink const *sink, Susnote_list *susnotes,
+                Ccout_engine *ccout) {
+  tick_release_all(sink, susnotes);
+  ccout_cancel(ccout);
+}
+
+void tick_forget_patch(Ccout_engine *ccout) {
+  ccout_cancel(ccout);
+  ccout_forget(ccout);
 }
 
 // Sends the CC engine's output, which holds only Oevent_midi_cc items: each

@@ -1,7 +1,8 @@
 // Unit tests for tick.c (spec items B4, B8 and B3, spine AD-12 to AD-14):
 // the tick body on a recording sink, the CAP-9 resume test, the wire order
-// within a tick, the CC engine's place in it, release-all, the note lengths
-// in tick bodies (B8), tick_run_vm and tick_len_us. Step numbers refer to the
+// within a tick, the CC engine's place in it, release-all, the shell's pause
+// and patch-forget sequences (P3-4a), the note lengths in tick bodies (B8),
+// tick_run_vm and tick_len_us. Step numbers refer to the
 // wire order in tick.h. The CAP-9, wire-order and note tests run body b at
 // b x 125 000 us, one tick at 120 BPM, and the engine tests at 10 s +
 // b x tick_len; each run has its own CC engine on the stack.
@@ -12,7 +13,7 @@
 #include "../../vmio.h"
 #include "tests.h"
 
-enum { Rec_capacity = 64 };
+enum { Rec_capacity = 64, Log_capacity = 128 };
 
 static U64 const tick_us = 125000; // one tick at 120 BPM
 
@@ -26,9 +27,22 @@ typedef struct {
   int status, d1, d2;
 } Triple;
 
+// One call to the sink, in the combined log: a midi3 with its triple, a
+// midi1 with its byte in status, an osc, or a control with its address.
+typedef enum { Log_midi3, Log_midi1, Log_osc, Log_control } Log_kind;
+
+typedef struct {
+  Log_kind kind;
+  int status, d1, d2;
+  char const *address;
+} Log_entry;
+
 // A sink that records every call, in order. Each MIDI triple is stamped with
 // body, which the test sets before each tick body, and with the number of
-// midi1 calls (the F8s, in the note-length tests) made before it.
+// midi1 calls (the F8s, in the note-length tests) made before it. The
+// combined log holds every call of every kind in call order, so the order
+// across MIDI and OSC control messages is visible; it has its own overflow
+// flag.
 typedef struct {
   Triple midi3[Rec_capacity];
   Usz midi3_body[Rec_capacity];
@@ -36,12 +50,26 @@ typedef struct {
   Usz midi3_count;
   Usz midi1_count;
   Usz osc_count;
+  Usz control_count;
   Usz body;
   bool overflow;
+  Log_entry log[Log_capacity];
+  Usz log_count;
+  bool log_overflow;
 } Recording;
+
+static void rec_log(Recording *r, Log_entry e) {
+  if (r->log_count == Log_capacity) {
+    r->log_overflow = true;
+    return;
+  }
+  r->log[r->log_count++] = e;
+}
 
 static void rec_midi3(void *u, int status, int d1, int d2) {
   Recording *r = u;
+  rec_log(r, (Log_entry){.kind = Log_midi3, .status = status, .d1 = d1,
+                         .d2 = d2});
   if (r->midi3_count == Rec_capacity) {
     r->overflow = true;
     return;
@@ -53,21 +81,60 @@ static void rec_midi3(void *u, int status, int d1, int d2) {
 
 static void rec_midi1(void *u, int byte) {
   Recording *r = u;
-  (void)byte;
+  rec_log(r, (Log_entry){.kind = Log_midi1, .status = byte});
   ++r->midi1_count;
 }
 
 static void rec_osc(void *u, Oevent const *e) {
   Recording *r = u;
   (void)e;
+  rec_log(r, (Log_entry){.kind = Log_osc});
   ++r->osc_count;
+}
+
+static void rec_control(void *u, char const *osc_address) {
+  Recording *r = u;
+  rec_log(r, (Log_entry){.kind = Log_control, .address = osc_address});
+  ++r->control_count;
 }
 
 // Empties r and returns a sink that records into it.
 static Tick_sink rec_sink(Recording *r) {
   memset(r, 0, sizeof *r);
-  return (Tick_sink){
-      .u = r, .midi3 = rec_midi3, .midi1 = rec_midi1, .osc = rec_osc};
+  return (Tick_sink){.u = r,
+                     .midi3 = rec_midi3,
+                     .midi1 = rec_midi1,
+                     .osc = rec_osc,
+                     .control = rec_control};
+}
+
+// The combined log holds exactly these calls, in this order. A control
+// entry compares its address by content.
+static bool log_is(Recording const *r, Log_entry const *want, Usz count) {
+  if (r->log_overflow || r->log_count != count)
+    return false;
+  for (Usz i = 0; i < count; ++i) {
+    Log_entry const *a = &r->log[i], *b = &want[i];
+    if (a->kind != b->kind)
+      return false;
+    switch (a->kind) {
+    case Log_midi3:
+      if (a->status != b->status || a->d1 != b->d1 || a->d2 != b->d2)
+        return false;
+      break;
+    case Log_midi1:
+      if (a->status != b->status)
+        return false;
+      break;
+    case Log_osc:
+      break;
+    case Log_control:
+      if (!a->address || !b->address || strcmp(a->address, b->address) != 0)
+        return false;
+      break;
+    }
+  }
+  return true;
 }
 
 static int triple_cmp(Triple a, Triple b) {
@@ -656,6 +723,121 @@ void test_tick_release_all(void) {
   tick_release_all(&again, &susnotes);
   CHECK(rec.midi3_count == 0);
   susnote_list_deinit(&susnotes);
+}
+
+// The shell's pause, stop and patch-forget fixture: two sustained notes (ch 0
+// note 36, then ch 9 note 127, in list order) and a glide on ch 0, CC 74,
+// from 0 to 64 at rate w (index 32, four ticks), with its first step, 16,
+// already sent at one tick. The engine's output goes to out, not to a sink.
+enum { Glide_ch = 0, Glide_cc = 74, Glide_rate_w = 32 };
+
+static void seed_notes(Susnote_list *susnotes) {
+  susnote_list_init(susnotes);
+  Susnote const seeded[] = {
+      {.remaining = 3, .chan_note = 0 << 8 | 36},
+      {.remaining = 20, .chan_note = 9 << 8 | 127},
+  };
+  Usz start_removed, end_removed;
+  CHECK(susnote_list_add_notes(susnotes, seeded, ORCA_ARRAY_COUNTOF(seeded),
+                               &start_removed, &end_removed));
+  CHECK(susnotes->count == 2);
+}
+
+// The engine's output in out is exactly one CC on the fixture's controller,
+// with this value.
+static bool one_cc_is(Oevent_list const *out, U8 value) {
+  return out->count == 1 &&
+         out->buffer[0].any.oevent_type == Oevent_type_midi_cc &&
+         out->buffer[0].midi_cc.channel == Glide_ch &&
+         out->buffer[0].midi_cc.control == Glide_cc &&
+         out->buffer[0].midi_cc.value == value;
+}
+
+static void seed_glide_step(Ccout_engine *ccout, Oevent_list *out) {
+  ccout_init(ccout);
+  oevent_list_clear(out);
+  ccout_submit_instant(ccout, Glide_ch, Glide_cc, 0, 0, out);
+  CHECK(one_cc_is(out, 0));
+  oevent_list_clear(out);
+  ccout_submit_glide(ccout, Glide_ch, Glide_cc, 64, Glide_rate_w, tick_us, 0,
+                     out);
+  CHECK(out->count == 0);
+  oevent_list_clear(out);
+  ccout_poll(ccout, tick_us, out);
+  CHECK(one_cc_is(out, 16)); // a quarter of the way from 0 to 64
+  CHECK(!engine_idle(ccout));
+}
+
+// The note-offs of the fixture's two notes, in list order.
+static Log_entry const fixture_offs[] = {
+    {.kind = Log_midi3, .status = 0x80, .d1 = 36, .d2 = 0},
+    {.kind = Log_midi3, .status = 0x89, .d1 = 127, .d2 = 0},
+};
+
+// Pause (tick_pause): exactly the two note-offs, the list empty and the
+// engine idle, with no midi1, osc or control. A glide submitted next on the
+// same controller steps from the last value sent, 16, rather than jumping:
+// one tick after it starts, to 80 over four ticks, it sends 32.
+void test_tick_pause(void) {
+  Susnote_list susnotes;
+  seed_notes(&susnotes);
+  Ccout_engine ccout;
+  Oevent_list out;
+  oevent_list_init(&out);
+  seed_glide_step(&ccout, &out);
+  Recording rec;
+  Tick_sink const sink = rec_sink(&rec);
+  tick_pause(&sink, &susnotes, &ccout);
+  CHECK(log_is(&rec, fixture_offs, ORCA_ARRAY_COUNTOF(fixture_offs)));
+  CHECK(rec.midi1_count == 0 && rec.osc_count == 0 && rec.control_count == 0);
+  CHECK(susnotes.count == 0);
+  CHECK(engine_idle(&ccout));
+  oevent_list_clear(&out);
+  ccout_submit_glide(&ccout, Glide_ch, Glide_cc, 80, Glide_rate_w, tick_us,
+                     5 * tick_us, &out);
+  CHECK(out.count == 0); // no jump at submit: the last value is known
+  oevent_list_clear(&out);
+  ccout_poll(&ccout, 6 * tick_us, &out);
+  CHECK(one_cc_is(&out, 32)); // 16 + (80 - 16) / 4
+  oevent_list_deinit(&out);
+  susnote_list_deinit(&susnotes);
+}
+
+// Pause with nothing sustained and no glide makes no call at all.
+void test_tick_pause_idle(void) {
+  Susnote_list susnotes;
+  susnote_list_init(&susnotes);
+  Ccout_engine ccout;
+  ccout_init(&ccout);
+  Recording rec;
+  Tick_sink const sink = rec_sink(&rec);
+  tick_pause(&sink, &susnotes, &ccout);
+  CHECK(rec.log_count == 0 && !rec.log_overflow);
+  CHECK(rec.midi3_count == 0 && rec.midi1_count == 0 && rec.osc_count == 0 &&
+        rec.control_count == 0);
+  CHECK(susnotes.count == 0 && engine_idle(&ccout));
+  susnote_list_deinit(&susnotes);
+}
+
+// New file and open (tick_forget_patch): the engine is idle and nothing is
+// sent (it has no sink), and a glide submitted next on the controller goes
+// straight to its target, one CC at submit, as after ccout_forget.
+void test_tick_forget_patch(void) {
+  Ccout_engine ccout;
+  Oevent_list out;
+  oevent_list_init(&out);
+  seed_glide_step(&ccout, &out);
+  tick_forget_patch(&ccout);
+  CHECK(engine_idle(&ccout));
+  oevent_list_clear(&out);
+  ccout_poll(&ccout, 2 * tick_us, &out);
+  CHECK(out.count == 0); // no glide left to step
+  oevent_list_clear(&out);
+  ccout_submit_glide(&ccout, Glide_ch, Glide_cc, 80, Glide_rate_w, tick_us,
+                     5 * tick_us, &out);
+  CHECK(one_cc_is(&out, 80)); // straight to the target
+  CHECK(engine_idle(&ccout));
+  oevent_list_deinit(&out);
 }
 
 // The note-length fixtures (B8). The grid holds D operators over note

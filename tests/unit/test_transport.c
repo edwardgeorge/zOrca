@@ -16,20 +16,47 @@
 
 enum { Pulse_us = 20833, Lost_us = Transport_lost_us };
 enum { Rec_capacity = 64, Bodies_capacity = 64, Hist_capacity = 128 };
+enum { Log_capacity = 128 };
 
 typedef struct {
   int status, d1, d2;
 } Triple;
 
-// A sink that records every MIDI triple in order and counts the rest.
+// One call to the sink, in the combined log: a midi3 with its triple, a
+// midi1 with its byte in status, an osc, or a control with its address.
+typedef enum { Log_midi3, Log_midi1, Log_osc, Log_control } Log_kind;
+
+typedef struct {
+  Log_kind kind;
+  int status, d1, d2;
+  char const *address;
+} Log_entry;
+
+// A sink that records every MIDI triple in order and counts the rest. The
+// combined log holds every call of every kind in call order, so the order
+// across MIDI and OSC control messages is visible; it has its own overflow
+// flag.
 typedef struct {
   Triple midi3[Rec_capacity];
-  Usz midi3_count, midi1_count, osc_count;
+  Usz midi3_count, midi1_count, osc_count, control_count;
   bool overflow;
+  Log_entry log[Log_capacity];
+  Usz log_count;
+  bool log_overflow;
 } Recording;
+
+static void rec_log(Recording *r, Log_entry e) {
+  if (r->log_count == Log_capacity) {
+    r->log_overflow = true;
+    return;
+  }
+  r->log[r->log_count++] = e;
+}
 
 static void rec_midi3(void *u, int status, int d1, int d2) {
   Recording *r = u;
+  rec_log(r, (Log_entry){.kind = Log_midi3, .status = status, .d1 = d1,
+                         .d2 = d2});
   if (r->midi3_count == Rec_capacity) {
     r->overflow = true;
     return;
@@ -39,14 +66,21 @@ static void rec_midi3(void *u, int status, int d1, int d2) {
 
 static void rec_midi1(void *u, int byte) {
   Recording *r = u;
-  (void)byte;
+  rec_log(r, (Log_entry){.kind = Log_midi1, .status = byte});
   ++r->midi1_count;
 }
 
 static void rec_osc(void *u, Oevent const *e) {
   Recording *r = u;
   (void)e;
+  rec_log(r, (Log_entry){.kind = Log_osc});
   ++r->osc_count;
+}
+
+static void rec_control(void *u, char const *osc_address) {
+  Recording *r = u;
+  rec_log(r, (Log_entry){.kind = Log_control, .address = osc_address});
+  ++r->control_count;
 }
 
 static bool triple_is(Triple t, int status, int d1, int d2) {
@@ -96,8 +130,11 @@ static void model_init(Model *md) {
   susnote_list_init(&md->susnotes);
   ccout_init(&md->ccout);
   md->tick_len = tick_len_us(120);
-  md->sink = (Tick_sink){
-      .u = &md->rec, .midi3 = rec_midi3, .midi1 = rec_midi1, .osc = rec_osc};
+  md->sink = (Tick_sink){.u = &md->rec,
+                         .midi3 = rec_midi3,
+                         .midi1 = rec_midi1,
+                         .osc = rec_osc,
+                         .control = rec_control};
   transport_reset(&md->m);
 }
 

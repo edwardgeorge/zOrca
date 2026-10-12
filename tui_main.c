@@ -1671,11 +1671,25 @@ static void ged_sink_osc(void *u, Oevent const *e) {
   }
 }
 
+static void send_control_message(Oosc_dev *oosc_dev, char const *osc_address) {
+  if (!oosc_dev)
+    return;
+  oosc_send_int32s(oosc_dev, osc_address, NULL, 0);
+}
+
+// The sink's control callback (AD-14): an OSC message with no arguments, such
+// as /orca/stopped, when OSC output is set.
+static void ged_sink_control(void *u, char const *osc_address) {
+  Ged *a = u;
+  send_control_message(a->oosc_dev, osc_address);
+}
+
 static Tick_sink ged_sink(Ged *a) {
   return (Tick_sink){.u = a,
                      .midi3 = ged_sink_midi3,
                      .midi1 = ged_sink_midi1,
-                     .osc = ged_sink_osc};
+                     .osc = ged_sink_osc,
+                     .control = ged_sink_control};
 }
 
 // Sends one byte, the beat clock's F8, FA, FB or FC, through the sink. Every
@@ -1691,12 +1705,6 @@ static void ged_send_midi_byte(Ged *a, int byte) {
 static void ged_poll_ccout(Ged *a, U64 now) {
   Tick_sink const sink = ged_sink(a);
   tick_poll_engine(&a->ccout, now, &a->engine_oevent_list, &sink);
-}
-
-static void send_control_message(Oosc_dev *oosc_dev, char const *osc_address) {
-  if (!oosc_dev)
-    return;
-  oosc_send_int32s(oosc_dev, osc_address, NULL, 0);
 }
 
 static void send_num_message(Oosc_dev *oosc_dev, char const *osc_address,
@@ -2400,10 +2408,11 @@ staticni void ged_set_playing(Ged *a, bool playing) {
     a->accum_secs -= 0.0001;
     send_control_message(a->oosc_dev, "/orca/started");
   } else {
-    ged_stop_all_sustained_notes(a);
-    // Pause, and quit through it, ends every glide and keeps the last values
-    // sent, so the next glide starts from them (AD-9).
-    ccout_cancel(&a->ccout);
+    // Pause, and quit through it: the note-offs, then every glide ends and
+    // the last values sent are kept, so the next glide starts from them
+    // (AD-9; tick.h, tick_pause).
+    Tick_sink const sink = ged_sink(a);
+    tick_pause(&sink, &a->susnote_list, &a->ccout);
     a->is_playing = false;
     send_control_message(a->oosc_dev, "/orca/stopped");
     if (clock_out_active(a))
@@ -4306,8 +4315,7 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
             memset(t->ged.field.buffer, '.',
                    new_field_h * new_field_w * sizeof(Glyph));
             opstate_clear(&t->ged.opstate);
-            ccout_cancel(&t->ged.ccout);
-            ccout_forget(&t->ged.ccout);
+            tick_forget_patch(&t->ged.ccout);
             ged_cursor_confine(&t->ged.ged_cursor, new_field_h, new_field_w);
             mbuf_reusable_ensure_size(&t->ged.mbuf_r, new_field_h, new_field_w);
             ged_update_internal_geometry(&t->ged);
@@ -4476,8 +4484,7 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
               field_load_file(osoc(temp_name), &t->ged.field);
           if (fle == Field_load_error_ok) {
             opstate_clear(&t->ged.opstate);
-            ccout_cancel(&t->ged.ccout);
-            ccout_forget(&t->ged.ccout);
+            tick_forget_patch(&t->ged.ccout);
             qnav_stack_pop();
             osoputoso(&t->file_name, temp_name);
             mbuf_reusable_ensure_size(&t->ged.mbuf_r, t->ged.field.height,

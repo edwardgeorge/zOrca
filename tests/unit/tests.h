@@ -150,6 +150,9 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(tick_engine_cc_path)                                                       \
   X(tick_poll_engine)                                                          \
   X(tick_release_all)                                                          \
+  X(tick_pause)                                                                \
+  X(tick_pause_idle)                                                           \
+  X(tick_forget_patch)                                                         \
   X(tick_note_length)                                                          \
   X(tick_note_length_beat_clock)                                               \
   X(tick_note_length_0_and_1)                                                  \

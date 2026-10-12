@@ -14,15 +14,18 @@
 
 // The send sink, provided by the shell, which also sends its own single bytes
 // through it. u is the shell's context, passed back on every call.
-//   midi3: every three-byte MIDI message, note-offs included;
-//   midi1: single bytes (the shell's F8, FA, FB, FC);
-//   osc:   OSC ints and UDP strings (Oevent_type_osc_ints, _udp_string).
-// Note-offs are never Oevents.
+//   midi3:   every three-byte MIDI message, note-offs included;
+//   midi1:   single bytes (the shell's F8, FA, FB, FC);
+//   osc:     OSC ints and UDP strings (Oevent_type_osc_ints, _udp_string);
+//   control: the shell's OSC control message /orca/stopped, by address; a
+//            NULL control sends nothing.
+// Note-offs and control messages are never Oevents.
 typedef struct {
   void *u;
   void (*midi3)(void *u, int status, int d1, int d2);
   void (*midi1)(void *u, int byte);
   void (*osc)(void *u, Oevent const *e);
+  void (*control)(void *u, char const *osc_address);
 } Tick_sink;
 
 // Susnote is for handling MIDI note sustains -- each MIDI on event should be
@@ -134,9 +137,18 @@ void tick_run_vm(Glyph *restrict gbuffer, Mark *restrict mbuffer, Usz height,
                  Orca_run_ctx const *ctx);
 
 // Sends a note-off for every sustained note and clears the list. With no
-// sustained notes it sends nothing and touches no buffer. Used on pause, on
-// quit and when the output changes.
+// sustained notes it sends nothing and touches no buffer. Used by tick_pause,
+// on quit and when the output changes.
 void tick_release_all(Tick_sink const *sink, Susnote_list *susnotes);
+
+// Pause (AD-9, AD-14): tick_release_all, then ccout_cancel, so every note is
+// released and every glide ends, keeping the last values sent. No other call.
+void tick_pause(Tick_sink const *sink, Susnote_list *susnotes,
+                Ccout_engine *ccout);
+
+// A new or opened patch (AD-9): ccout_cancel, then ccout_forget, so no glide
+// runs on and the next glide on each controller jumps. Sends nothing.
+void tick_forget_patch(Ccout_engine *ccout);
 
 // One tick (a sixteenth note) at bpm, in microseconds:
 // (15000000 + bpm / 2) / bpm, rounded half-up and never below 1. bpm 0
