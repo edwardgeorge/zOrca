@@ -1,6 +1,6 @@
 #!/bin/sh
-# Include allow-list, core/shell tiers and banned-name check for the CORE
-# files (architecture spine AD-1, AD-2). See tests/README.md.
+# Include allow-list, core/shell tiers and banned-name and banned-call check
+# for the CORE files (architecture spine AD-1, AD-2). See tests/README.md.
 #
 #   tests/check-includes.sh
 #
@@ -11,10 +11,20 @@
 #   - every #include that is not allowed for the file, as the pattern
 #     <name.h> or "name.h", spelled as in the source;
 #   - each banned name (rand, srand, srandom, drand48, lrand48, srand48,
-#     seed48, mrand48, lcong48, getenv, secure_getenv) found as a whole word
-#     in code, as the pattern of that name. Comments do not count, and random
-#     is not banned: the whole-word grep never matches it. erand48, nrand48,
-#     jrand48 and rand_r take their state from the caller and are not banned.
+#     seed48, mrand48, lcong48, getenv, secure_getenv, environ, __environ,
+#     _environ) found as a whole word in code, as the pattern of that name:
+#     no letter, digit, _ or $ on its left, and no letter, digit or _ on its
+#     right. Comments do not count. erand48, nrand48, jrand48 and rand_r take
+#     their state from the caller and are not banned;
+#   - each banned call (random, initstate, setstate) found as a call in
+#     code, as the pattern of that name: the name with no letter, digit, _
+#     or $ on its left, then optional white space and "(", in the code with
+#     its backslash-newlines spliced, each preprocessor directive line ended
+#     with " ;" and its lines then joined, so a "(" on a later line counts
+#     but a directive cannot run into the next line. A whole word would hit
+#     the R operator's token random and prng.h's parameter name initstate,
+#     which no "(" follows. random_r, srandom_r, initstate_r and setstate_r
+#     take their state from the caller and are not banned.
 #
 # Two tiers. core_headers is allowed in every CORE file. shell_headers (the
 # testable shell's: tick.h, tooltips.h, tui_prefs.h) is allowed only when
@@ -28,33 +38,57 @@
 # shell_headers, never to core_headers. base.h is shared foundation: it is
 # allowed whole and not scanned. portlabel.h is core: sim.h includes it.
 #
-# Known edges: a banned name inside a string literal or an #if 0 block is
-# reported. base.h includes <unistd.h>, so every core file sees read(),
-# write(), usleep() and the rest of it, and calling them passes this check.
-# random, initstate and setstate (libc's other hidden-state PRNG calls) and
-# the environ global are not checked: random is the R operator's token, and
-# initstate as a word would hit prng.h's parameter name (a call-pattern
-# check is a deferred-work.md entry).
+# Known edges: a banned name or call inside a string literal or an #if 0
+# block is reported. So is a call through a member or local function
+# pointer named like a banned call (w->setstate(1)), a function declared or
+# defined with a banned call's name (long random(void);), and any
+# identifier spelled like a banned name (a member or local named environ or
+# rand); rename it. A macro defined in a scanned file whose body calls one
+# (#define BAD_SEED() random()) is reported too, since the #define lines
+# are kept (-dD; only #include lines are dropped). Not reported: (random)(),
+# the address (&random, fp = random), a call a macro builds from its
+# arguments (CALL(random); no macro is expanded), and a call in the body of
+# a macro defined in an unscanned header (base.h, system headers).
+# arc4random, arc4random_buf, arc4random_uniform and getentropy are not
+# banned: CORE's -std=c99 declares none of them, so a call is an implicit
+# declaration, which CI's -Werror build rejects (a prototype written in the
+# file would pass). base.h includes <unistd.h>, so every core file sees
+# read(), write(), usleep() and the rest of it, and calling them passes
+# this check.
 #
-# The canary, tests/includes/canary.c, includes <stdio.h>, calls each of the
-# eleven banned names and includes "tick.h" from outside the shell tier. It is
-# scanned first, the same way as a CORE file, and all thirteen patterns must be
-# reported for it on every run; if one is not, the check is blind to it and
-# the run fails. The canary is not in shell_files, so "tick.h" is never
-# allowed for it: it is reported, never queued. A name in banned_names that
-# the canary's pattern list lacks also fails the canary.
+# The canary, tests/includes/canary.c, includes <stdio.h>, calls or reads
+# each of the fourteen banned names, calls each of the three banned calls
+# (initstate with a backslash-newline before its "(", random with a space,
+# setstate with its "(" on the next line) and includes "tick.h" from
+# outside the shell tier. It is scanned first, the same way as a CORE file,
+# and all nineteen patterns must be reported for it on every run; if one is
+# not, the check is blind to it and the run fails. The canary is not in
+# shell_files, so "tick.h" is never allowed for it: it is reported, never
+# queued. A name in banned_names or banned_calls that the canary's pattern
+# list lacks also fails the canary.
+#
+# The non-call canary, tests/includes/canary-noncalls.c, holds random,
+# initstate and setstate only as words that are not calls (an X-macro's
+# token, members, locals, a parameter, a #define ending in one before a
+# line that starts with "(", random_r( and canary_random(, a comment) and
+# no banned name. It is scanned next, the same way as a CORE file, and
+# nothing may be reported for it; if anything is, the call style matches a
+# non-call use and the run fails. Its code must also still hold each banned
+# call as a word and canary_random(, the witness for the call style's left
+# boundary, or the canary is blind and the run fails.
 #
 # tests/xfail/include-check lists the expected violations, one per line, as
 # `<file> <pattern> <item...>`; # starts a comment. The pattern is a banned
-# name, <name.h> or "name.h" (a shell header's "tick.h" among them). The
-# items are the spec items the fix waits for, each matching
-# ^(B[1-8]|I[1-6])$ (B1, I3). A marked violation reports XFAIL and does not
-# fail the run. A marker whose violation is gone reports XPASS and fails the
-# run, so the series that removes the violation deletes the line in the same
-# commit. A marker naming a file outside CORE, a malformed line or a
-# duplicate fails the run.
+# name or banned call (banned_names, banned_calls), <name.h> or "name.h" (a
+# shell header's "tick.h" among them). The items are the spec items the fix
+# waits for, each matching ^(B[1-8]|I[1-6])$ (B1, I3). A marked violation
+# reports XFAIL and does not fail the run. A marker whose violation is gone
+# reports XPASS and fails the run, so the series that removes the violation
+# deletes the line in the same commit. A marker naming a file outside CORE,
+# a malformed line or a duplicate fails the run.
 #
-# Exit status: 0 when the canary is detected and every result is PASS or
+# Exit status: 0 when both canaries pass (the canary is detected and
+# nothing is reported for the non-call canary) and every result is PASS or
 # XFAIL, 1 otherwise, 2 on usage.
 set -uf
 
@@ -65,6 +99,7 @@ if [ "$#" != 0 ]; then
 fi
 marker_rel=tests/xfail/include-check
 canary_rel=tests/includes/canary.c
+noncalls_rel=tests/includes/canary-noncalls.c
 
 # AD-2's allow-list, in two tiers: the core headers, the port-label header
 # (portlabel.h, I5) among them, for every CORE file; the testable shell's
@@ -73,8 +108,11 @@ allowed_system='<assert.h> <errno.h> <limits.h> <stdbool.h> <stddef.h> <stdint.h
 core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h music.h portlabel.h'
 shell_headers='tick.h tooltips.h tui_prefs.h'
 shell_files='tick.c tooltips.c tui_prefs.c'
-# AD-1's banned names, each a pattern of its own.
-banned_names='rand srand srandom drand48 lrand48 srand48 seed48 mrand48 lcong48 getenv secure_getenv'
+# AD-1's banned names, each a pattern of its own, matched as a whole word.
+banned_names='rand srand srandom drand48 lrand48 srand48 seed48 mrand48 lcong48 getenv secure_getenv environ __environ _environ'
+# AD-1's banned calls, checked as AD-2 says: each a pattern of its own, the
+# name, then optional white space and an opening parenthesis.
+banned_calls='random initstate setstate'
 
 if ! command -v gcc >/dev/null 2>&1; then
   echo "error: gcc not found (the comment stripping needs gcc)" >&2
@@ -101,8 +139,8 @@ n_files=0 n_pass=0 n_fail=0 n_xfail=0 n_xpass=0
 # Markers, validated, as "<file> <pattern> <items>" lines in $tmp/markers.
 : >"$tmp/markers"
 if [ -f "$root/$marker_rel" ]; then
-  if ! awk -v core="$core" -v banned="$banned_names" -v name="$marker_rel" \
-    -v out="$tmp/markers" '
+  if ! awk -v core="$core" -v banned="$banned_names $banned_calls" \
+    -v name="$marker_rel" -v out="$tmp/markers" '
     function bad(why) { printf "FAIL  %s:%d: %s\n", name, FNR, why; errors++ }
     BEGIN {
       n = split(core, c, " "); for (i = 1; i <= n; i++) incore[c[i]] = 1
@@ -140,7 +178,9 @@ in_list() {
 }
 
 # scan <core file>: writes "<pattern> <where>" lines to $tmp/found for the
-# file and every core header it pulls in. Returns 1 if gcc cannot read one.
+# file and every core header it pulls in, and the core file's own joined
+# code (as the call style reads it) to $tmp/file_code1. Returns 1 if gcc
+# cannot read one.
 scan() {
   : >"$tmp/found"
   sc_core=$1
@@ -204,7 +244,27 @@ scan() {
     # Each banned name as a whole word in the non-#include lines.
     grep -Ev '^[[:space:]]*#[[:space:]]*include' "$tmp/pp" >"$tmp/code"
     for sc_name in $banned_names; do
-      if grep -Eq "(^|[^A-Za-z0-9_])$sc_name([^A-Za-z0-9_]|\$)" "$tmp/code"; then
+      if grep -Eq "(^|[^A-Za-z0-9_\$])$sc_name([^A-Za-z0-9_]|\$)" "$tmp/code"; then
+        printf '%s %s\n' "$sc_name" "$sc_f" >>"$tmp/found"
+      fi
+    done
+    # Each banned call: the name as a word on its left, then optional white
+    # space and "(", in the code joined into one line, so a "(" on a later
+    # line counts too. Backslash-newlines are spliced first, as the compiler
+    # does, and each directive line then ends with " ;", so that a #define
+    # ending in a name cannot run into a next line that starts with "(".
+    awk '
+      { sc_line = sc_line $0 }
+      sub(/\\$/, "", sc_line) { next }
+      { if (sc_line ~ /^[ \t]*#/) sc_line = sc_line " ;"
+        printf "%s ", sc_line; sc_line = "" }
+      END { if (sc_line != "") printf "%s ", sc_line }
+    ' "$tmp/code" >"$tmp/code1"
+    if [ "$sc_f" = "$sc_core" ]; then
+      cp "$tmp/code1" "$tmp/file_code1"
+    fi
+    for sc_name in $banned_calls; do
+      if grep -Eq "(^|[^A-Za-z0-9_\$])${sc_name}[[:space:]]*\\(" "$tmp/code1"; then
         printf '%s %s\n' "$sc_name" "$sc_f" >>"$tmp/found"
       fi
     done
@@ -213,22 +273,24 @@ scan() {
 }
 
 # The canary must be reported for every one of its planted violations: the
-# thirteen patterns, one per line in $tmp/canary_patterns. The list is spelled
-# out, not built from banned_names, so a name dropped from that list is
-# missed in the canary and fails the run; and a name in banned_names that
-# the list lacks fails the canary too, so a name added there has a canary.
+# nineteen patterns, one per line in $tmp/canary_patterns. The list is spelled
+# out, not built from banned_names and banned_calls, so a name dropped from
+# either list is missed in the canary and fails the run; and a name in
+# either list that this one lacks fails the canary too, so a name added
+# there has a canary.
 canary_ok=0
 canary_missing=
 printf '%s\n' '<stdio.h>' rand srand srandom drand48 lrand48 srand48 seed48 \
-  mrand48 lcong48 getenv secure_getenv '"tick.h"' >"$tmp/canary_patterns"
+  mrand48 lcong48 getenv secure_getenv environ __environ _environ random \
+  initstate setstate '"tick.h"' >"$tmp/canary_patterns"
 canary_unlisted=
-for canary_name in $banned_names; do
+for canary_name in $banned_names $banned_calls; do
   if ! grep -Fqx "$canary_name" "$tmp/canary_patterns"; then
     canary_unlisted="$canary_unlisted${canary_unlisted:+, }$canary_name"
   fi
 done
 if [ -n "$canary_unlisted" ]; then
-  printf 'FAIL  canary (the canary list lacks %s, which banned_names checks: plant it in %s and add it to the list)\n' \
+  printf 'FAIL  canary (the canary list lacks %s, which banned_names or banned_calls checks: plant it in %s and add it to the list)\n' \
     "$canary_unlisted" "$canary_rel"
 elif scan "$canary_rel"; then
   while IFS= read -r canary_pattern; do
@@ -248,6 +310,39 @@ elif scan "$canary_rel"; then
 else
   printf 'FAIL  canary (the check is blind: gcc could not read %s)\n' \
     "$canary_rel"
+fi
+
+# The non-call canary holds random, initstate and setstate only as words
+# that are not calls: nothing may be reported for it, or the call style
+# matches a non-call use, and the run fails as a blind canary does. Its
+# code must still hold each banned call as a word, and canary_random(, the
+# witness for the call style's left boundary; a gutted file is blind.
+if scan "$noncalls_rel"; then
+  noncalls_missing=
+  for noncalls_name in $banned_calls; do
+    if ! grep -Eq "(^|[^A-Za-z0-9_\$])${noncalls_name}([^A-Za-z0-9_]|\$)" \
+      "$tmp/file_code1"; then
+      noncalls_missing="$noncalls_missing${noncalls_missing:+, }$noncalls_name"
+    fi
+  done
+  if ! grep -Eq '(^|[^A-Za-z0-9_$])canary_random[[:space:]]*\(' "$tmp/file_code1"; then
+    noncalls_missing="$noncalls_missing${noncalls_missing:+, }canary_random("
+  fi
+  if [ -s "$tmp/found" ]; then
+    printf 'FAIL  non-call canary (reported: %s in %s)\n' \
+      "$(awk '!seen[$1]++ { printf "%s%s", (n++ ? ", " : ""), $1 }' "$tmp/found")" \
+      "$noncalls_rel"
+    canary_ok=0
+  elif [ -n "$noncalls_missing" ]; then
+    printf 'FAIL  non-call canary (the check is blind: %s not found in the code of %s)\n' \
+      "$noncalls_missing" "$noncalls_rel"
+    canary_ok=0
+  else
+    printf 'PASS  non-call canary (random, initstate, setstate as words, not calls: none reported)\n'
+  fi
+else
+  printf 'FAIL  non-call canary (gcc could not read %s)\n' "$noncalls_rel"
+  canary_ok=0
 fi
 
 for file in $core; do

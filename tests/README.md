@@ -579,7 +579,8 @@ and the field unchanged.
 
 Both scripts check every file in `./tool sources core` (an empty list is an
 error), call `gcc` by name, run from any directory and exit 0 only when their
-canary is detected and every result is PASS or XFAIL.
+canary is detected and every result is PASS or XFAIL; the include check also
+needs its non-call canary to pass.
 
 - `tests/check-includes.sh` (spine AD-1, AD-2) strips comments with
   `gcc -fpreprocessed -dD -E -P`, then reports each `#include` in the CORE
@@ -598,30 +599,65 @@ canary is detected and every result is PASS or XFAIL.
   includes `music.h`, naming `music.h`, while the shell tier's files pass. A
   testable-shell module adds its `.c` to `shell_files` and its header to
   `shell_headers`, never to `core_headers`, where any core file could
-  include it (P3-4b's `tui_prefs.c` and `tui_prefs.h` were the latest). It also reports each of AD-1's eleven banned names,
-  `rand`, `srand`, `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`,
-  `mrand48`, `lcong48`, `getenv` and `secure_getenv`, the calls that use a
-  hidden global PRNG state or read the environment, found as a whole word
-  in code, each as its own pattern; `random` is not banned, and the
-  whole-word grep never matches it. `erand48`, `nrand48`, `jrand48` and
-  `rand_r` take their state from the caller and are not banned.
-  `base.h` is shared foundation,
-  allowed whole and not scanned. Comments do not count. Known edges: a
-  banned name in a string literal or an `#if 0` block is reported;
-  `base.h` includes `<unistd.h>`, so `read()`, `write()`, `usleep()` and
-  the rest of it reach every core file and pass the check; `random`,
-  `initstate` and `setstate` (libc's other hidden-state PRNG calls) and the
-  `environ` global are not checked, since `random` is the `R` operator's
-  token and `initstate` as a word would hit `prng.h`'s parameter name (a
-  call-pattern check is a `deferred-work.md` entry). The canary
-  `tests/includes/canary.c` includes `<stdio.h>`, calls each of the eleven
-  names once and includes `"tick.h"`; the canary is not in `shell_files`,
-  so `"tick.h"` is never allowed for it and is reported, never queued. It
-  is scanned first, the same way as a CORE file, and all thirteen patterns
-  must be reported, or the check is blind to the missing one and the run
-  fails. The list of thirteen is spelled out in the script, so a name dropped
-  from its banned list is caught too, and a name in the banned list that
-  the canary's list lacks fails the canary, so a new name gets a canary.
+  include it (P3-4b's `tui_prefs.c` and `tui_prefs.h` were the latest).
+  It also reports each of AD-1's fourteen banned names, `rand`, `srand`,
+  `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`, `mrand48`,
+  `lcong48`, `getenv`, `secure_getenv`, `environ`, `__environ` and
+  `_environ`, the calls that use a hidden global PRNG state and the reads
+  of the environment, found as a whole word in code (no letter, digit, `_`
+  or `$` on its left, no letter, digit or `_` on its right), each as its
+  own pattern (`banned_names`). A second style, `banned_calls`, reports
+  each of `random`, `initstate` and `setstate`, libc's other hidden-state
+  PRNG calls, only as a call, each as its own pattern: the name with no
+  letter, digit, `_` or `$` on its left, then optional white space and
+  `(`, in the code with its backslash-newlines spliced, each preprocessor
+  directive line ended with ` ;` and its lines then joined, so `setstate`
+  with its `(` on the next line counts, but `#define X random` before a
+  line that starts with `(` does not. A whole word would hit the `R`
+  operator's token `random` and `prng.h`'s parameter name `initstate`,
+  which no `(` follows. `erand48`, `nrand48`, `jrand48`, `rand_r`,
+  `random_r`, `srandom_r`, `initstate_r` and `setstate_r` take their state
+  from the caller and are not banned. Nor are `arc4random`,
+  `arc4random_buf`, `arc4random_uniform` and `getentropy`: CORE's
+  `-std=c99` declares none of them, so a call is an implicit declaration,
+  which CI's `-Werror` build rejects (a prototype written in the file
+  would pass). `base.h` is shared foundation, allowed whole and not
+  scanned. Comments do not count. Known edges: a banned name or call in a
+  string literal or an `#if 0` block is reported. So is a call through a
+  member or local function pointer named like a banned call
+  (`w->setstate(1)`), a function declared or defined with a banned call's
+  name (`long random(void);`), and any identifier spelled like a banned
+  name (a member or local named `environ` or `rand`); rename it. A macro
+  defined in a scanned file whose body calls one
+  (`#define BAD_SEED() random()`) is reported too, since the scan keeps
+  `#define` lines (`-dD`; only `#include` lines are dropped). Not
+  reported: `(random)()`, the address (`&random`, `fp = random`), a call a
+  macro builds from its arguments (`CALL(random)`; the script expands no
+  macros), and a call in the body of a macro defined in an unscanned
+  header (`base.h`, system headers). `base.h` includes `<unistd.h>`, so
+  `read()`, `write()`, `usleep()` and the rest of it reach every core file
+  and pass the check. The canary `tests/includes/canary.c` includes
+  `<stdio.h>`, calls or reads each of the fourteen names once, calls each
+  of the three once (`initstate` with a backslash-newline before its `(`,
+  `random ()` with a space, `setstate` with its `(` on the next line, so
+  each form has one name to pin it) and includes `"tick.h"`; the canary is
+  not in `shell_files`, so `"tick.h"` is never allowed for it and is
+  reported, never queued. It is scanned first, the same way as a CORE
+  file, and all nineteen patterns must be reported, or the check is blind
+  to the missing one and the run fails. The list of nineteen is spelled
+  out in the script, so a name dropped from either banned list is caught
+  too, and a name in either list that the canary's list lacks fails the
+  canary, so a new name gets a canary. The non-call canary
+  `tests/includes/canary-noncalls.c` holds `random`, `initstate` and
+  `setstate` only as words that are not calls (an X-macro's `R` token,
+  members, locals, a parameter, a `#define` ending in one before a line
+  that starts with `(`, `random_r(`, `canary_random(` and a comment) and
+  no banned name. It is scanned next, the same way, and nothing may be
+  reported for it: if anything is, the call style matches a non-call use,
+  and the run fails with `canary NOT detected`. Its code must also still
+  hold each banned call as a word and `canary_random(`, the witness for
+  the call style's left boundary, or the non-call canary is blind and the
+  run fails the same way.
 - `tests/check-nm.sh` (spine AD-1) compiles each CORE file on its own with
   `gcc -c -std=c99 -O2 -DNDEBUG -g0 -fno-pie -no-pie -fno-lto`, and again
   with `-O0` in place of `-O2`, and fails each writable symbol (class
@@ -654,7 +690,8 @@ Today they print, on the uConsole's gcc 12.2:
 
 ```text
 $ tests/check-includes.sh
-PASS  canary (detected: <stdio.h>, rand, srand, srandom, drand48, lrand48, srand48, seed48, mrand48, lcong48, getenv, secure_getenv, "tick.h")
+PASS  canary (detected: <stdio.h>, rand, srand, srandom, drand48, lrand48, srand48, seed48, mrand48, lcong48, getenv, secure_getenv, environ, __environ, _environ, random, initstate, setstate, "tick.h")
+PASS  non-call canary (random, initstate, setstate as words, not calls: none reported)
 PASS  gbuffer.c
 PASS  vmio.c
 PASS  sim.c
@@ -692,7 +729,7 @@ count results, so one file can add several.
 
 | Marker file | Line format | Today |
 | --- | --- | --- |
-| `tests/xfail/include-check` | `<file> <pattern> <item...>`, where the pattern is a banned name (`rand`, `srand`, `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`, `mrand48`, `lcong48`, `getenv`, `secure_getenv`), `<name.h>` or `"name.h"` (a shell header's `"tick.h"` or `"tooltips.h"` among them) | none (B1 deleted `sim.c rand B1`) |
+| `tests/xfail/include-check` | `<file> <pattern> <item...>`, where the pattern is a banned name (`rand`, `srand`, `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`, `mrand48`, `lcong48`, `getenv`, `secure_getenv`, `environ`, `__environ`, `_environ`) or banned call (`random`, `initstate`, `setstate`), `<name.h>` or `"name.h"` (a shell header's `"tick.h"` or `"tooltips.h"` among them) | none (B1 deleted `sim.c rand B1`) |
 | `tests/xfail/nm-check` | `<file> <symbol\|glob> <item>`, where the pattern is a symbol name, or a literal prefix of at least 3 characters followed by one trailing `*` (`chord_*`); a line spans both passes | none (B1 deleted its three lines and B3 its four) |
 
 - The items are the spec items the fix waits for, each matching
