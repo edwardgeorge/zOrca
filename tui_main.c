@@ -416,7 +416,8 @@ staticni bool undo_history_push(Undo_history *hist, Field *field,
   if (hist->limit == 0)
     return false;
   Undo_node *new_node;
-  if (hist->count == hist->limit) {
+  bool const reused = hist->count == hist->limit;
+  if (reused) {
     new_node = hist->first;
     if (new_node == hist->last) {
       hist->first = NULL;
@@ -432,7 +433,23 @@ staticni bool undo_history_push(Undo_history *hist, Field *field,
     ++hist->count;
     field_init(&new_node->field);
   }
-  field_copy(field, &new_node->field);
+  if (!field_copy(field, &new_node->field)) {
+    if (reused) {
+      // The oldest step, unchanged, goes back in front; the count stays.
+      new_node->prev = NULL;
+      new_node->next = hist->first;
+      if (hist->first)
+        hist->first->prev = new_node;
+      else
+        hist->last = new_node;
+      hist->first = new_node;
+    } else {
+      field_deinit(&new_node->field);
+      free(new_node);
+      --hist->count;
+    }
+    return false;
+  }
   new_node->tick_num = tick_num;
   if (hist->last) {
     hist->last->next = new_node;
@@ -452,7 +469,12 @@ staticni void undo_history_pop(Undo_history *hist, Field *out_field,
   Undo_node *last = hist->last;
   if (!last)
     return;
-  field_copy(&last->field, out_field);
+  // A failed copy leaves the grid, the tick number and the history as they
+  // were.
+  if (!field_copy(&last->field, out_field)) {
+    beep();
+    return;
+  }
   *out_tick_num = last->tick_num;
   if (hist->first == last) {
     hist->first = NULL;
@@ -472,7 +494,10 @@ staticni void undo_history_apply(Undo_history *hist, Field *out_field,
   Undo_node *last = hist->last;
   if (!last)
     return;
-  field_copy(&last->field, out_field);
+  if (!field_copy(&last->field, out_field)) {
+    beep();
+    return;
+  }
   *out_tick_num = last->tick_num;
 }
 
@@ -826,20 +851,30 @@ staticni void draw_oevent_list(WINDOW *win, Oevent_list const *oevent_list) {
   }
 }
 
-staticni void ged_resize_grid(Field *field, Mbuf_reusable *mbr, Usz new_height,
+// Returns false when an allocation fails, with the grid, the undo history,
+// the operator state and the cursor as they were (the mark buffer may have
+// grown, which is harmless). The mark buffer grows first, so it covers every
+// grid that has been live and undo can restore any of them; the undo step is
+// the copy of the old grid in scratch_field, pushed once the grid has its new
+// size.
+staticni bool ged_resize_grid(Field *field, Mbuf_reusable *mbr, Usz new_height,
                               Usz new_width, Usz tick_num, Field *scratch_field,
                               Undo_history *undo_hist, Ged_cursor *ged_cursor,
                               Opstate_store *opstate) {
   assert(new_height > 0 && new_width > 0);
-  undo_history_push(undo_hist, field, tick_num);
+  if (!mbuf_reusable_ensure_size(mbr, new_height, new_width) ||
+      !field_copy(field, scratch_field) ||
+      !field_resize_raw(field, new_height, new_width)) {
+    beep(); // for the keys, Autofit and the Set grid dims form alike
+    return false;
+  }
+  undo_history_push(undo_hist, scratch_field, tick_num);
   // Drop the operator state of the cells the new size cuts off; every cell
   // inside keeps its state (AD-6). If the rebuild cannot allocate, clear the
   // store instead (clear never allocates): kept entries outside the grid
   // would come back with stale state on a later enlarge or undo.
   if (!opstate_prune(opstate, new_height, new_width))
     opstate_clear(opstate);
-  field_copy(field, scratch_field);
-  field_resize_raw(field, new_height, new_width);
   // junky copies until i write a smarter thing
   memset(field->buffer, '.', new_height * new_width * sizeof(Glyph));
   gbuffer_copy_subrect(scratch_field->buffer, field->buffer,
@@ -847,7 +882,7 @@ staticni void ged_resize_grid(Field *field, Mbuf_reusable *mbr, Usz new_height,
                        field->height, field->width, 0, 0, 0, 0,
                        scratch_field->height, scratch_field->width);
   ged_cursor_confine(ged_cursor, new_height, new_width);
-  mbuf_reusable_ensure_size(mbr, new_height, new_width);
+  return true;
 }
 
 staticni Usz adjust_rulers_humanized(Usz ruler, Usz in, Isz delta_rulers) {
@@ -896,9 +931,8 @@ staticni bool ged_resize_grid_snap_ruler(Field *field, Mbuf_reusable *mbr,
     new_field_w = ORCA_X_MAX;
   if (new_field_h == field_h && new_field_w == field_w)
     return false;
-  ged_resize_grid(field, mbr, new_field_h, new_field_w, tick_num, scratch_field,
-                  undo_hist, ged_cursor, opstate);
-  return true;
+  return ged_resize_grid(field, mbr, new_field_h, new_field_w, tick_num,
+                         scratch_field, undo_hist, ged_cursor, opstate);
 }
 
 typedef enum {
@@ -1958,11 +1992,12 @@ staticni void ged_draw(Ged *a, WINDOW *win, char const *filename,
   // mark buffer that it produces, then roll back the glyph buffer to where it
   // was before. This should produce results similar to having specialized UI
   // code that looks at each glyph and figures out the ports, etc.
-  if (a->needs_remarking && !a->is_playing) {
-    field_resize_raw_if_necessary(&a->scratch_field, a->field.height,
-                                  a->field.width);
-    field_copy(&a->field, &a->scratch_field);
-    mbuf_reusable_ensure_size(&a->mbuf_r, a->field.height, a->field.width);
+  //
+  // If scratch_field or the mark buffer cannot grow to the grid's size, the
+  // pass is skipped and needs_remarking stays set, so the next draw retries.
+  if (a->needs_remarking && !a->is_playing &&
+      field_copy(&a->field, &a->scratch_field) &&
+      mbuf_reusable_ensure_size(&a->mbuf_r, a->field.height, a->field.width)) {
     // The pass advances operator state, so it runs on a throwaway copy of
     // the store, as it does on scratch_field (AD-7). If the copy cannot
     // allocate, it runs on an empty store; the live one is untouched.
@@ -2341,7 +2376,9 @@ staticni bool ged_copy_selection_to_clipbard(Ged *a) {
   Usz field_h = a->field.height;
   Usz field_w = a->field.width;
   Field *cb_field = &a->clipboard_field;
-  field_resize_raw_if_necessary(cb_field, curs_h, curs_w);
+  // A clipboard that cannot grow stays as it was, and a cut erases nothing.
+  if (!field_resize_raw_if_necessary(cb_field, curs_h, curs_w))
+    return false;
   gbuffer_copy_subrect(a->field.buffer, cb_field->buffer, field_h, field_w,
                        curs_h, curs_w, curs_y, curs_x, 0, 0, curs_h, curs_w);
   return true;
@@ -2474,7 +2511,9 @@ static void ged_transport_poll(Ged *a, U64 now) {
 }
 #endif // BORCA_HAS_MIDI_IN
 
-staticni void ged_input_cmd(Ged *a, Ged_input_cmd ev) {
+// Returns false when a cut or copy could not fill the internal clipboard.
+staticni bool ged_input_cmd(Ged *a, Ged_input_cmd ev) {
+  bool copied = true;
   switch (ev) {
   case Ged_input_cmd_undo:
     if (undo_history_count(&a->undo_hist) == 0)
@@ -2531,7 +2570,8 @@ staticni void ged_input_cmd(Ged *a, Ged_input_cmd ev) {
     a->is_draw_dirty = true;
     break;
   case Ged_input_cmd_cut:
-    if (ged_copy_selection_to_clipbard(a)) {
+    copied = ged_copy_selection_to_clipbard(a);
+    if (copied) {
       undo_history_push(&a->undo_hist, &a->field, a->tick_num);
       ged_fill_selection_with_char(a, '.');
       a->needs_remarking = true;
@@ -2539,7 +2579,7 @@ staticni void ged_input_cmd(Ged *a, Ged_input_cmd ev) {
     }
     break;
   case Ged_input_cmd_copy:
-    ged_copy_selection_to_clipbard(a);
+    copied = ged_copy_selection_to_clipbard(a);
     break;
   case Ged_input_cmd_paste: {
     Usz field_h = a->field.height;
@@ -2580,6 +2620,7 @@ staticni void ged_input_cmd(Ged *a, Ged_input_cmd ev) {
     }
     break;
   }
+  return copied;
 }
 
 static bool hacky_try_save(Field *field, char const *filename) {
@@ -4027,20 +4068,31 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           Usz new_field_h, new_field_w;
           if (tui_suggest_nice_grid_size(t, t->ged.win_h, t->ged.win_w,
                                          &new_field_h, &new_field_w)) {
-            undo_history_push(&t->ged.undo_hist, &t->ged.field,
-                              t->ged.tick_num);
-            field_resize_raw(&t->ged.field, new_field_h, new_field_w);
-            memset(t->ged.field.buffer, '.',
-                   new_field_h * new_field_w * sizeof(Glyph));
-            opstate_clear(&t->ged.opstate);
-            tick_forget_patch(&t->ged.ccout);
-            ged_cursor_confine(&t->ged.ged_cursor, new_field_h, new_field_w);
-            mbuf_reusable_ensure_size(&t->ged.mbuf_r, new_field_h, new_field_w);
-            ged_update_internal_geometry(&t->ged);
-            ged_make_cursor_visible(&t->ged);
-            t->ged.needs_remarking = true;
-            t->ged.is_draw_dirty = true;
-            osoclear(&t->file_name);
+            // The mark buffer and the new grid grow before anything changes;
+            // if either cannot, the menu closes and the grid stays as it was.
+            Field fresh;
+            field_init(&fresh);
+            if (mbuf_reusable_ensure_size(&t->ged.mbuf_r, new_field_h,
+                                          new_field_w) &&
+                field_resize_raw(&fresh, new_field_h, new_field_w)) {
+              undo_history_push(&t->ged.undo_hist, &t->ged.field,
+                                t->ged.tick_num);
+              field_deinit(&t->ged.field);
+              t->ged.field = fresh;
+              memset(t->ged.field.buffer, '.',
+                     new_field_h * new_field_w * sizeof(Glyph));
+              opstate_clear(&t->ged.opstate);
+              tick_forget_patch(&t->ged.ccout);
+              ged_cursor_confine(&t->ged.ged_cursor, new_field_h, new_field_w);
+              ged_update_internal_geometry(&t->ged);
+              ged_make_cursor_visible(&t->ged);
+              t->ged.needs_remarking = true;
+              t->ged.is_draw_dirty = true;
+              osoclear(&t->file_name);
+            } else {
+              field_deinit(&fresh);
+              beep();
+            }
             qnav_stack_pop();
             pop_qnav_if_main_menu();
           }
@@ -4194,17 +4246,29 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           expand_home_tilde(&temp_name);
           if (!temp_name)
             break;
-          bool added_hist = undo_history_push(&t->ged.undo_hist, &t->ged.field,
-                                              t->ged.tick_num);
-          Field_load_error fle =
-              field_load_file(osoc(temp_name), &t->ged.field);
+          // The file loads into a temporary and the mark buffer grows before
+          // the live grid changes, so a failed load or allocation leaves the
+          // grid and the undo history as they were.
+          Field loaded;
+          field_init(&loaded);
+          Field_load_error fle = field_load_file(osoc(temp_name), &loaded);
+          if (fle == Field_load_error_ok &&
+              !mbuf_reusable_ensure_size(&t->ged.mbuf_r, loaded.height,
+                                         loaded.width))
+            fle = Field_load_error_no_memory;
           if (fle == Field_load_error_ok) {
+            undo_history_push(&t->ged.undo_hist, &t->ged.field,
+                              t->ged.tick_num);
+            if (loaded.height > 0) {
+              field_deinit(&t->ged.field);
+              t->ged.field = loaded;
+            } else {
+              field_deinit(&loaded); // an empty file leaves the grid
+            }
             opstate_clear(&t->ged.opstate);
             tick_forget_patch(&t->ged.ccout);
             qnav_stack_pop();
             osoputoso(&t->file_name, temp_name);
-            mbuf_reusable_ensure_size(&t->ged.mbuf_r, t->ged.field.height,
-                                      t->ged.field.width);
             ged_cursor_confine(&t->ged.ged_cursor, t->ged.field.height,
                                t->ged.field.width);
             ged_update_internal_geometry(&t->ged);
@@ -4213,9 +4277,7 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
             t->ged.is_draw_dirty = true;
             pop_qnav_if_main_menu();
           } else {
-            if (added_hist)
-              undo_history_pop(&t->ged.undo_hist, &t->ged.field,
-                               &t->ged.tick_num);
+            field_deinit(&loaded);
             qmsg_printf_push("Error Loading File", "%s:\n%s", osoc(temp_name),
                              field_load_error_string(fle));
           }
@@ -4654,6 +4716,7 @@ int main(int argc, char **argv) {
   WINDOW *cont_window = NULL;
   tui_adjust_term_size(&t, &cont_window);
 
+  bool startup_no_memory = false;
   bool grid_initialized = false;
   if (osolen(t.file_name)) {
     Field_load_error fle = field_load_file(osoc(t.file_name), &t.ged.field);
@@ -4677,6 +4740,11 @@ int main(int argc, char **argv) {
       qmsg_set_dismiss_mode(qm, Qmsg_dismiss_mode_passthrough);
       break;
     }
+    case Field_load_error_no_memory:
+      // Quit rather than start on a blank grid, which a save would write
+      // over the file. ged_deinit frees the partial grid.
+      startup_no_memory = true;
+      goto quit;
     default:
       qmsg_printf_push("File Load Error", "File load error:\n%s.",
                        field_load_error_string(fle));
@@ -4695,8 +4763,12 @@ int main(int argc, char **argv) {
     }
     field_init_fill(&t.ged.field, (Usz)new_field_h, (Usz)new_field_w, '.');
   }
-  mbuf_reusable_ensure_size(&t.ged.mbuf_r, t.ged.field.height,
-                            t.ged.field.width);
+  // With no mark buffer there is no grid to run: quit before the clock
+  // source, the startup /orca/bpm and auto-play, and say why after endwin.
+  startup_no_memory = !mbuf_reusable_ensure_size(
+      &t.ged.mbuf_r, t.ged.field.height, t.ged.field.width);
+  if (startup_no_memory)
+    goto quit;
   ged_make_cursor_visible(&t.ged);
   // The clock source and its input, once: after the overrides, before
   // auto-play (AD-20). Under External the startup /orca/bpm is skipped (the
@@ -5067,12 +5139,12 @@ event_loop:;
     ged_input_cmd(&t.ged, Ged_input_cmd_toggle_show_event_list);
     break;
   case CTRL_PLUS('x'):
-    ged_input_cmd(&t.ged, Ged_input_cmd_cut);
-    try_send_to_gui_clipboard(&t.ged, &t.use_gui_cboard);
+    if (ged_input_cmd(&t.ged, Ged_input_cmd_cut))
+      try_send_to_gui_clipboard(&t.ged, &t.use_gui_cboard);
     break;
   case CTRL_PLUS('c'):
-    ged_input_cmd(&t.ged, Ged_input_cmd_copy);
-    try_send_to_gui_clipboard(&t.ged, &t.use_gui_cboard);
+    if (ged_input_cmd(&t.ged, Ged_input_cmd_copy))
+      try_send_to_gui_clipboard(&t.ged, &t.use_gui_cboard);
     break;
   case CTRL_PLUS('v'):
     if (t.use_gui_cboard) {
@@ -5273,6 +5345,10 @@ quit:
   if (portmidi_is_initialized)
     Pm_Terminate();
 #endif
+  if (startup_no_memory) {
+    fputs("Cannot start: not enough memory for the grid\n", stderr);
+    return 1;
+  }
 }
 
 #undef staticni

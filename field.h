@@ -14,9 +14,17 @@ typedef struct {
 void field_init(Field *field);
 void field_init_fill(Field *field, Usz height, Usz width, Glyph fill_char);
 void field_deinit(Field *field);
-void field_resize_raw(Field *field, Usz height, Usz width);
-void field_resize_raw_if_necessary(Field *field, Usz height, Usz width);
-void field_copy(Field *src, Field *dest);
+// Resizes the buffer without keeping its layout. Returns true on success.
+// Zero cells free the buffer: NULL, 0 x 0. On false (the allocation failed)
+// the buffer, the height, the width and the contents are as they were.
+ORCA_WARN_UNUSED bool field_resize_raw(Field *field, Usz height, Usz width);
+// As field_resize_raw, and true without a resize when the size already
+// matches.
+ORCA_WARN_UNUSED bool field_resize_raw_if_necessary(Field *field, Usz height,
+                                                    Usz width);
+// Copies src into dest, resized to src's size. On false dest could not grow:
+// it is as it was and nothing is copied.
+ORCA_WARN_UNUSED bool field_copy(Field *src, Field *dest);
 void field_fput(Field *field, FILE *stream);
 
 typedef enum {
@@ -26,6 +34,7 @@ typedef enum {
   Field_load_error_too_many_rows = 3,
   Field_load_error_no_rows_read = 4,
   Field_load_error_not_a_rectangle = 5,
+  Field_load_error_no_memory = 6,
 } Field_load_error;
 
 Field_load_error field_load_file(char const *filepath, Field *field);
@@ -46,5 +55,9 @@ typedef struct Mbuf_reusable {
 } Mbuf_reusable;
 
 void mbuf_reusable_init(Mbuf_reusable *mbr);
-void mbuf_reusable_ensure_size(Mbuf_reusable *mbr, Usz height, Usz width);
+// Grows the buffer to hold height x width marks; it never shrinks. Returns
+// true when it holds them. On false (the allocation failed) the buffer and
+// the capacity are as they were.
+ORCA_WARN_UNUSED bool mbuf_reusable_ensure_size(Mbuf_reusable *mbr, Usz height,
+                                                Usz width);
 void mbuf_reusable_deinit(Mbuf_reusable *mbr);

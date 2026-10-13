@@ -75,12 +75,21 @@ typedef union {
 typedef struct {
   Oevent *buffer;
   Usz count, capacity;
+  // The slot oevent_list_alloc_item returns when the list cannot grow: the
+  // caller writes its event here and it is dropped. Never counted, read or
+  // sent. A dropped CC is recorded by ccout as sent, the same as a failed
+  // send, so a dropped glide target is not resent.
+  Oevent discard;
 } Oevent_list;
 
 void oevent_list_init(Oevent_list *olist);
 void oevent_list_deinit(Oevent_list *olist);
 void oevent_list_clear(Oevent_list *olist);
-ORCA_NOINLINE
-void oevent_list_copy(Oevent_list const *src, Oevent_list *dest);
+// Copies src's events into dest. Returns false when dest cannot grow to hold
+// them: dest is then empty (count 0) and keeps its buffer and capacity.
+ORCA_NOINLINE ORCA_WARN_UNUSED
+bool oevent_list_copy(Oevent_list const *src, Oevent_list *dest);
+// Returns the slot for one more event. When the list cannot grow it returns
+// &olist->discard and leaves the list as it was, so the event is dropped.
 ORCA_NOINLINE
 Oevent *oevent_list_alloc_item(Oevent_list *olist);

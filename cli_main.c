@@ -131,7 +131,11 @@ int main(int argc, char **argv) {
   }
   Mbuf_reusable mbuf_r;
   mbuf_reusable_init(&mbuf_r);
-  mbuf_reusable_ensure_size(&mbuf_r, field.height, field.width);
+  if (!mbuf_reusable_ensure_size(&mbuf_r, field.height, field.width)) {
+    field_deinit(&field);
+    fputs("Cannot start: not enough memory for the grid\n", stderr);
+    return 1;
+  }
   Oevent_list oevent_list;
   oevent_list_init(&oevent_list);
   // The per-cell state of &, ; and r, owned here for the whole run.

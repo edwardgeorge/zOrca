@@ -365,7 +365,9 @@ examples check: 44 files, 38 pass, 6 exceptions, 0 fail
 ### Running the unit tests
 
 `./tool build test` builds `build/unit_tests` (`build/debug/unit_tests` with
-`-d`) from the CORE list plus every `tests/unit/*.c`, against libc only. The
+`-d`) from the CORE list, `field.c` and every `tests/unit/*.c`, against libc
+only. `field.c` is shell code outside CORE, linked so its failure contract
+runs under the realloc hook (P4-1); it joins no `nm` or include check. The
 runner prints `ok <name>` for each passing test and
 `FAIL <name>: <file>:<line>: <expr>` for each failed check, then
 `<n> tests, <m> failed`, and exits 0 only when no test failed. A failed check
@@ -458,14 +460,9 @@ NULL and touches nothing. `unit_realloc_calls` counts every call, armed or
 not: a test copies it before its window and checks that exactly one call
 ran inside, which proves no other realloc entered the window (malloc and
 calloc are not wrapped; a second realloc shows as a failure, not as a
-silent second NULL). Never arm it where an
-`Oevent_list` can grow: `oevent_list_alloc_item` and `oevent_list_copy` in
-`vmio.c` write through an unchecked `realloc`, so an armed hook there
-crashes the runner instead of failing a test. Pre-grow the tick list and
-keep CC, OSC and pitch-bend operators off the grid, as
-`tick_note_alloc_fail` does. `main.c` disarms the hook and zeroes the
-counter before and after each test, so a test that returns armed cannot
-fail another test's `realloc`.
+silent second NULL). `main.c` disarms the hook and zeroes the counter
+before and after each test, so a test that returns armed cannot fail
+another test's `realloc`.
 
 The three flags travel together. The define without the wrap fails the
 link on `__real_realloc`. Without `-fno-builtin-realloc`, any optimised
@@ -495,7 +492,7 @@ non-Linux link) the runner has those tests fewer, so CI's `build`,
 `unsigned-char`, `clang` and `armhf` jobs each grep their runner log for
 `ok tick_note_alloc_fail`, the `build` and `unsigned-char` jobs also for
 `ok realloc_hook_builtin_null`, and a `tool` that lost the flags on Linux
-cannot drop the tests silently. Today there are three hook tests.
+cannot drop the tests silently. Today there are five hook tests.
 `realloc_hook_builtin_null`, in `tests/unit/alloc_hook.c`, proves the
 flags (above). `opstate_copy_alloc_fail`, in `tests/unit/test_opstate.c`,
 fails the `realloc` of an `opstate_copy` whose destination must grow: the
@@ -509,7 +506,19 @@ under a retrigger through `tick_body` (the seeds keep their entries, aged
 by one; neither the retriggered seed's off nor any on goes out), then
 recovers on the same list. It pins `tick.c`'s batch skip: a batch whose
 list cannot grow sends none of its note-offs or note-ons, so no note
-sounds without an entry to release it.
+sounds without an entry to release it. `oevent_list_alloc_fail`, in
+`tests/unit/test_core.c` (P4-1): an event list whose growth fails, empty
+or full at 16, returns its discard slot, so the event is dropped, and
+keeps its buffer, count, capacity and items; the same call unarmed grows
+the list to 32; and an `oevent_list_copy` whose destination
+must grow returns false and leaves the destination empty with its buffer
+and capacity. `field_alloc_fail`, in `tests/unit/test_field.c` (P4-1):
+a failed `field_resize_raw` or `field_copy` leaves the field's buffer,
+size and contents as they were, a resize to 0 x 0 frees the buffer with
+no `realloc`, and a mark buffer that cannot grow keeps its buffer and
+capacity, while a size that fits needs no `realloc`; a load whose first
+row cannot grow returns `Field_load_error_no_memory` with its file closed
+and the field unchanged.
 
 ### Adding a unit test
 
@@ -761,6 +770,32 @@ when every bound holds, 1 when one fails, and 2 when a build or a run
 fails. It takes about five minutes. The final figures for the appliance
 come from the installed candidate at the repin, not from this script.
 
+## Realloc shim check
+
+`tests/realloc-shim/check.sh` (P4-1) checks, end to end, that bOrca keeps
+its grid and mark buffer when `realloc` fails, and says so where it cannot
+go on. It takes a release `cli` and, optionally, a release `orca` built
+without `--alsa` or `--portmidi` (ASan refuses a preloaded library ahead of
+its runtime):
+
+```sh
+nice -n 19 taskset -c 0-2 tests/realloc-shim/check.sh build/cli build/orca
+```
+
+It compiles `tests/realloc-shim/shim.c` with `$CC` (default `cc`) into a
+scratch directory, an `LD_PRELOAD` library that fails every `realloc` above
+`SHIM_REALLOC_MAX` bytes. `cli -t 1` on a 100 x 50 grid file with a limit
+of 4096 must exit 1, not on a signal, with
+`File load error: Not enough memory for the grid.`, and a 20 x 10 file must
+run. With `orca`: `--initial-size 200x200` under `script` and `timeout 10`,
+limit 30000, must exit 1 with
+`Cannot start: not enough memory for the grid`; and `--initial-size 1000x25`
+in a private tmux server, keys `+` `+` (25 rows to 33, 33000 bytes) then
+Ctrl+Q, must grow the HUD's `1000x25` to `1000x41` without a limit, and
+with limit 30000 keep running with `1000x25` and an advancing frame counter
+and exit 0. Each `orca` run has a scratch `XDG_CONFIG_HOME`. CI runs the
+`cli` case in the `build` job.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes and pull requests to
@@ -772,7 +807,7 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   first checks that `CFLAGS_EXTRA` reaches the compiler, then builds the
   debug and release `cli` with `CFLAGS_EXTRA=-Werror`, checks the debug
   `cli` with `tests/check-debug-build.sh`, and runs the golden suite on
-  both. It runs `tests/check-examples.sh` on the debug `cli`, builds
+  both and `tests/realloc-shim/check.sh` on the release `cli`. It runs `tests/check-examples.sh` on the debug `cli`, builds
   `readme-gen` with `-Werror` and runs `tests/check-doc-sync.sh` on it. It
   then runs `tests/check-includes.sh` and `tests/check-nm.sh`,
   which need no build, builds and runs the debug unit tests without and
@@ -837,7 +872,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/check-includes.sh`, `tests/check-nm.sh`,
   `tests/check-debug-build.sh`, `tests/check-doc-sync.sh`,
   `tests/check-examples.sh`, `tests/lib.sh`, `tests/upstream/build-cli.sh`,
-  `tests/upstream/compare.sh` and `tests/wakeups/ab.sh`. `tests/lib.sh` must
+  `tests/upstream/compare.sh`, `tests/wakeups/ab.sh` and
+  `tests/realloc-shim/check.sh`. `tests/lib.sh` must
   be in that list: without `-x`, shellcheck follows a sourced file only when
   it is given too.
 - **clang** (`ubuntu-24.04`, P3-2, deferred-work #19): builds the debug

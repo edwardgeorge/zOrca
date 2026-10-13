@@ -388,7 +388,11 @@ static ORCA_NOINLINE Qmenu_item *qmenu_allocitems(Qmenu *qm, Usz count) {
   Usz items_cap = qm->items_cap;
   Qmenu_item *items = qm->items;
   if (new_count > items_cap) {
-    // todo overflow check, realloc fail check
+    // A count overflow (checked above) and a failed realloc (below) both end
+    // the program with exit(1): a menu cannot be built without its items.
+    // The capacity round-up (orca_round_up_power2) and the size
+    // multiplication (new_cap * sizeof(Qmenu_item)) are left unchecked, as a
+    // menu holds few items.
     Usz new_cap = new_count < 32 ? 32 : orca_round_up_power2(new_count);
     Usz new_size = new_cap * sizeof(Qmenu_item);
     Qmenu_item *new_items = (Qmenu_item *)realloc(items, new_size);

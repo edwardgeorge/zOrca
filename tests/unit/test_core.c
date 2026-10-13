@@ -120,7 +120,7 @@ void test_oevent_list_growth(void) {
 
   Oevent_list copy;
   oevent_list_init(&copy);
-  oevent_list_copy(&list, &copy);
+  CHECK(oevent_list_copy(&list, &copy));
   CHECK(copy.count == list.count);
   // A count mismatch is already recorded above; compare only equal counts.
   if (copy.count == list.count && list.count == N)
@@ -134,6 +134,103 @@ void test_oevent_list_growth(void) {
   oevent_list_deinit(&copy);
   oevent_list_deinit(&list);
 }
+
+#ifdef UNIT_TESTS_REALLOC_HOOK
+// P4-1: an event list that cannot grow. The runner's realloc hook
+// (alloc_hook.c) returns NULL from every realloc while unit_realloc_fail is
+// set; each part arms it just before the call under test, disarms it right
+// after, before any CHECK, and checks that exactly one realloc ran in its
+// window. Part 1, an empty list's first growth: the result is the list's
+// discard slot, the list stays NULL/0/0 and writing the event there is
+// harmless. Part 2, a full list of 16: the discard slot again, and the
+// buffer, count, capacity and items as they were. Part 3, the same call
+// unarmed: the list grows to 32 and the result is the 17th slot. Part 4,
+// oevent_list_copy into a one-item destination that must grow: false, the
+// destination empty with its buffer and capacity; unarmed, a full copy.
+// Each part has its own lists, and reads only what a list holds, so a
+// broken growth fails the checks instead of ending the run in an ASan abort.
+void test_oevent_list_alloc_fail(void) {
+  enum { Cap = 16 };
+  // Part 1: the empty list.
+  Oevent_list empty;
+  oevent_list_init(&empty);
+  size_t calls = unit_realloc_calls;
+  unit_realloc_fail = true;
+  Oevent *e = oevent_list_alloc_item(&empty);
+  unit_realloc_fail = false;
+  CHECK(unit_realloc_calls - calls == 1);
+  CHECK(e == &empty.discard);
+  e->midi_note.oevent_type = Oevent_type_midi_note; // the caller's write
+  e->midi_note.note = 60;
+  CHECK(empty.buffer == NULL && empty.count == 0 && empty.capacity == 0);
+  oevent_list_deinit(&empty);
+
+  // Part 2: a full list of 16 distinct items.
+  Oevent_list full;
+  oevent_list_init(&full);
+  for (Usz i = 0; i < Cap; ++i) {
+    Oevent *item = oevent_list_alloc_item(&full);
+    memset(item, 0, sizeof *item);
+    item->midi_cc.oevent_type = Oevent_type_midi_cc;
+    item->midi_cc.channel = (U8)i;
+    item->midi_cc.control = (U8)(20 + i);
+    item->midi_cc.value = (U8)(40 + i);
+  }
+  CHECK(full.count == Cap && full.capacity == Cap);
+  Oevent before[Cap];
+  memset(before, 0, sizeof before);
+  if (full.count == Cap)
+    memcpy(before, full.buffer, sizeof before);
+  Oevent *buffer = full.buffer;
+  calls = unit_realloc_calls;
+  unit_realloc_fail = true;
+  e = oevent_list_alloc_item(&full);
+  unit_realloc_fail = false;
+  CHECK(unit_realloc_calls - calls == 1);
+  CHECK(e == &full.discard);
+  CHECK(full.buffer == buffer && full.count == Cap && full.capacity == Cap);
+  if (full.buffer == buffer)
+    CHECK(memcmp(full.buffer, before, sizeof before) == 0);
+
+  // Part 3: the same call, unarmed.
+  calls = unit_realloc_calls;
+  e = oevent_list_alloc_item(&full);
+  CHECK(unit_realloc_calls - calls == 1);
+  CHECK(e == full.buffer + Cap);
+  CHECK(full.count == Cap + 1 && full.capacity == 2 * Cap);
+  if (full.buffer != NULL && full.capacity == 2 * Cap)
+    CHECK(memcmp(full.buffer, before, sizeof before) == 0);
+  oevent_list_deinit(&full);
+
+  // Part 4: oevent_list_copy into a one-item destination that must grow.
+  Oevent_list src, dest;
+  oevent_list_init(&src);
+  oevent_list_init(&dest);
+  for (Usz i = 0; i < Cap + 1; ++i) {
+    Oevent *item = oevent_list_alloc_item(&src);
+    memset(item, 0, sizeof *item);
+    item->midi_pb.oevent_type = Oevent_type_midi_pb;
+    item->midi_pb.lsb = (U8)i;
+  }
+  memset(oevent_list_alloc_item(&dest), 0, sizeof(Oevent));
+  CHECK(src.count == Cap + 1 && dest.count == 1 && dest.capacity == Cap);
+  Oevent *dest_buffer = dest.buffer;
+  calls = unit_realloc_calls;
+  unit_realloc_fail = true;
+  bool copied = oevent_list_copy(&src, &dest);
+  unit_realloc_fail = false;
+  CHECK(unit_realloc_calls - calls == 1);
+  CHECK(!copied);
+  CHECK(dest.count == 0 && dest.buffer == dest_buffer &&
+        dest.capacity == Cap);
+  copied = oevent_list_copy(&src, &dest);
+  CHECK(copied && dest.count == src.count);
+  if (copied && dest.count == src.count)
+    CHECK(memcmp(dest.buffer, src.buffer, src.count * sizeof(Oevent)) == 0);
+  oevent_list_deinit(&src);
+  oevent_list_deinit(&dest);
+}
+#endif
 
 // One tick of a stable operator: A adds its two inputs and writes the sum
 // below itself, emits no event and keeps no operator state.

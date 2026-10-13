@@ -1331,8 +1331,9 @@ void test_tick_note_empty_list(void) {
 // (malloc and calloc are not wrapped): a second one would show as a
 // failure, not as a silent second NULL.
 // The tick list is pre-grown to 16 events and the grids hold no CC, OSC or
-// pitch-bend operator, so no Oevent_list can grow while armed (vmio.c
-// writes through an unchecked realloc, which would crash, not fail).
+// pitch-bend operator, so the one realloc in each armed window is the
+// sustained-note list's: a growing event list would add a second, which the
+// call count catches.
 // Part 1, an empty list through tick_body: the batch is skipped, nothing
 // goes out and the list stays NULL/0/0. Part 2, susnote_list_add_notes
 // itself on a list that must grow: it returns false and leaves the buffer

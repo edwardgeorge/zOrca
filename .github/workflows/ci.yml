@@ -120,6 +120,13 @@ jobs:
       - name: Golden suite on the release cli
         run: tests/run.sh build/cli
 
+      # P4-1: a grid the release cli cannot allocate ends it with exit 1 and
+      # the no-memory message, not a signal. The check builds an LD_PRELOAD
+      # shim that fails every realloc above 4096 bytes and loads a 100 x 50
+      # grid under it; its orca cases need a terminal and run on the device.
+      - name: Release cli refuses a grid it cannot allocate (realloc shim)
+        run: tests/realloc-shim/check.sh build/cli
+
       # tests/run.sh's bad-marker path: a throwaway pitch_bend.xfail that is
       # not exactly one item id must fail the case, and --update must leave
       # pitch_bend.events alone. The events file is edited first, so a
@@ -726,6 +733,7 @@ jobs:
           tests/check-nm.sh tests/check-debug-build.sh tests/check-doc-sync.sh
           tests/check-examples.sh tests/lib.sh tests/upstream/build-cli.sh
           tests/upstream/compare.sh tests/wakeups/ab.sh
+          tests/realloc-shim/check.sh
 
   # The debug cli and the unit runner under clang's UBSan, whose
   # pointer-overflow check reports NULL + 0 where gcc's does not, so the

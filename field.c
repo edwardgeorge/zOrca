@@ -19,25 +19,40 @@ void field_init_fill(Field *f, Usz height, Usz width, Glyph fill_char) {
 
 void field_deinit(Field *f) { free(f->buffer); }
 
-void field_resize_raw(Field *f, Usz height, Usz width) {
+bool field_resize_raw(Field *f, Usz height, Usz width) {
   assert(height <= ORCA_Y_MAX && width <= ORCA_X_MAX);
   Usz cells = height * width;
-  f->buffer = realloc(f->buffer, cells * sizeof(Glyph));
+  if (cells == 0) {
+    // No realloc: realloc(p, 0) may free p and return NULL, which a failure
+    // check cannot tell from a failed allocation.
+    free(f->buffer);
+    f->buffer = NULL;
+    f->height = 0;
+    f->width = 0;
+    return true;
+  }
+  Glyph *resized = realloc(f->buffer, cells * sizeof(Glyph));
+  if (!resized)
+    return false;
+  f->buffer = resized;
   f->height = (U16)height;
   f->width = (U16)width;
+  return true;
 }
 
-void field_resize_raw_if_necessary(Field *field, Usz height, Usz width) {
-  if (field->height != height || field->width != width) {
-    field_resize_raw(field, height, width);
-  }
+bool field_resize_raw_if_necessary(Field *field, Usz height, Usz width) {
+  if (field->height != height || field->width != width)
+    return field_resize_raw(field, height, width);
+  return true;
 }
 
-void field_copy(Field *src, Field *dest) {
-  field_resize_raw_if_necessary(dest, src->height, src->width);
+bool field_copy(Field *src, Field *dest) {
+  if (!field_resize_raw_if_necessary(dest, src->height, src->width))
+    return false;
   gbuffer_copy_subrect(src->buffer, dest->buffer, src->height, src->width,
                        dest->height, dest->width, 0, 0, 0, 0, src->height,
                        src->width);
+  return true;
 }
 
 static inline bool glyph_char_is_valid(char c) { return c >= '!' && c <= '~'; }
@@ -104,7 +119,10 @@ Field_load_error field_load_file(char const *filepath, Field *field) {
       fclose(file);
       return Field_load_error_not_a_rectangle;
     }
-    field_resize_raw(field, rows + 1, first_row_columns);
+    if (!field_resize_raw(field, rows + 1, first_row_columns)) {
+      fclose(file);
+      return Field_load_error_no_memory;
+    }
     Glyph *rowbuff = field->buffer + first_row_columns * rows;
     for (Usz i = 0; i < len; ++i) {
       char c = buf[i];
@@ -137,6 +155,9 @@ char const *field_load_error_string(Field_load_error fle) {
   case Field_load_error_not_a_rectangle:
     errstr = "Grid file is not a rectangle";
     break;
+  case Field_load_error_no_memory:
+    errstr = "Not enough memory for the grid";
+    break;
   }
   return errstr;
 }
@@ -146,12 +167,16 @@ void mbuf_reusable_init(Mbuf_reusable *mbr) {
   mbr->capacity = 0;
 }
 
-void mbuf_reusable_ensure_size(Mbuf_reusable *mbr, Usz height, Usz width) {
+bool mbuf_reusable_ensure_size(Mbuf_reusable *mbr, Usz height, Usz width) {
   Usz capacity = height * width;
   if (mbr->capacity < capacity) {
-    mbr->buffer = realloc(mbr->buffer, capacity);
+    Mark *grown = realloc(mbr->buffer, capacity);
+    if (!grown)
+      return false;
+    mbr->buffer = grown;
     mbr->capacity = capacity;
   }
+  return true;
 }
 
 void mbuf_reusable_deinit(Mbuf_reusable *mbr) { free(mbr->buffer); }

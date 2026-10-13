@@ -7,13 +7,12 @@
 // returns NULL and touches nothing. unit_realloc_calls counts every call,
 // armed or not, so a test can prove that exactly one realloc ran in its
 // window and no other realloc entered it (malloc and calloc are not
-// wrapped). Never arm it where an Oevent_list can grow: vmio.c writes
-// through an unchecked realloc, so the test would crash instead of failing.
-// Only the link routes realloc to the hook, so LTO sees no reader of the
-// armed flag and could delete the arming store before the disarm; volatile
-// keeps it (and -fno-builtin-realloc already makes realloc opaque, so
-// volatile is a second safeguard). main.c resets both around each test, so
-// a test that returns armed cannot fail another test's realloc.
+// wrapped). Only the link routes realloc to the hook, so LTO sees no
+// reader of the armed flag and could delete the arming store before the
+// disarm; volatile keeps it (and -fno-builtin-realloc already makes realloc
+// opaque, so volatile is a second safeguard). main.c resets both around
+// each test, so a test that returns armed cannot fail another test's
+// realloc.
 //
 // Without the define this file holds only the declarations from tests.h.
 #include "tests.h"

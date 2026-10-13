@@ -282,7 +282,11 @@ set_target_sources() {
         thirdparty/oso.c tui_main.c
     ;;
     test)
-      # tests/unit/*.c without globbing, in a fixed order.
+      # field.c is libc-only shell code outside CORE, linked so its failure
+      # contract runs under the realloc hook (P4-1); it joins no nm or
+      # include check. Then tests/unit/*.c without globbing, in a fixed
+      # order.
+      add source_files field.c
       if ! [ -d tests/unit ]; then
         fatal "tests/unit not found; run tool from the repository root"
       fi
@@ -536,7 +540,8 @@ build_target() {
       fi
     ;;
     test)
-      # The unit-test runner: CORE plus tests/unit/*.c, against libc only.
+      # The unit-test runner: CORE, field.c and tests/unit/*.c, against libc
+      # only.
       # Each adapter FEAT_ flag builds that adapter's tests, and the runner
       # fails when a flag registers none. --no-mouse has no adapter tests and
       # is ignored.

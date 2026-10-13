@@ -256,7 +256,9 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
 #define HOOK_TESTS_ALL(X)                                                      \
   X(realloc_hook_builtin_null)                                                 \
   X(tick_note_alloc_fail)                                                      \
-  X(opstate_copy_alloc_fail)
+  X(opstate_copy_alloc_fail)                                                   \
+  X(oevent_list_alloc_fail)                                                    \
+  X(field_alloc_fail)
 #define PORTMIDI_TESTS_ALL(X)                                                  \
   X(portmidi_error_text_and_filters)                                           \
   X(portmidi_in_filter)                                                        \
@@ -284,10 +286,9 @@ CANARY_TESTS_ALL(UNIT_TEST_DECLARE)
 // The realloc hook. While unit_realloc_fail is set every realloc in the
 // runner returns NULL; unit_realloc_calls counts every call. A test arms
 // the hook just before the call under test and disarms it right after,
-// before any CHECK, and never where an Oevent_list can grow (vmio.c writes
-// through an unchecked realloc). Both are volatile so the release runner's
-// -flto link keeps the arming store. __wrap_realloc is what the linker
-// routes realloc to, and __real_realloc is libc's.
+// before any CHECK. Both are volatile so the release runner's -flto link
+// keeps the arming store. __wrap_realloc is what the linker routes realloc
+// to, and __real_realloc is libc's.
 #ifdef UNIT_TESTS_REALLOC_HOOK
 extern volatile bool unit_realloc_fail;
 extern volatile size_t unit_realloc_calls;
