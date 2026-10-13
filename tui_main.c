@@ -2978,12 +2978,13 @@ static void push_controls_msg(void) {
       {"Arrow Keys", "Move Cursor"},
       {"Ctrl+D or F1", "Open Main Menu"},
       {"0-9, A-Z, a-z,", "Insert Character"},
-      {"! : % / = # *", NULL},
+      {"! : % / = # * ; $ &", NULL},
       {"Spacebar", "Play/Pause"},
       {"Ctrl+Z or Ctrl+U", "Undo"},
       {"Ctrl+X", "Cut"},
       {"Ctrl+C", "Copy"},
       {"Ctrl+V", "Paste"},
+      {"Ctrl+O", "Open File"},
       {"Ctrl+S", "Save"},
       {"Ctrl+F", "Frame Step Forward"},
       {"Ctrl+R", "Reset Frame Number"},
@@ -2996,6 +2997,8 @@ static void push_controls_msg(void) {
       {"Escape", "Return to Normal Mode or Deselect"},
       {"( ) _ + [ ] { }", "Adjust Grid Size and Rulers"},
       {"< and >", "Adjust BPM"},
+      {"Ctrl+E", "Show or Hide the Last Tick's Events"},
+      {"Ctrl+G", "Operator Guide"},
       {"?", "Controls (this message)"},
   };
   int w_input = 0;
