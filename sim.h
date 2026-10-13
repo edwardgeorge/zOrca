@@ -7,10 +7,14 @@
 // The operator list orca_run runs, one per dialect. Zero is bOrca,
 // so a zero-initialized context runs bOrca's operators.
 //   borca:    bOrca's list: ! (CC with glides), $, ; (arpeggiator),
-//             = (midichord), & and the shuffle-bag r.
+//             = (midichord), & and the shuffle-bag r; C, D, I, L, R, U
+//             and Z by Orca's 2025 rules, in which an empty input counts
+//             as 0 and R's range includes its max.
 //   upstream: Orca-c 9df9786's list: ! (plain CC, value x 127 / 35),
-//             ; (UDP), = (OSC) and r as a banged R; $ and & do nothing.
-// Every other operator is the same in both.
+//             ; (UDP), = (OSC) and r as a banged R; $ and & do nothing;
+//             C, D, I, L, R, U and Z by Orca-c's rules for empty inputs
+//             and R's range.
+// The other 19 letters, and *, #, :, % and ?, are the same in both.
 typedef enum {
   Orca_dialect_borca = 0,
   Orca_dialect_upstream = 1,

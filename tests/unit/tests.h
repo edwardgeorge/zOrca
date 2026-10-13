@@ -104,6 +104,14 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(dialect_upstream_udp_osc)                                                  \
   X(dialect_upstream_inert)                                                    \
   X(dialect_tick_body_upstream)                                                \
+  X(rules_lesser)                                                              \
+  X(rules_increment)                                                           \
+  X(rules_uclid)                                                               \
+  X(rules_delay)                                                               \
+  X(rules_clock)                                                               \
+  X(rules_lerp)                                                                \
+  X(rules_random_range)                                                        \
+  X(rules_random_hash)                                                         \
   X(ccout_glide_continuity)                                                    \
   X(ccout_glide_from_instant)                                                  \
   X(ccout_unknown_last_value)                                                  \

@@ -118,15 +118,17 @@ regenerated with `--update`. `;`'s Length and Step replaced `arp_patterns` and
 the `;` rows of `seeded_random`, whose `;`s now sit in 6-column groups, so
 that no `D` bangs the new Step input at x+4; with Length and Step empty, each
 `;` outputs exactly the sequence
-the old golden held. `seeded_random` keeps its width and its first four
-rows byte for byte, because uppercase `R` hashes y × width + x, so its `R`
-outputs are unchanged too.
+the old golden held. `seeded_random` keeps its width and its first four rows
+byte for byte, because uppercase `R` hashes y × width + x, so that change
+left its `R` outputs unchanged too. Its `R` cells were regenerated in v4.0.0
+for the range of bOrca's dialect, which includes the max, with the hash
+unchanged.
 
 | Case | Pins | `.args` | Replaced by |
 | --- | --- | --- | --- |
 | `bouncer_shapes` | `&` shapes 0–7 at rate 5 over `0`–`z`, an end below the start, a partial range, rate `.`, shape `z`, a `D` bang every 7 ticks, and a rate and a shape that a `C` clock changes; a bang restarts the phase; rate and shape changes keep the anchor (a shape change keeps the phase, a rate change re-takes the elapsed ticks mod the new cycle) | none | none (replaced when `&` began to count in beats, v2.0.0) |
 | `arp_patterns` | `;` ranges 1–4 with every non-random pattern, ranges `0` and `z`, a bang every 3 ticks, and a clocked pattern change that restarts the step, each `;` in a 6-column group with Length and Step empty | none | none (replaced with `;`'s Length and Step, v2.0.0) |
-| `seeded_random` | `R` with a lowercase, an uppercase and a `0` max, and `;` pattern `c` with Length and Step empty, under a non-zero seed | `--seed 7` | none (its `;` rows replaced with `;`'s Length and Step, v2.0.0) |
+| `seeded_random` | `R` with a lowercase, an uppercase and a `0` max, and `;` pattern `c` with Length and Step empty, under a non-zero seed | `--seed 7` | none (its `;` rows replaced with `;`'s Length and Step, v2.0.0; its `R` cells regenerated for bOrca's dialect's `R` range, hash unchanged, v4.0.0) |
 | `cc_instant` | `!` at rate `.` on CC 1 and CC 74 with values `0`, `g`, `v` and `w` (clamped to 127), sent again on every tick; a channel above 15 that sends nothing, a hundreds digit (CC 100), and controller 130 clamped to 127 | `-t 2` | none |
 | `cc_rates` | the VM's classification of `!` at rates `0` and `z`: still `CCI`, with the rate index (0 and 35), as in 4f349cd, since only the CC engine maps a rate to a duration. `cli` runs no CC engine, so the unit test `tick_cci_same_tick` checks that both go out in the tick that bangs them | `-t 2` | none |
 | `pitch_bend` | `?` with MSB and LSB at `0`, `z` and between, and a channel above 15 that sends nothing | `-t 2` | none |
@@ -154,9 +156,9 @@ for one tick, which the change leaves as they were, since it is in `tick.c`
 and `cli` never runs `tick.c`. The unit test `tick_note_same_batch` in
 `tests/unit/test_tick.c` checks the wire.
 
-The `R`, `;` pattern `c` and `op_selftest` (its `.R.` cell) goldens assume
-a 64-bit `Usz`: their hashes differ where `Usz` is 32-bit, as on armhf, whose
-CI job runs the unit tests but never `cli`.
+The `R` and `;` pattern `c` goldens assume a 64-bit `Usz`: their hashes
+differ where `Usz` is 32-bit, as on armhf, whose CI job runs the unit tests
+but never `cli`.
 
 `j_banged_under_j` and `y_banged_right_of_y` were captured before the
 upstream "Allow wires to grow" cherry-pick (v1.0.0) and replaced by it; together
@@ -228,6 +230,30 @@ and values; both stop at the grid's east edge; upstream `$` and `&` write,
 mark and keep nothing; the tick body runs `Tick_ctx`'s dialect, so upstream
 `;` and `=` reach the sink's `osc` and upstream `!` goes out as a plain CC;
 and only `borca` and `upstream` are dialect names.
+
+The unit tests `rules_*` in `tests/unit/test_rules.c` check the seven
+operators whose rules differ between the dialects, Orca's 2025 rules in
+bOrca's and Orca-c's in upstream. `rules_lesser`, `rules_increment`,
+`rules_uclid`, `rules_delay`, `rules_clock` and `rules_lerp` each run their
+rows, such as `.L5`, `2D.`, or `.C.` over an output cell that holds `5`, on
+row 1 of a 5×3 grid for ticks 0-15 at seed 0, in both dialects, and compare
+the 16 glyphs of the output cell below the operator with what each dialect
+must give; at tick 0 they also check that the two dialects mark the same
+ports. `rules_random_range` checks `R`'s range in both dialects by the set
+of values it outputs over 400 ticks at seeds 0 and 7: `1R4` gives 1 to 4 in
+bOrca's dialect and 1 to 3 upstream, `.R.` always `0` in bOrca's and 0 to z
+upstream, and `aRA` gives `A` in bOrca's and `a` upstream; and `4R1` outputs
+what `1R4` does on every tick. `rules_random_hash` checks that both dialects
+draw from one hash: bOrca's `xRy` outputs what the upstream `xR(y+1)` does
+on every tick, and bOrca's `0Rz` what the upstream `.R.` does. The `R` tests
+compare value sets and the two dialects, never a sequence, so they hold
+where `Usz` is 32-bit. Rows that start from a value, `.I9` over `5` and
+`.Z5` over `3`, check that an empty step or rate leaves it where it is; rows
+whose left input is a `*` that a `D` above writes check that bOrca's dialect
+counts it as 0 and upstream as 1; and lowercase rows check that `c`, `d`,
+`i`, `l`, `u` and `z` do nothing unbanged and run the same body when banged.
+A failing row prints its input, its dialect, and the glyphs it got and
+wanted, before its `FAIL` line.
 
 The unit tests `labels_*` and `tooltip_place` in `tests/unit/test_labels.c`
 check the port labels and the tooltips: what each `PORT`
@@ -331,18 +357,20 @@ put it, with an `F` beside that cell. Row 19 tests `Y`, with its bangs on
 row 20.
 
 Its golden, `tests/expected/patches/op_selftest.events`, runs `run.sh`'s
-default 64 ticks at seed 0 and has no `.args` file. It runs 64 ticks
-because `.I.` first wraps at tick 35, and every 8-tick cycle repeats within
-64. The patch sends nothing, so the golden holds grids and no event line.
+default 64 ticks at seed 0 and has no `.args` file. 64 ticks cover every
+8-tick cycle, and, by Orca-c's rules, `.I.`'s first wrap at tick 35. The
+patch sends nothing, so the golden holds grids and no event line.
 [The upstream comparison](#the-upstream-comparison) also runs it, for 96
 ticks, through Orca-c's `cli` and bOrca's `--dialect upstream`, which print
-the same bytes. Its `.R.` cell hashes like any `R`, so the golden assumes a
-64-bit `Usz`, as noted [above](#goldens-that-record-current-behaviour-on-purpose).
+the same bytes. In bOrca's dialect its three `R` cells, `.R.`, `zRz` and
+`2R2`, have equal or empty inputs and hash nothing, so the golden holds
+whatever `Usz`'s width.
 
-In both of bOrca's dialects and in Orca-c, 55 of the 65 comparators bang
-on every tick. These 10 do not:
+In bOrca's dialect, which follows the 2025 rules, all 65 comparators bang
+on every tick. In the upstream dialect and in Orca-c, 55 do; these 10 do
+not, counted with `cli --events --dialect upstream -t 64 --seed 0`:
 
-| Cell | Expects | bOrca and Orca-c | Bangs (of 64 ticks, seed 0) | Why |
+| Cell | Expects | Upstream dialect and Orca-c | Bangs (of 64 ticks, seed 0) | Why |
 | --- | --- | --- | --- | --- |
 | `.L.` | `0` | `.` | 0 | an empty input makes `L` write `.` |
 | `2L.` | `0` | `.` | 0 | the same |
@@ -357,10 +385,20 @@ on every tick. These 10 do not:
 
 The post's expected glyphs follow the operator rules that the JS Orca
 adopted on 2025-11-16, in hundredrabbits/Orca commits `6079f10` to
-`223e45c`. Orca-c and bOrca keep the older rules, which the JS Orca also
-had before then. The same commits made `R` inclusive at both ends for every
-range, where this patch tests only `.R.` and equal inputs, and dropped
-`Z`'s default rate, which it does not test.
+`223e45c`. bOrca's dialect follows them from v4.0.0, and where the JS Orca
+and its author's playground on the Orca wiki page differ, on `C` with an
+empty modulo and `D` with a modulo of 1, it follows the playground. The
+upstream dialect and Orca-c keep the older rules, which the JS Orca also had
+before then. The same commits made `R` inclusive at both ends for every
+range, where this patch tests only `.R.` and equal inputs, and dropped `Z`'s
+default rate, which it does not test.
+
+The playground's ROM, `orca.rom` dated 16 May 2026, is 10596 bytes with
+sha256 `7a6ed30117af9c7af48adda086e9e6e20793854aa1d4a48329ae3f956bc4a44e`.
+To re-check it, fetch https://wiki.xxiivv.com/site/orca, take the `#r=`
+fragment of the playground's iframe, decode it from URL-safe base64,
+decompress it (ULZ) and compare the sha256: a different hash means the
+playground has changed, and its rules need reading again.
 
 The self-test was tried against changes to `I`, `U`, `D`, `C`, `L`, `F`,
 `B`, `M` and `A`, and the rest of the suite already failed on each, so for

@@ -846,8 +846,10 @@ static Op_fixture const op_fixtures[] = {
       {1, 2, O, OUT_, -1, 1},
       {1, 3, O, OUT_, -1, 0}},
      12},
-    // R (random_hashed) in both dialects, bOrca's r (the bag), and upstream's
-    // r (a banged R), each banged from below where it needs one.
+    // R in both dialects (random's uppercase branch over
+    // random_hashed_inclusive, and random_upstream over random_hashed, both
+    // on random_key's hash), bOrca's r (the bag), and upstream's r (a banged
+    // R), each banged from below where it needs one.
     {{"1R5", "..."},
      Orca_dialect_borca,
      {{0, 0, Port_label_min, IN_, 0, 1},

@@ -24,8 +24,9 @@ fprintf(stderr,
 "    --seed <n>    Seed for the random operators. Default: 0\n"
 "    --dialect <d> Operator dialect: borca (default) or upstream,\n"
 "                  upstream Orca-c's operators: ! sends a plain CC,\n"
-"                  ; UDP, = OSC, r is a banged R, and $ and & do\n"
-"                  nothing.\n"
+"                  ; UDP, = OSC, r is a banged R, $ and & do\n"
+"                  nothing, and C, D, I, L, R, U and Z keep Orca-c's\n"
+"                  rules for empty inputs and R's range.\n"
 "    -h or --help  Print this message and exit.\n"
 );} // clang-format on
 

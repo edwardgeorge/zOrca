@@ -4,6 +4,48 @@ bOrca's versions follow [semantic versioning](https://semver.org). A change is B
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 
+## v4.0.0 (2026-10-13)
+
+### Breaking
+
+This changes how existing patches play in bOrca's dialect; the upstream dialect plays as before.
+
+#### `L`, `I`, `U`, `R`, `D`, `C` and `Z` follow Orca's 2025 rules: an empty input counts as 0
+
+In November 2025 Orca's author removed the defaults of these seven operators from the web Orca (hundredrabbits/Orca), so that an empty input counts as 0 and a patch plays alike in every Orca. His reference is the playground on the [Orca wiki page](https://wiki.xxiivv.com/site/orca). bOrca's dialect now follows the playground:
+
+- `L` counts an empty input as 0, where it wrote `.`.
+- `I`'s empty step is 0, where it was 1, and an empty or `0` modulo gives `0`, where it was 36.
+- `U`'s empty step is 0, where it was 1, and an empty or `0` max is 1, where it was 8.
+- `D`'s and `C`'s empty or `0` modulo is 1, where it was 8. So `.C.` writes `0` on every frame, and `D` bangs when the frame is a multiple of rate × modulo, so `.D.` bangs on every frame and `2D.` on every 2nd.
+- `Z`'s empty rate is 0, where it was 1, so its output does not move.
+- Uppercase `R` outputs a value from min to max, both included, with the inputs in either order and an empty input counting as 0, so `.R.` always outputs `0` and `5R.` 0 to 5. Equal inputs give that value in the max's case: `aRA` gives `A`. `R` still draws from the same hash of the seed, the cell and the tick, so a run is the same for each seed, but a range now holds one more value, so the values it picks change.
+
+This breaks a patch that has an empty input on one of these seven operators, or an `R` with two different inputs: in bOrca's dialect it plays differently. The upstream dialect keeps Orca-c's rules for all seven, byte for byte. Lowercase `c`, `d`, `i`, `l`, `u` and `z` follow the same rules when banged; lowercase `r` (the shuffle bag) and every other operator are unchanged. See [Dialects](README.md#dialects).
+
+Before → after, bOrca's dialect, the output under each operator, from an empty output cell, at seed 0:
+
+```
+.L5   before: .                                after: 0
+.I4   before: 1 2 3 0 1 2 3 0 …                after: 0 on every frame
+.U8   before: a bang on every 8th frame        after: never a bang
+3U.   before: 3 bangs in every 8 frames        after: a bang on every frame
+.D.   before: a bang on every 8th frame        after: a bang on every frame
+2D.   before: a bang on every 16th frame       after: a bang on every 2nd frame
+.C.   before: 0 1 2 3 4 5 6 7 0 1 …            after: 0 on every frame
+.Z5   before: 1 2 3 4 5 5 5 …                  after: 0 on every frame
+1R4   before: 1 to 3                           after: 1 to 4
+5R.   before: 5 to z                           after: 0 to 5
+.R.   before: 0 to z                           after: 0 on every frame
+aRA   before: a                                after: A
+```
+
+To keep a patch playing as before, write the values out: `1C8`, `1D8`, `1I4`, `1U8` and `1Z5` play what `.C.`, `.D.`, `.I4`, `.U8` and `.Z5` played, and they play the same in both dialects. For `R`, write the larger input one lower: `1R3` plays what `1R4` played, at the same seed, and `3R1` what `4R1` played. A max of `.` or `0` becomes `z`: `5Rz` plays what `5R.` played, and `0Rz` what `.R.` played. Equal inputs now keep the max's case, so write `aRa` for the `a` that `aRA` played. An `L` with an empty input, and an `I` with a step and an empty or `0` max (`.I.` counted to `z` and wrapped), have no written form. An input that another operator writes as `.` or `0` while the patch plays follows the new rule too, and writing a value out cannot change that.
+
+Six example patches are rewritten this way so that they keep playing: `basics/g`, `basics/u`, `basics/z`, `benchmarks/families`, `misc/gates` and `misc/tower`. `basics/g`, `basics/u` and `basics/z` play as before. `misc/gates` now computes with `0` and `1`, since its AND relied on `L` writing `.` for an empty input; its three gates bang as before. `benchmarks/families` and `misc/tower` come close but do not match: in families, `1Iz` counts 35 steps where `.I.` counted 36, and `.L.` shows `0`; in tower, the inner clocks read a modulo that another `C` writes as `0`, which now counts as 1, so its values change, though it still animates. Four more examples are not rewritten and play by the new rules: `basics/h`, `basics/j`, `benchmarks/logic` and `misc/bang`. For example, the `2D.` in `basics/h` and `misc/bang` now bangs on every 2nd frame, where it banged on every 16th.
+
+Tests: unit tests for the seven operators in both dialects; [the operator self-test](tests/README.md#the-operator-self-test)'s golden now bangs all 65 comparators in bOrca's dialect; 12 goldens regenerated.
+
 ## v3.0.4 (2026-10-13)
 
 Documentation, comments and tests only: the programs are unchanged.
@@ -412,7 +454,7 @@ Tests: the golden suite (`tests/run.sh`) with repro patches, the unit-test runne
 
 ## Coming from boorch/bOrca 4f349cd
 
-A patch made for boorch/bOrca `4f349cd` plays differently in places. The Breaking entries of v1.0.0 and v2.0.0 say what changed; this section says how to adapt such a patch.
+A patch made for boorch/bOrca `4f349cd` plays differently in places. The Breaking entries of v1.0.0, v2.0.0 and v4.0.0 say what changed; this section says how to adapt such a patch.
 
 **`&` rates.** A cycle is now 4 × rate ticks, where it was 128 / rate.
 
@@ -437,8 +479,10 @@ Ties (`c`, `n`, `y`) round down. `x` (119) maps exactly to the new `f`, and `z` 
 
 **Beat clock note lengths.** With Send MIDI Beat Clock on, notes used to last six times their written length; they now last their written length. Written lengths top out at `z`, 35 ticks, so a beat-clock note that relied on lasting longer than 35 ticks now needs a retrigger (a slower `D`) or chained notes.
 
+**Empty inputs on L, I, U, R, D, C and Z.** bOrca's dialect follows Orca's 2025 rules for these seven: an empty input counts as 0, and `R`'s max is included. Write the values out to keep a patch playing as before: `1C8`, `1D8`, `1I4`, `1U8` and `1Z5` for `.C.`, `.D.`, `.I4`, `.U8` and `.Z5`; for `R`, the larger input one lower (`1R3` for `1R4`, `3R1` for `4R1`), `z` for a max of `.` or `0` (`5Rz` for `5R.`, `0Rz` for `.R.`), and `aRa` for `aRA`. An `L` with an empty input, an `I` with a step and an empty or `0` max, and an input that another operator writes as `.` or `0` while playing have no written form. See v4.0.0.
+
 **`--seed 0`.** `cli` defaults to seed 0 and `orca` to seed 1, so run `orca --seed 0` to hear the sequences of `R`, `r` and `;`'s Random pattern that `cli` and the golden tests show.
 
 ## Coming from Orca-c
 
-Patches written for upstream Orca-c play as written in the upstream dialect: pick Upstream under Operator Dialect... in the main menu (Ctrl+D), or run `orca --dialect upstream`. In that dialect `!`, `;`, `=` and lowercase `r` are upstream's, and `$` and `&` do nothing. See [Dialects](README.md#dialects).
+Patches written for upstream Orca-c play as written in the upstream dialect: pick Upstream under Operator Dialect... in the main menu (Ctrl+D), or run `orca --dialect upstream`. In that dialect `!`, `;`, `=` and lowercase `r` are upstream's, and `$` and `&` do nothing. In bOrca's dialect `L`, `I`, `U`, `R`, `D`, `C` and `Z` follow Orca's 2025 rules instead, so an empty input counts as 0 there. See [Dialects](README.md#dialects).

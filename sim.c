@@ -239,16 +239,12 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
 #define SHARED_ALPHA_OPERATORS(_)                                              \
   _('A', add)                                                                  \
   _('B', subtract)                                                             \
-  _('C', clock)                                                                \
-  _('D', delay)                                                                \
   _('E', movement)                                                             \
   _('F', if)                                                                   \
   _('G', generator)                                                            \
   _('H', halt)                                                                 \
-  _('I', increment)                                                            \
   _('J', jump)                                                                 \
   _('K', konkat)                                                               \
-  _('L', lesser)                                                               \
   _('M', multiply)                                                             \
   _('N', movement)                                                             \
   _('O', offset)                                                               \
@@ -256,17 +252,34 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
   _('Q', query)                                                                \
   _('S', movement)                                                             \
   _('T', track)                                                                \
-  _('U', uclid)                                                                \
   _('V', variable)                                                             \
   _('W', movement)                                                             \
   _('X', teleport)                                                             \
-  _('Y', yump)                                                                 \
+  _('Y', yump)
+
+// These seven letters differ between the dialects. bOrca's runs Orca's
+// 2025 rules for them, in which an empty input counts as 0 and R's range
+// includes its max; upstream runs Orca-c's bodies, the *_upstream ones,
+// with their defaults for an empty input and R's range. Both R draw from
+// one hash, random_key. Lowercase r is bOrca's shuffle bag, and upstream's
+// banged R.
+#define BORCA_ALPHA_OPERATORS(_)                                               \
+  _('C', clock)                                                                \
+  _('D', delay)                                                                \
+  _('I', increment)                                                            \
+  _('L', lesser)                                                               \
+  _('R', random)                                                               \
+  _('U', uclid)                                                                \
   _('Z', lerp)
 
-// Uppercase R is the same hash in both (random_hashed); lowercase r is
-// bOrca's shuffle bag, and upstream's banged R.
-#define BORCA_ALPHA_OPERATORS(_) _('R', random)
-#define UPSTREAM_ALPHA_OPERATORS(_) _('R', random_upstream)
+#define UPSTREAM_ALPHA_OPERATORS(_)                                            \
+  _('C', clock_upstream)                                                       \
+  _('D', delay_upstream)                                                       \
+  _('I', increment_upstream)                                                   \
+  _('L', lesser_upstream)                                                      \
+  _('R', random_upstream)                                                      \
+  _('U', uclid_upstream)                                                       \
+  _('Z', lerp_upstream)
 
 BEGIN_OPERATOR(movement)
   if (glyph_is_lowercase(This_oper_char) &&
@@ -474,7 +487,28 @@ BEGIN_OPERATOR(subtract)
   POKE(1, 0, glyph_with_case(glyph_of((Usz)val), b));
 END_OPERATOR
 
+// C in bOrca's dialect, by Orca's 2025 rules: an empty or 0 rate or modulo
+// counts as 1, so with an empty modulo C writes 0 on every frame, over
+// whatever its output cell held.
 BEGIN_OPERATOR(clock)
+  LOWERCASE_REQUIRES_BANG;
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN, Port_label_modulo);
+  PORT(1, 0, OUT, Port_label_output);
+  Glyph b = PEEK(0, 1);
+  Usz rate = index_of(PEEK(0, -1));
+  Usz mod_num = index_of(b);
+  if (rate == 0)
+    rate = 1;
+  if (mod_num == 0)
+    mod_num = 1;
+  Glyph g = glyph_of(Tick_number / rate % mod_num);
+  POKE(1, 0, glyph_with_case(g, b));
+END_OPERATOR
+
+// C in the upstream dialect: Orca-c 9df9786's body, in which an empty or 0
+// modulo counts as 8.
+BEGIN_OPERATOR(clock_upstream)
   LOWERCASE_REQUIRES_BANG;
   PORT(0, -1, IN | PARAM, Port_label_rate);
   PORT(0, 1, IN, Port_label_modulo);
@@ -490,7 +524,27 @@ BEGIN_OPERATOR(clock)
   POKE(1, 0, glyph_with_case(g, b));
 END_OPERATOR
 
+// D in bOrca's dialect, by Orca's 2025 rules: an empty or 0 rate or modulo
+// counts as 1, and D bangs when the frame is a multiple of rate x modulo, so
+// .D. bangs on every frame and 2D. on every 2nd.
 BEGIN_OPERATOR(delay)
+  LOWERCASE_REQUIRES_BANG;
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN, Port_label_modulo);
+  PORT(1, 0, OUT, Port_label_output);
+  Usz rate = index_of(PEEK(0, -1));
+  Usz mod_num = index_of(PEEK(0, 1));
+  if (rate == 0)
+    rate = 1;
+  if (mod_num == 0)
+    mod_num = 1;
+  Glyph g = Tick_number % (rate * mod_num) == 0 ? '*' : '.';
+  POKE(1, 0, g);
+END_OPERATOR
+
+// D in the upstream dialect: Orca-c 9df9786's body, in which an empty or 0
+// modulo counts as 8.
+BEGIN_OPERATOR(delay_upstream)
   LOWERCASE_REQUIRES_BANG;
   PORT(0, -1, IN | PARAM, Port_label_rate);
   PORT(0, 1, IN, Port_label_modulo);
@@ -536,7 +590,26 @@ BEGIN_OPERATOR(halt)
   PORT(1, 0, IN | PARAM, Port_label_input);
 END_OPERATOR
 
+// I in bOrca's dialect, by Orca's 2025 rules: an empty step adds 0, and an
+// empty or 0 maximum counts as 1, which makes the output 0.
 BEGIN_OPERATOR(increment)
+  LOWERCASE_REQUIRES_BANG;
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN, Port_label_max);
+  PORT(1, 0, IN | OUT, Port_label_output);
+  Glyph gb = PEEK(0, 1);
+  Usz rate = index_of(PEEK(0, -1));
+  Usz max = index_of(gb);
+  Usz val = index_of(PEEK(1, 0));
+  if (max == 0)
+    max = 1;
+  val = (val + rate) % max;
+  POKE(1, 0, glyph_with_case(glyph_of(val), gb));
+END_OPERATOR
+
+// I in the upstream dialect: Orca-c 9df9786's body, in which an empty step
+// is 1 and an empty or 0 maximum counts as 36.
+BEGIN_OPERATOR(increment_upstream)
   LOWERCASE_REQUIRES_BANG;
   PORT(0, -1, IN | PARAM, Port_label_rate);
   PORT(0, 1, IN, Port_label_max);
@@ -591,7 +664,23 @@ BEGIN_OPERATOR(konkat)
   }
 END_OPERATOR
 
+// L in bOrca's dialect, by Orca's 2025 rules: the lesser of the two inputs,
+// an empty one counting as 0, in the right input's case.
 BEGIN_OPERATOR(lesser)
+  LOWERCASE_REQUIRES_BANG;
+  PORT(0, -1, IN | PARAM, Port_label_value_a);
+  PORT(0, 1, IN, Port_label_value_b);
+  PORT(1, 0, OUT, Port_label_output);
+  Glyph gb = PEEK(0, 1);
+  Usz ia = index_of(PEEK(0, -1));
+  Usz ib = index_of(gb);
+  Usz out = ia < ib ? ia : ib;
+  POKE(1, 0, glyph_with_case(glyph_of(out), gb));
+END_OPERATOR
+
+// L in the upstream dialect: Orca-c 9df9786's body, which writes . when
+// either input is empty.
+BEGIN_OPERATOR(lesser_upstream)
   LOWERCASE_REQUIRES_BANG;
   PORT(0, -1, IN | PARAM, Port_label_value_a);
   PORT(0, 1, IN, Port_label_value_b);
@@ -684,7 +773,27 @@ END_OPERATOR
 
 // https://www.computermusicdesign.com/
 // simplest-euclidean-rhythm-algorithm-explained/
+//
+// U in bOrca's dialect, by Orca's 2025 rules: an empty step is 0, so U never
+// bangs, and an empty or 0 maximum counts as 1, so any other step bangs on
+// every frame.
 BEGIN_OPERATOR(uclid)
+  LOWERCASE_REQUIRES_BANG;
+  PORT(0, -1, IN | PARAM, Port_label_steps);
+  PORT(0, 1, IN, Port_label_max);
+  PORT(1, 0, OUT, Port_label_output);
+  Usz steps = index_of(PEEK(0, -1));
+  Usz max = index_of(PEEK(0, 1));
+  if (max == 0)
+    max = 1;
+  Usz bucket = (steps * (Tick_number + max - 1)) % max + steps;
+  Glyph g = (bucket >= max) ? '*' : '.';
+  POKE(1, 0, g);
+END_OPERATOR
+
+// U in the upstream dialect: Orca-c 9df9786's body, in which an empty step
+// is 1 and an empty or 0 maximum counts as 8.
+BEGIN_OPERATOR(uclid_upstream)
   LOWERCASE_REQUIRES_BANG;
   PORT(0, -1, IN | PARAM, Port_label_steps);
   PORT(0, 1, IN, Port_label_max);
@@ -747,7 +856,24 @@ BEGIN_OPERATOR(yump)
   }
 END_OPERATOR
 
+// Z in bOrca's dialect, by Orca's 2025 rules: an empty rate is 0, so the
+// output does not move toward its target.
 BEGIN_OPERATOR(lerp)
+  LOWERCASE_REQUIRES_BANG;
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN, Port_label_target);
+  PORT(1, 0, IN | OUT, Port_label_output);
+  Glyph b = PEEK(0, 1);
+  Isz rate = (Isz)index_of(PEEK(0, -1));
+  Isz goal = (Isz)index_of(b);
+  Isz val = (Isz)index_of(PEEK(1, 0));
+  Isz mod = val <= goal - rate ? rate : val >= goal + rate ? -rate : goal - val;
+  POKE(1, 0, glyph_with_case(glyph_of((Usz)(val + mod)), b));
+END_OPERATOR
+
+// Z in the upstream dialect: Orca-c 9df9786's body, in which an empty rate
+// is 1.
+BEGIN_OPERATOR(lerp_upstream)
   LOWERCASE_REQUIRES_BANG;
   PORT(0, -1, IN | PARAM, Port_label_rate);
   PORT(0, 1, IN, Port_label_target);
@@ -1173,45 +1299,36 @@ static void initialize_sequence(Opstate_random *state, Usz min, Usz max) {
   shuffle_bag(state);
 }
 
-// Uppercase R in both dialects, and upstream's banged r: Orca-c 9df9786's
-// body, unchanged, so both dialects keep its hash. The output
-// is min up to, but not including, max; a max of 0 counts as 36, and the
-// output takes the max's case unless min equals max.
-static ORCA_FORCEINLINE void
-random_hashed(Glyph *const restrict gbuffer, Mark *const restrict mbuffer,
-              Usz const height, Usz const width, Usz const y, Usz const x,
-              Usz Tick_number, Oper_extra_params *const extra_params) {
-  PORT(0, -1, IN | PARAM, Port_label_min);
-  PORT(0, 1, IN, Port_label_max);
-  PORT(1, 0, OUT, Port_label_output);
-  Glyph gb = PEEK(0, 1);
-  Usz a = index_of(PEEK(0, -1));
-  Usz b = index_of(gb);
-  if (b == 0)
-    b = 36;
-  Usz min, max;
-  if (a == b) {
-    POKE(1, 0, glyph_of(a));
-    return;
-  } else if (a < b) {
-    min = a;
-    max = b;
-  } else {
-    min = b;
-    max = a;
-  }
+// Uppercase R's hash, in both dialects, and upstream's banged r's: Orca-c
+// 9df9786's, unchanged, of the seed, the cell and the frame, so every R run
+// is reproducible from its seed. The dialects differ only in the range they
+// map it onto, random_hashed's or random_hashed_inclusive's.
+static ORCA_FORCEINLINE Usz random_key(Usz seed, Usz y, Usz x, Usz width,
+                                       Usz tick) {
   // Initial input params for the hash
-  Usz key = (extra_params->random_seed + y * width + x) ^
-            (Tick_number << UINT32_C(16));
+  Usz key = (seed + y * width + x) ^ (tick << UINT32_C(16));
   // 32-bit shift_mult hash to evenly distribute bits
   key = (key ^ UINT32_C(61)) ^ (key >> UINT32_C(16));
   key = key + (key << UINT32_C(3));
   key = key ^ (key >> UINT32_C(4));
   key = key * UINT32_C(0x27d4eb2d);
   key = key ^ (key >> UINT32_C(15));
-  // Hash finished. Restrict to desired range of numbers.
-  Usz val = key % (max - min) + min;
-  POKE(1, 0, glyph_with_case(glyph_of(val), gb));
+  return key;
+}
+
+// Orca-c's range, the upstream R's and r's: min up to, but not including,
+// max. The caller has min < max.
+static ORCA_FORCEINLINE Usz random_hashed(Usz seed, Usz y, Usz x, Usz width,
+                                          Usz tick, Usz min, Usz max) {
+  return random_key(seed, y, x, width, tick) % (max - min) + min;
+}
+
+// Orca's 2025 range, bOrca's R's: lo to hi, both included. The caller has
+// lo < hi.
+static ORCA_FORCEINLINE Usz random_hashed_inclusive(Usz seed, Usz y, Usz x,
+                                                    Usz width, Usz tick,
+                                                    Usz lo, Usz hi) {
+  return random_key(seed, y, x, width, tick) % (hi - lo + 1) + lo;
 }
 
 // Modified random operator for lowercase 'r' - requires bang, uses shuffle to avoid consecutive duplicates
@@ -1273,17 +1390,56 @@ BEGIN_OPERATOR(random)
     // The output takes the right input's case, even when min equals max
     POKE(1, 0, glyph_with_case(glyph_of(result), max_glyph));
   } else {
-    // Uppercase 'R' - pure random, evaluated every tick
-    random_hashed(gbuffer, mbuffer, height, width, y, x, Tick_number,
-                  extra_params);
+    // Uppercase R, on every frame, by Orca's 2025 rules: a value from min to
+    // max, both included, with the inputs in either order and an empty one
+    // counting as 0, so .R. is always 0. Equal inputs give that value. The
+    // output takes the right input's case on every path: aRA gives A.
+    PORT(0, -1, IN | PARAM, Port_label_min);
+    PORT(0, 1, IN, Port_label_max);
+    PORT(1, 0, OUT, Port_label_output);
+    Glyph gb = PEEK(0, 1);
+    Usz a = index_of(PEEK(0, -1));
+    Usz b = index_of(gb);
+    if (a == b) {
+      POKE(1, 0, glyph_with_case(glyph_of(a), gb));
+      return;
+    }
+    Usz lo = a < b ? a : b;
+    Usz hi = a < b ? b : a;
+    Usz val = random_hashed_inclusive(extra_params->random_seed, y, x, width,
+                                      Tick_number, lo, hi);
+    POKE(1, 0, glyph_with_case(glyph_of(val), gb));
   }
 END_OPERATOR
 
-// Orca-c 9df9786's R and r, the upstream dialect's: r is a banged R.
+// Orca-c 9df9786's R and r, the upstream dialect's: r is a banged R. The
+// output is min up to, but not including, max, with the inputs in either
+// order; a right input of 0 counts as 36, and the output takes the right
+// input's case unless the two are equal, when it is lowercase.
 BEGIN_OPERATOR(random_upstream)
   LOWERCASE_REQUIRES_BANG;
-  random_hashed(gbuffer, mbuffer, height, width, y, x, Tick_number,
-                extra_params);
+  PORT(0, -1, IN | PARAM, Port_label_min);
+  PORT(0, 1, IN, Port_label_max);
+  PORT(1, 0, OUT, Port_label_output);
+  Glyph gb = PEEK(0, 1);
+  Usz a = index_of(PEEK(0, -1));
+  Usz b = index_of(gb);
+  if (b == 0)
+    b = 36;
+  Usz min, max;
+  if (a == b) {
+    POKE(1, 0, glyph_of(a));
+    return;
+  } else if (a < b) {
+    min = a;
+    max = b;
+  } else {
+    min = b;
+    max = a;
+  }
+  Usz val = random_hashed(extra_params->random_seed, y, x, width, Tick_number,
+                          min, max);
+  POKE(1, 0, glyph_with_case(glyph_of(val), gb));
 END_OPERATOR
 
 // BOORCH's BOUNCER OP, tempo-synced since v2.0.0 (its rate counts beats).
@@ -1390,8 +1546,9 @@ END_OPERATOR
 
 // Orca-c 9df9786's !, ; and = bodies, unchanged but for PORT's label (so !
 // names its three input ports one by one), so the upstream dialect's events,
-// grid and locks match Orca-c's, as the upstream goldens check. Its R and r
-// are random_upstream, above.
+// grid and locks match Orca-c's, as the upstream goldens check. Its C, D, I,
+// L, U and Z are the *_upstream bodies beside bOrca's, and its R and r are
+// random_upstream, above.
 
 // A plain CC from three inputs: channel, control, and a value 0-z scaled to
 // 0-127 by x 127 / 35. Never a glide.
