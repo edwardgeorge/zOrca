@@ -1135,6 +1135,16 @@ when every bound holds, 1 when one fails, and 2 when a build or a run
 fails. It takes about five minutes. The final figures for the appliance
 come from the installed candidate at the repin, not from this script.
 
+## Form prefill check
+
+`tests/form-prefill/check.sh` builds `tests/form-prefill/prefill.c` against
+`term_util.c` and ncurses' form library and runs it, with no screen. It opens
+a one-line box the way the Open and Save As boxes do, with initial texts of
+1, 29, 30, 31, 47 and 200 characters, and reads each back: the whole text
+must come back. The field is 30 columns wide, and a field made growable only
+after its text was set kept the first 30 characters. CI runs it in the
+`build` job; it needs `cc` (or `$CC`) and the ncurses development files.
+
 ## Realloc shim check
 
 `tests/realloc-shim/check.sh` checks, end to end, that bOrca
@@ -1539,7 +1549,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/check-examples.sh`, `tests/lib.sh`, `tests/upstream/build-cli.sh`,
   `tests/upstream/compare.sh`, `tests/wakeups/ab.sh`,
   `tests/realloc-shim/check.sh`, `tests/check-version.sh`,
-  `tests/alsa-guard/devcheck.sh`, `tests/alsa-contract/devcheck.sh` and
+  `tests/form-prefill/check.sh`, `tests/alsa-guard/devcheck.sh`,
+  `tests/alsa-contract/devcheck.sh` and
   `tests/alsa-clock/devcheck.sh`.
   `tests/lib.sh` must be in that list: without `-x`, shellcheck follows a
   sourced file only when it is given too.

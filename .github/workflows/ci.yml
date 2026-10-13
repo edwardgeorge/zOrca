@@ -714,6 +714,12 @@ jobs:
       - name: Check version option on orca
         run: tests/check-version.sh build/cli build/orca
 
+      # A one-line box (Open, Save As) keeps its whole initial text: the form
+      # prefill check builds term_util.c against ncurses' form library, with
+      # no screen, and reads back texts of 1 to 200 characters.
+      - name: One-line boxes keep long initial text (form prefill)
+        run: tests/form-prefill/check.sh
+
       # The realloc shim check: when realloc or malloc fails, bOrca refuses
       # to start without a grid (the startup fill case under script) or mark
       # buffer, and keeps its grid on resize failure under tmux.
@@ -958,7 +964,7 @@ jobs:
           tests/check-examples.sh tests/lib.sh tests/upstream/build-cli.sh
           tests/upstream/compare.sh tests/wakeups/ab.sh
           tests/realloc-shim/check.sh
-          tests/check-version.sh
+          tests/check-version.sh tests/form-prefill/check.sh
           tests/alsa-guard/devcheck.sh
           tests/alsa-contract/devcheck.sh
           tests/alsa-clock/devcheck.sh
