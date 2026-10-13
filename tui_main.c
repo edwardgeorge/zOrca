@@ -978,6 +978,10 @@ typedef struct {
   // Of those, the sends dropped on -EAGAIN or -EINTR. Printed to stderr after
   // endwin.
   Usz send_drops;
+  // The input pool the client has after alsa_ctx_open asked for
+  // Alsa_input_pool, read back with snd_seq_get_client_pool; -1 when it could
+  // not be read. Printed to stderr after endwin.
+  long input_pool;
 #endif
 } Alsa_ctx;
 
@@ -1020,6 +1024,18 @@ staticni int alsa_client_name_taken(snd_seq_t *seq, char const *name) {
   snd_seq_client_info_free(info);
   return taken;
 }
+
+// The input pool alsa_ctx_open asks for, in events. 500 is chosen
+// between the kernel's default 200 and its maximum 2000
+// (a larger request than 2000 is ignored and still returns 0). It holds
+// about 10 s of F8s alone at 120 BPM (4.2 s at 300), fewer when other events
+// reach the client during a stall, and it bounds the burst of missed ticks on
+// resume near 83 steps (500 / 6) at any tempo; past it the kernel flushes the
+// input FIFO, and the reader's overflow input keeps the clock following
+// (transport.h). It costs about 23 KiB of kernel memory (500 cells of 48
+// bytes on arm64 without CONFIG_SND_SEQ_UMP), against 9.4 KiB for the default
+// 200. A failure leaves the default, and the overflow rule covers either.
+enum { Alsa_input_pool = 500 };
 
 // Opens the client named alsa_client_name(), duplex, with the port "MIDI
 // out" that others can read and subscribe to, then "MIDI in", write-only,
@@ -1090,6 +1106,17 @@ staticni int alsa_ctx_open(Alsa_ctx *ctx, bool *scan_failed) {
   if (err < 0)
     goto fail;
   ctx->in_port = err;
+  (void)snd_seq_set_client_pool_input(seq, Alsa_input_pool);
+#ifdef BORCA_DEBUG_COUNTERS
+  {
+    snd_seq_client_pool_t *pool;
+    snd_seq_client_pool_alloca(&pool);
+    ctx->input_pool =
+        snd_seq_get_client_pool(seq, pool) < 0
+            ? -1
+            : (long)snd_seq_client_pool_get_input_pool(pool);
+  }
+#endif
   ctx->seq = seq;
   return 0;
 fail:
@@ -2509,6 +2536,13 @@ static void ged_transport_poll(Ged *a, U64 now) {
   transport_poll(&a->transport, now, &act);
   ged_apply_transport_actions(a, &act);
 }
+
+// The reader lost queued input (-ENOSPC or pmBufferOverflow): an overflow,
+// stamped with now_us() at read time, through the machine (transport.h).
+static void ged_transport_overflow(Ged *a) {
+  Transport_event const ov = {.type = Transport_overflow, .stamp = now_us()};
+  ged_transport_event(a, &ov);
+}
 #endif // BORCA_HAS_MIDI_IN
 
 // Returns false when a cut or copy could not fill the internal clipboard.
@@ -3522,9 +3556,11 @@ staticni void tui_input_open(Tui *t) {
 
 // Drains every queued input event, each stamped with now_us() at read time
 // and passed through the machine, its actions applied before the next is
-// read (AD-13, AD-15). -ENOSPC and pmBufferOverflow are counted and the
-// drain goes on; any other error is counted and ends it. Nothing happens
-// while the input is not open.
+// read (AD-13, AD-15). -ENOSPC and pmBufferOverflow are counted and passed
+// to the machine as an overflow: input arrived and was flushed (usually
+// pulses), so it keeps following, and with no F8 after it clock lost comes
+// 1 s later (transport.h). The drain goes on; any other error is counted and
+// ends it. Nothing happens while the input is not open.
 staticni void tui_input_drain(Tui *t) {
 #ifdef FEAT_ALSA
   Alsa_ctx *ctx = t->alsa;
@@ -3551,6 +3587,7 @@ staticni void tui_input_drain(Tui *t) {
       }
       if (!ctx->source.has && t->prefs.midi_in[0] != '\0')
         (void)alsa_in_match(ctx, t->prefs.midi_in);
+      ged_transport_overflow(&t->ged);
       continue;
     }
     if (err < 0) {
@@ -3596,6 +3633,7 @@ staticni void tui_input_drain(Tui *t) {
 #ifdef BORCA_DEBUG_COUNTERS
         ++t->midi_in_overflows;
 #endif
+        ged_transport_overflow(&t->ged);
         continue;
       }
 #ifdef BORCA_DEBUG_COUNTERS
@@ -5332,6 +5370,10 @@ quit:
 #if defined(BORCA_DEBUG_COUNTERS) && defined(BORCA_HAS_MIDI_IN)
   fprintf(stderr, "bOrca MIDI in: %zu overflows, %zu read errors\n",
           t.midi_in_overflows, t.midi_in_errors);
+#endif
+#if defined(FEAT_ALSA) && defined(BORCA_DEBUG_COUNTERS)
+  fprintf(stderr, "bOrca ALSA input pool: %ld events (asked for %d)\n",
+          alsa_ctx.input_pool, (int)Alsa_input_pool);
 #endif
 #ifdef BORCA_DEBUG_COUNTERS
   fprintf(stderr,

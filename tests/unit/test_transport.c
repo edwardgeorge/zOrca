@@ -1131,3 +1131,169 @@ void test_transport_hud_text(void) {
   CHECK(strcmp(clock_source_name(Clock_source_internal), "internal") == 0);
   CHECK(strcmp(clock_source_name(Clock_source_external), "external") == 0);
 }
+
+// A stall past the input pool: the reader's overflow, stamped 5 s
+// after the last F8, stands for pulses that arrived and were flushed. The
+// machine keeps running with no clock lost, holds the estimate (the window
+// refills, and the next F8 takes no interval drop), keeps the phase, and the
+// pulses that follow carry on from the tick it stopped at.
+void test_transport_overflow_keeps_following(void) {
+  Model md;
+  Hist h = {.n = 0};
+  model_init(&md);
+  start_valid(&md, &h, Pulse_us, 500000);
+  CHECK(md.m.phase == 1 && md.bodies == 5 && md.tick_num == 5);
+  U64 const last = h.stamps[h.n - 1];
+  U64 const tick_len = md.m.tick_len;
+  double const bpm = md.m.bpm;
+  U16 const shown = md.m.shown;
+  U64 const ov = last + 5 * (U64)Lost_us;
+  model_event(&md, Transport_overflow, 0, ov);
+  CHECK(no_actions(&md.last) && md.last.est_valid);
+  CHECK(md.last.tick_len == tick_len && md.last.shown == shown);
+  CHECK(md.m.running && md.playing && !md.m.lost && md.m.phase == 1);
+  U64 t = 0;
+  CHECK(transport_next_deadline(&md.m, &t) && t == ov + Lost_us);
+  model_poll(&md, ov);
+  CHECK(no_actions(&md.last) && md.playing && md.m.est_valid);
+  model_poll(&md, ov + Lost_us - 1);
+  CHECK(no_actions(&md.last) && md.playing && md.m.est_valid);
+  // Pulses 2 to 6 of the tick in progress run nothing; the next runs tick 5.
+  t = clocks_from(&md, ov, 5);
+  CHECK(md.bodies == 5 && md.m.phase == 0);
+  CHECK(md.m.est_valid && md.m.tick_len == tick_len && md.m.bpm == bpm);
+  CHECK(md.m.ring_count == 5);
+  pulse(&md, t + Pulse_us);
+  CHECK(md.last.tick_due && md.bodies == 6 && md.body_tick[5] == 5);
+  CHECK(md.tick_num == 6 && md.playing && md.m.shown == shown);
+  model_deinit(&md);
+}
+
+// The overflow's other states: a stamp earlier than the last F8 moves
+// neither clock back; after a loss it restarts nothing (only FA or FB does);
+// while stopped it moves the idle-drop anchor, starts nothing, and holds the
+// estimate, so an F8 a second after the last one keeps it.
+void test_transport_overflow_stale_lost_stopped(void) {
+  Model md;
+  Hist h = {.n = 0};
+  model_init(&md);
+  start_valid(&md, &h, Pulse_us, 500000);
+  U64 const last = h.stamps[h.n - 1];
+  model_event(&md, Transport_overflow, 0, last - 1);
+  CHECK(no_actions(&md.last) && md.m.running);
+  model_poll(&md, last + Lost_us - 1);
+  CHECK(no_actions(&md.last) && md.playing);
+  model_poll(&md, last + Lost_us);
+  CHECK(md.last.clock_lost && md.m.lost && !md.playing);
+  Usz const bodies = md.bodies;
+  model_event(&md, Transport_overflow, 0, last + 2 * (U64)Lost_us);
+  CHECK(no_actions(&md.last) && md.m.lost && !md.m.running);
+  U64 t = clocks_from(&md, last + 2 * (U64)Lost_us, 12);
+  CHECK(md.bodies == bodies && !md.playing && md.m.lost);
+  model_event(&md, Transport_continue, 0, t);
+  CHECK(md.last.start && md.playing && !md.m.lost);
+  model_deinit(&md);
+
+  // Stopped: the overflow moves the idle drop to its own stamp + 1 s.
+  Hist h2 = {.n = 0};
+  model_init(&md);
+  start_valid(&md, &h2, Pulse_us, 500000);
+  U64 const l2 = h2.stamps[h2.n - 1];
+  model_event(&md, Transport_stop, 0, l2 + Pulse_us);
+  CHECK(!md.playing && md.m.est_valid);
+  model_event(&md, Transport_overflow, 0, l2 + 950000);
+  CHECK(no_actions(&md.last) && !md.playing && !md.m.running);
+  model_poll(&md, l2 + Lost_us);
+  CHECK(no_actions(&md.last) && md.m.est_valid);
+  model_poll(&md, l2 + 950000 + Lost_us);
+  CHECK(!md.m.est_valid && md.last.shown_changed);
+  CHECK(!md.last.clock_lost && !md.last.stop && !md.m.lost);
+  model_deinit(&md);
+
+  // Stopped: the estimate is held too, so the first F8 after the overflow,
+  // over 1 s after the last one, takes no interval drop.
+  Hist h3 = {.n = 0};
+  model_init(&md);
+  start_valid(&md, &h3, Pulse_us, 500000);
+  U64 const l3 = h3.stamps[h3.n - 1];
+  U64 const tick_len = md.m.tick_len;
+  U16 const shown = md.m.shown;
+  model_event(&md, Transport_stop, 0, l3 + Pulse_us);
+  model_event(&md, Transport_overflow, 0, l3 + 950000);
+  CHECK(no_actions(&md.last) && !md.m.running);
+  pulse(&md, l3 + Lost_us + 1);
+  CHECK(md.m.est_valid && md.last.est_valid && md.m.ring_count == 1);
+  CHECK(!md.last.shown_changed && md.m.shown == shown);
+  CHECK(md.last.tick_len == tick_len && !md.playing);
+  model_deinit(&md);
+}
+
+// An overflow and then no F8 (the master stopped clocking during the hang):
+// clock lost comes 1 s after the overflow, with the stop and the drop.
+void test_transport_overflow_then_silence(void) {
+  Model md;
+  Hist h = {.n = 0};
+  model_init(&md);
+  start_valid(&md, &h, Pulse_us, 500000);
+  U64 const ov = h.stamps[h.n - 1] + 5 * (U64)Lost_us;
+  model_event(&md, Transport_overflow, 0, ov);
+  CHECK(md.m.running && md.playing && md.m.est_valid);
+  model_poll(&md, ov + Lost_us);
+  CHECK(md.last.clock_lost && md.last.stop && md.m.lost && !md.m.running);
+  CHECK(!md.playing && !md.m.est_valid && !md.last.est_valid);
+  CHECK(md.last.shown_changed);
+  model_deinit(&md);
+}
+
+// An overflow inside a partial window, before any estimate: the window
+// refills, so the estimate becomes valid only at the 25th F8 after it, from
+// those pulses alone.
+void test_transport_overflow_partial_window(void) {
+  Model md;
+  model_init(&md);
+  model_event(&md, Transport_start, 0, 0);
+  U64 t = clocks_from(&md, 0, 10);
+  CHECK(!md.m.est_valid && md.m.ring_count == 10);
+  U64 const ov = t + 3 * (U64)Lost_us;
+  model_event(&md, Transport_overflow, 0, ov);
+  CHECK(no_actions(&md.last) && !md.last.est_valid && md.m.ring_count == 0);
+  t = clocks_from(&md, ov, 24);
+  CHECK(!md.m.est_valid && !md.last.est_valid && md.m.ring_count == 24);
+  pulse(&md, t + Pulse_us);
+  CHECK(md.m.est_valid && md.last.est_valid && md.last.shown_changed);
+  CHECK(md.last.tick_len == (24 * Pulse_us + 2) / 4 && md.m.shown == 120);
+  model_deinit(&md);
+}
+
+// FA, then an overflow before the first F8: the phase stays 0, so the first
+// F8 runs tick 0.
+void test_transport_overflow_after_start(void) {
+  Model md;
+  model_init(&md);
+  model_event(&md, Transport_start, 0, 0);
+  model_event(&md, Transport_overflow, 0, 10);
+  CHECK(no_actions(&md.last) && md.playing && md.m.running);
+  CHECK(md.m.phase == 0 && md.bodies == 0);
+  pulse(&md, 10 + Pulse_us);
+  CHECK(md.last.tick_due && md.bodies == 1 && md.body_tick[0] == 0);
+  CHECK(md.tick_num == 1 && md.m.phase == 1);
+  model_deinit(&md);
+}
+
+// The interval drop after an overflow: the overflow stands as the last
+// pulse, so an F8 1.5 s after it drops the estimate, as after any pulse,
+// and the machine keeps running.
+void test_transport_overflow_gap_drops(void) {
+  Model md;
+  Hist h = {.n = 0};
+  model_init(&md);
+  start_valid(&md, &h, Pulse_us, 500000);
+  U64 const ov = h.stamps[h.n - 1] + 5 * (U64)Lost_us;
+  model_event(&md, Transport_overflow, 0, ov);
+  CHECK(md.m.est_valid && md.m.running);
+  pulse(&md, ov + 3 * (U64)Lost_us / 2);
+  CHECK(!md.m.est_valid && !md.last.est_valid && md.last.shown_changed);
+  CHECK(md.m.running && md.playing && !md.last.stop && !md.last.clock_lost);
+  CHECK(md.m.ring_count == 1);
+  model_deinit(&md);
+}

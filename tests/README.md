@@ -1223,6 +1223,88 @@ It runs that binary under the scratch name and config, so the live service
 is untouched. The live client's own `aseqdump` at install stays a service
 check, outside this script.
 
+## ALSA clock-follow check
+
+`tests/alsa-clock/devcheck.sh` is a
+development check of the ALSA input reader under External, which no test
+links: `alsa_ctx_open`'s request for a 500-event input pool and
+`tui_input_drain`'s overflow event on `-ENOSPC`. The unit runner pins the
+machine's side (`transport_overflow_*`); this check stops a real `orca`
+while a clock master keeps clocking and checks what it plays when it
+resumes. CI shellchecks it and compiles its two C sources, but cannot run
+it, since hosted runners have no `/dev/snd/seq`. Run it on any `--alsa`
+`orca`: release, `-d` or `make appliance`. A build without `--alsa` exits 2
+naming `libasound`.
+
+```sh
+CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --alsa orca
+nice -n 19 taskset -c 0-2 tests/alsa-clock/devcheck.sh build/orca
+```
+
+It builds `tests/alsa-clock/master.c` (a clock master: `FA`, then `F8`s at
+a tempo, each logged with its `CLOCK_MONOTONIC` time) and
+`tests/alsa-clock/recv.c` (a receiver with a 2000-event pool that logs each
+note-on and note-off with its time) into a scratch directory
+(`mktemp -d`) with `cc -lasound`. It writes `xdg/orca.conf` there
+(`clock_source = external`, `alsa_input_device =
+dev-clock-<pid>-master:clock`) and `clock.orca`, a 7x3 grid whose `D1`
+bangs `:03C` every tick, one note per tick. For each stall it runs
+`<orca> clock.orca` in a 100 x 30 pane of its own tmux server
+(`tmux -L dev-clock-<pid> -f /dev/null`, with `SHELL=/bin/sh`) as the
+client `dev-clock-<pid>` (`BORCA_ALSA_CLIENT_NAME`), with
+`XDG_CONFIG_HOME=<scratch>/xdg`; then the receiver
+(`dev-clock-<pid>-recv`, subscribed to `dev-clock-<pid>:0`) and the master
+(`dev-clock-<pid>-master`), which sends `FA` 1.5 s later and then 120 BPM
+for 3 s, the stall and 5 s more. 3 s after the `FA` it stops the `orca`
+with SIGSTOP for the stall and resumes it with SIGCONT, reading the HUD's
+`ext` field every 0.05 s until the master's last `F8`; then Ctrl+Q quits
+the `orca`. A note's offset is the index of the master's last `F8` at or
+before it minus 6 times the note's index (note n is tick n), and a burst is
+a run of note-ons less than 40 ms apart (a step is 125 ms). One PASS or
+FAIL line per check, each with the HUD's readings, the burst, the offsets,
+the client's input pool (size, peak cells, alloc failures) and the `orca`'s
+exit status:
+
+- **S1**, a 10 s stall, inside the pool: no `ext lost` while the master
+  runs, exactly one burst of 70 to 85 note-ons (80 missed steps), and every
+  note in the master's last 3 s (from 2 s after the resume; at least 16) at
+  an offset of -1 to 1: back on the master's bar. Without the pool call it
+  follows 480 pulses behind with no burst; bOrca before v3.0.3 stops at
+  `ext lost`.
+- **S2**, an 11.1 s stall, past the pool: the input pool shows alloc
+  failures (the kernel flushed it), no `ext lost` while the master runs, no
+  burst, and every note in the master's last 3 s (at least 16) at an offset
+  of 6 or more that is not a multiple of 6: it keeps following, behind by
+  the flushed pulses (about 533). Without the `-ENOSPC` overflow event it
+  stops at `ext lost`; with a pool of 2000 it lands on the bar (offset 0).
+- **Live**: the live `bOrca` client's lines in `/proc/asound/seq/clients`
+  (its `Client` line, its `Port` lines and their `Connecting To:` and
+  `Connected From:` lines) are the same before and after, or absent both
+  times, and no `dev-clock-<pid>` client is left: the ALSA name-guard
+  check's rule.
+
+S1's pool peaks near 486 of 500 cells, so other traffic to the client
+during the stall (port changes of other clients, which reach it through
+System Announce) can push it past the pool on a busy sequencer; the pool
+figures on its line show it.
+
+It prints `alsa clock check: <k> checks, <f> failed` and exits 0 when none
+failed, 1 when one did, 2 on usage (no argument, or one that is not an
+executable file), a missing tool (`tmux`, `cc`, `pgrep`, `readlink`,
+`readelf`, `taskset`), an unreadable `/proc/asound/seq/clients`, a binary
+that is not an `--alsa` build, a `dev-clock-<pid>` client already present,
+a master or receiver that does not build, or a scratch directory, scratch
+file or tmux server that cannot be made, and 129, 130 or 143 when SIGHUP,
+SIGINT or SIGTERM stops it. It takes about 50 s.
+It never touches the live `bOrca` client or `borca-tty.service`: it reads
+`/proc/asound/seq/clients` and runs no `aconnect`, `systemctl` or `sudo`.
+It signals only the `orca` it started (the pane shell's child, running the
+named binary) and the master and receiver it started, by PID, and kills
+only its own tmux server. It runs `cc`, the `orca`, the master and the
+receiver under `nice -n 19 taskset -c 0-2`, and on exit or a signal it
+resumes and ends them, kills its tmux server and removes the scratch
+directory, ignoring a second signal meanwhile.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes and pull requests to
@@ -1307,14 +1389,16 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   ALSA, the release `orca` with ALSA and the appliance `orca`
   (`make appliance`, which is `--alsa --harden --pie`), all with `-Werror`.
   After the first counter build `grep -a` must find `bOrca wakeups:` and
-  `bOrca events:` in `build/orca`, after the ALSA one those two and
-  `bOrca ALSA:`, and after the plain ALSA build and `make appliance` none
-  of the three, which proves that the counters stay out of the shipped
-  builds; the positive greps are the canary for the negative ones. The
-  plain ALSA and appliance binaries must list `libasound.so.2` as `NEEDED`
-  in `readelf -d`, and `tests/alsa-guard/shim.c` must compile with
-  `-Wall -Werror`; the appliance binary must also be of type `DYN` in
-  `readelf -h` (PIE) and import `__stack_chk_fail` in
+  `bOrca events:` in `build/orca`, after the ALSA one those two,
+  `bOrca ALSA:` and `bOrca ALSA input pool:`, and after the plain ALSA
+  build and `make appliance` none of the first three, which proves that the
+  counters stay out of the shipped builds; the positive greps are the
+  canary for the negative ones. The plain ALSA and appliance binaries must
+  list `libasound.so.2` as `NEEDED` in `readelf -d`,
+  `tests/alsa-guard/shim.c` must compile with `-Wall -Werror`, and
+  `tests/alsa-clock/master.c` and `tests/alsa-clock/recv.c` with
+  `-Wall -Wextra -Werror`; the appliance binary must also be of type `DYN`
+  in `readelf -h` (PIE) and import `__stack_chk_fail` in
   `nm -D --undefined-only` (hardened). Both runners install
   `libasound2-dev` for the ALSA builds.
 - **unsigned-char** (`ubuntu-24.04`): runs the golden suite on a release
@@ -1330,8 +1414,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/check-debug-build.sh`, `tests/check-doc-sync.sh`,
   `tests/check-examples.sh`, `tests/lib.sh`, `tests/upstream/build-cli.sh`,
   `tests/upstream/compare.sh`, `tests/wakeups/ab.sh`,
-  `tests/realloc-shim/check.sh`, `tests/alsa-guard/devcheck.sh` and
-  `tests/alsa-contract/devcheck.sh`.
+  `tests/realloc-shim/check.sh`, `tests/alsa-guard/devcheck.sh`,
+  `tests/alsa-contract/devcheck.sh` and `tests/alsa-clock/devcheck.sh`.
   `tests/lib.sh` must be in that list: without `-x`, shellcheck follows a
   sourced file only when it is given too.
 - **clang** (`ubuntu-24.04`, P3-2, deferred-work #19): builds the debug

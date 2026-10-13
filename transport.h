@@ -3,18 +3,20 @@
 
 // The clock-follow machine (architecture spine AD-13, AD-15): bOrca's side of
 // an external MIDI clock. It is core: it reads no clock, does no I/O and keeps
-// no writable globals. The shell's input readers turn F8, FA, FB, FC and F2
-// into Transport_events, each stamped with the shell's now_us() at read time,
-// and pass them to transport_event one at a time, applying each event's
-// actions before the next (AD-15). transport_poll handles the timeouts. The
-// shell owns tick_num, is_playing and the clock source; the machine owns the
-// pulse phase, the 1 s clock-lost timeout and the tempo estimate.
+// no writable globals. The shell's input readers turn F8, FA, FB, FC and F2,
+// and an overflow of their input queue, into Transport_events, each stamped
+// with the shell's now_us() at read time, and pass them to transport_event
+// one at a time, applying each event's actions before the next (AD-15).
+// transport_poll handles the timeouts. The shell owns tick_num, is_playing
+// and the clock source; the machine owns the pulse phase, the 1 s clock-lost
+// timeout and the tempo estimate.
 //
 // Pulses. While running, the F8 at phase 0 makes a tick due, and the phase
 // then advances mod 6, so every sixth pulse is one Orca tick (a sixteenth).
 // Each event makes at most one tick due: a burst of queued F8s never catches
 // up by time. FA and F2 set phase 0, so the first F8 after FA runs tick 0; FB
-// keeps the phase. F8 while stopped feeds the estimate only and never ticks.
+// and an overflow keep the phase. F8 while stopped feeds the estimate only
+// and never ticks.
 //
 // Transitions. start and stop fire only on a change of state: FB while
 // running and FC while stopped return nothing. FA while running restarts in
@@ -24,9 +26,11 @@
 //
 // Clock lost. While running, a poll at now - last >= 1 s fires once: stop,
 // clock lost and lost = true, where last is the last F8, or the FA/FB that
-// started the run. A poll whose now is earlier than last does nothing. After
-// a loss, F8 and F2 never restart the machine; only FA or FB does, and each
-// of those, like transport_reset, clears lost.
+// started the run. An overflow while running restarts the 1 s timeout from
+// its stamp, so with no F8 after it clock lost comes 1 s later; a stale one
+// never moves it back. A poll whose now is earlier than last does nothing.
+// After a loss, F8, F2 and an overflow never restart the machine; only FA or
+// FB does, and each of those, like transport_reset, clears lost.
 //
 // Estimate. A ring holds the last 25 F8 stamps; a full window is 25 F8s
 // since the last window reset, which is 24 intervals (FA is not a pulse).
@@ -34,18 +38,33 @@
 // in integer us (half-up, at least 1) and bpm = 60e6 / max(span, 1) as a
 // double clamped to 1.0..999.0, for display and adoption only. The estimate
 // is valid from the first full window, and every later window replaces it.
-//   Refills (the ring empties, the estimate stays valid): FA, F2, and the FB
-//   that starts a run. The last valid estimate is held until the refilled
-//   window replaces it. A refill keeps the anchors below.
+//   Refills (the ring empties, the estimate stays valid): FA, F2, the FB
+//   that starts a run, and an overflow. The last valid estimate is held
+//   until the refilled window replaces it. A refill keeps the anchors below.
 //   Drops (the ring empties, the estimate becomes invalid): clock lost;
 //   transport_reset; any F8 interval of 1 s or more; and 1 s with no F8 in
-//   any state, from the later of the last F8 and the last FA/FB/F2, checked
-//   by transport_poll while running or while the estimate is valid.
+//   any state, from the later of the last F8 and the last FA/FB/F2 or
+//   overflow, checked by transport_poll while running or while the estimate
+//   is valid. For the interval drop an overflow stands as the last pulse, as
+//   an F8 does: the first F8 after it measures from it, and a gap of 1 s or
+//   more after it drops the estimate.
 //   An F8 that arrives 1 s or more after the previous one while running
 //   drops the estimate but does not stop the machine: only 1 s with no F8
 //   at all, seen by transport_poll, is clock lost. So a stall of over a
 //   second whose pulses are drained before the poll resumes mid-phase with
-//   the estimate dropped and no loss.
+//   the estimate dropped and no loss. Past an ALSA reader's input pool
+//   (bOrca's client asks for 500 events, Alsa_input_pool in tui_main.c:
+//   about 10 s of F8s alone at 120 BPM, less with other input) the kernel
+//   flushes every queued event, Start, Stop and song position included; the
+//   ALSA reader then passes an overflow: input arrived and was flushed
+//   (usually pulses). The machine keeps running with the estimate held and
+//   the phase kept, and the flushed pulses never tick: it follows behind by
+//   the flushed pulses until the next FA or F2. A flushed FC leaves it
+//   running, while pulses arrive, until the next FA or FC, and a flushed FA
+//   or FB leaves a stopped machine stopped until the next FA or FB. With no
+//   F8 after the overflow, clock lost comes 1 s after it. PortMidi on Linux
+//   never reports that flush, so a PortMidi build still loses the clock
+//   there.
 //   A stamp earlier than the last empties the ring as a refill does.
 //
 // Display value. On becoming valid, shown = bpm rounded half-up, 1..999.
@@ -85,6 +104,7 @@ typedef enum {
   Transport_continue, // FB
   Transport_stop,     // FC
   Transport_songpos,  // F2, with its position in value
+  Transport_overflow, // the reader lost queued input (no MIDI byte)
 } Transport_type;
 
 typedef struct {
@@ -121,13 +141,14 @@ enum {
 typedef struct {
   bool running, lost;
   U8 phase;        // 0..5; the F8 at 0 makes a tick due while running
-  U64 last_run;    // clock lost: the last F8 or the FA/FB that started the
-                   // run; holds a value while running
+  U64 last_run;    // clock lost: the last F8, the FA/FB that started the
+                   // run or a later overflow; holds a value while running
   bool has_anchor; // last_anchor holds a value
   U64 last_anchor; // the idle drop: the later of the last F8 and the last
-                   // FA, FB (that started a run) or F2
+                   // FA, FB (that started a run), F2 or overflow
   bool has_pulse;  // last_pulse holds a value
-  U64 last_pulse;  // the interval drop: the last F8, kept across refills
+  U64 last_pulse;  // the interval drop: the last F8 or overflow, kept
+                   // across refills
   U64 ring[Transport_window];
   Usz ring_count; // 0..Transport_window
   Usz ring_next;  // the slot the next F8 writes; the oldest when full

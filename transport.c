@@ -128,6 +128,25 @@ static void on_continue(Transport *m, U64 stamp, Transport_actions *out) {
   out->start = true;
 }
 
+// The reader lost queued input: input arrived and was flushed
+// (usually pulses). It counts as pulses that arrived. While running it
+// restarts the clock-lost timeout from its stamp, so with no F8 after it
+// clock lost comes 1 s later; a stale stamp never moves it back. It moves
+// the idle-drop anchor, and it refills, since the window's stamps are from
+// before the flush. It stands as the last pulse for the interval drop, as an
+// F8 does: the next F8 measures from it, not from a pulse before the flush,
+// and a gap of 1 s or more after it drops the estimate as after any pulse.
+// It sets no action: it never ticks, never starts, never clears lost and
+// keeps the phase, so the flushed pulses are not counted.
+static void on_overflow(Transport *m, U64 stamp) {
+  if (m->running && stamp > m->last_run)
+    m->last_run = stamp;
+  anchor(m, stamp);
+  refill(m);
+  m->has_pulse = true;
+  m->last_pulse = stamp;
+}
+
 static void on_stop(Transport *m, Transport_actions *out) {
   if (!m->running)
     return; // redundant: nothing, and the ring is left alone
@@ -167,6 +186,9 @@ void transport_event(Transport *m, Transport_event const *e,
     break;
   case Transport_songpos:
     on_songpos(m, e->value, e->stamp, out);
+    break;
+  case Transport_overflow:
+    on_overflow(m, e->stamp);
     break;
   }
   fill_estimate(m, out);

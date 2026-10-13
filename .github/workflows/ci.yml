@@ -715,7 +715,8 @@ jobs:
       # build and make appliance below, it must find neither, which proves
       # that the counters stay out of the shipped builds. The positive greps
       # are the canary for the negative ones. BORCA_DEBUG_COUNTERS also
-      # gates the MIDI-in counter line; the wakeup line catches its leak.
+      # gates the MIDI-in counter line and the ALSA input pool line; the
+      # wakeup line catches their leak.
       - name: Build release orca with debug counters
         run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build orca
 
@@ -733,7 +734,7 @@ jobs:
       - name: Build release orca with ALSA and debug counters
         run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build --alsa orca
 
-      - name: Check that the ALSA counter orca holds the wakeup, ALSA and events counter strings
+      - name: Check that the ALSA counter orca holds the wakeup, ALSA, input pool and events counter strings
         run: |
           if ! grep -aq 'bOrca wakeups:' build/orca; then
             echo "build/orca does not hold 'bOrca wakeups:': the counter build lost its counter"
@@ -741,6 +742,10 @@ jobs:
           fi
           if ! grep -aq 'bOrca ALSA:' build/orca; then
             echo "build/orca does not hold 'bOrca ALSA:': the counter build lost its ALSA counters"
+            exit 1
+          fi
+          if ! grep -aq 'bOrca ALSA input pool:' build/orca; then
+            echo "build/orca does not hold 'bOrca ALSA input pool:': the counter build lost its input pool read-back"
             exit 1
           fi
           if ! grep -aq 'bOrca events:' build/orca; then
@@ -787,6 +792,17 @@ jobs:
         run: |
           gcc -shared -fPIC -Wall -Werror -o "$RUNNER_TEMP/guard-shim.so" \
             tests/alsa-guard/shim.c -ldl -lasound
+
+      # The ALSA clock-follow device check (tests/alsa-clock/devcheck.sh)
+      # needs a sequencer too, so CI shellchecks it and compiles its
+      # clock master and receiver here, as the check does, with warnings as
+      # errors.
+      - name: The ALSA clock check's master and receiver compile
+        run: |
+          for prog in master recv; do
+            gcc -std=c99 -O2 -Wall -Wextra -Werror \
+              -o "$RUNNER_TEMP/clock-$prog" "tests/alsa-clock/$prog.c" -lasound
+          done
 
       # The uConsole appliance build: --alsa --harden --pie. make passes
       # CFLAGS_EXTRA to tool through the environment. Ubuntu's gcc predefines
@@ -928,6 +944,7 @@ jobs:
           tests/realloc-shim/check.sh
           tests/alsa-guard/devcheck.sh
           tests/alsa-contract/devcheck.sh
+          tests/alsa-clock/devcheck.sh
 
   # The debug cli and the unit runner under clang's UBSan, whose
   # pointer-overflow check reports NULL + 0 where gcc's does not, so the

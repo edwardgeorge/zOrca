@@ -211,6 +211,12 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(transport_gap_keeps_running)                                               \
   X(transport_songpos_moves_anchor)                                            \
   X(transport_start_clears_lost)                                               \
+  X(transport_overflow_keeps_following)                                        \
+  X(transport_overflow_stale_lost_stopped)                                     \
+  X(transport_overflow_then_silence)                                           \
+  X(transport_overflow_partial_window)                                         \
+  X(transport_overflow_after_start)                                            \
+  X(transport_overflow_gap_drops)                                              \
   X(labels_ids)                                                                \
   X(labels_in_in_shared)                                                       \
   X(labels_in_over_out)                                                        \
