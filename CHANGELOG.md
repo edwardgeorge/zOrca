@@ -4,6 +4,21 @@ bOrca's versions follow [semantic versioning](https://semver.org). A change is B
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 
+## v4.0.1 (2026-10-13)
+
+### Fixed
+
+- **The Open box keeps long paths.** Ctrl+O, Open... and every other one-line box kept only the first 30 characters of the text they open with, so Ctrl+O then Enter could not reopen a file with a longer path. The whole text is kept now.
+- **Folders as file names.** Opening a folder used to leave the grid as it was but take the folder as the file name, so a later Ctrl+S tried to save to the folder. Opening a folder, or saving to one with Ctrl+S or Save As, now says "Is a directory" and keeps the grid and the file name. Save As expands a leading `~` as Open does.
+- **Out of memory in the editor.** When a message, menu or form cannot be allocated, `orca` restores the terminal and prints "bOrca: out of memory" before it quits with status 1, instead of leaving the terminal in curses mode with no message.
+- **README headings.** The generated tables of scales and chords sit one level under "Scales and chords", with no trailing colon.
+
+### Added
+
+- **`--version`.** `orca --version` and `cli --version` print one line, `bOrca <version>`, and exit 0. The version is `git describe --tags --always --dirty` at build time, or `unknown` without git.
+
+Tests: CI runs `cli --version` and `orca --version`, and the realloc shim's `orca` cases (startup, fill and resize); a unit test pins the numbers of the `bOrca events:` counter line, and another the folder check.
+
 ## v4.0.0 (2026-10-13)
 
 ### Breaking

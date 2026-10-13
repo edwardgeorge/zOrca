@@ -50,7 +50,7 @@ int main(void) {
   char name[Music_name_max];
   Music_intervals iv;
 
-  puts("### Available Scales (0-9, `$` only):");
+  puts("#### Available Scales (0-9, `$` only)");
   puts("| Value | Scale Type |");
   puts("|:-----:|------------|");
   for (Glyph g = '0'; g <= '9'; ++g) {
@@ -60,7 +60,7 @@ int main(void) {
   puts("");
 
   // a-z are the same chords for `$` and `=`; A-Z are their first inversions.
-  puts("### Available Chords (a-z = root, A-Z = first inversion):");
+  puts("#### Available Chords (a-z = root, A-Z = first inversion)");
   puts("| Value | Chord Type | Root Notes | First Inversion |");
   puts("|:-----:|------------|:----------:|:---------------:|");
   for (Glyph g = 'a'; g <= 'z'; ++g) {
@@ -76,7 +76,7 @@ int main(void) {
   }
   puts("");
 
-  puts("### Enriched Chords (0-9, `=` only):");
+  puts("#### Enriched Chords (0-9, `=` only)");
   puts("| Index | Name | Intervals | Notes (C root) |");
   puts("|:-----:|:----:|:---------:|:--------------:|");
   for (Glyph g = '0'; g <= '9'; ++g) {

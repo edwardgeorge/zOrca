@@ -621,3 +621,20 @@ commit:;
   ezcw->stateflags = 0;
   return false;
 }
+
+int events_dropped_format(char *buf, size_t size, Usz tick, Usz preview,
+                          Usz engine) {
+  Usz total = tick + preview + engine;
+  return snprintf(
+      buf, size,
+      "bOrca events: %zu dropped (tick %zu, preview %zu, engine %zu)\n", total,
+      tick, preview, engine);
+}
+
+bool path_is_dir(char const *path) {
+  if (!path)
+    return false;
+  struct stat st;
+  return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+

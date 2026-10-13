@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libncurses-dev libportmidi-dev libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y libncurses-dev libportmidi-dev libasound2-dev tmux
 
       - name: Toolchain versions
         run: |
@@ -114,6 +114,9 @@ jobs:
       - name: Build release cli
         run: CFLAGS_EXTRA=-Werror ./tool build cli
 
+      - name: Check version option on cli
+        run: tests/check-version.sh build/cli
+
       - name: Golden suite on the debug cli (ASan + UBSan)
         run: tests/run.sh build/debug/cli
 
@@ -123,7 +126,7 @@ jobs:
       # A grid the release cli cannot allocate ends it with exit 1 and
       # the no-memory message, not a signal. The check builds an LD_PRELOAD
       # shim that fails every realloc above 4096 bytes and loads a 100 x 50
-      # grid under it; its orca cases need a terminal and run on the device.
+      # grid under it; the orca cases run after the release orca is built.
       - name: Release cli refuses a grid it cannot allocate (realloc shim)
         run: tests/realloc-shim/check.sh build/cli
 
@@ -708,6 +711,15 @@ jobs:
       - name: Build release orca without mouse support
         run: CFLAGS_EXTRA=-Werror ./tool build --no-mouse orca
 
+      - name: Check version option on orca
+        run: tests/check-version.sh build/cli build/orca
+
+      # The realloc shim check: when realloc or malloc fails, bOrca refuses
+      # to start without a grid (the startup fill case under script) or mark
+      # buffer, and keeps its grid on resize failure under tmux.
+      - name: Release orca refuses a grid it cannot allocate (realloc shim)
+        run: tests/realloc-shim/check.sh build/cli build/orca
+
       - name: Build release orca with PortMidi
         run: CFLAGS_EXTRA=-Werror ./tool build --portmidi orca
 
@@ -946,6 +958,7 @@ jobs:
           tests/check-examples.sh tests/lib.sh tests/upstream/build-cli.sh
           tests/upstream/compare.sh tests/wakeups/ab.sh
           tests/realloc-shim/check.sh
+          tests/check-version.sh
           tests/alsa-guard/devcheck.sh
           tests/alsa-contract/devcheck.sh
           tests/alsa-clock/devcheck.sh

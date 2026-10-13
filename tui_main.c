@@ -62,6 +62,10 @@ static int spin_track_timeout = 0;
 
 #define staticni ORCA_NOINLINE static
 
+#ifndef BORCA_VERSION
+#define BORCA_VERSION "unknown"
+#endif
+
 staticni void usage(void) { // clang-format off
 fprintf(stderr,
 "Usage: orca [options] [file]\n\n"
@@ -90,6 +94,7 @@ fprintf(stderr,
 "                           the active dialect there saves nothing, so to\n"
 "                           save this one, pick the other, then this.\n"
 "                           Default: the saved dialect, else borca\n"
+"    --version              Print version and exit.\n"
 "    -h or --help           Print this message and exit.\n"
 "\n"
 "OSC/MIDI options:\n"
@@ -2664,6 +2669,8 @@ static bool hacky_try_save(Field *field, char const *filename) {
     return false;
   if (field->height == 0 || field->width == 0)
     return false;
+  if (path_is_dir(filename))
+    return false;
   FILE *f = fopen(filename, "w");
   if (!f)
     return false;
@@ -3115,6 +3122,10 @@ static void push_open_form(char const *initial) {
 staticni bool try_save_with_msg(Field *field, oso const *str) {
   if (!osolen(str))
     return false;
+  if (path_is_dir(osoc(str))) {
+    qmsg_printf_push("Error Saving File", "%s:\nIs a directory", osoc(str));
+    return false;
+  }
   bool ok = hacky_try_save(field, osoc(str));
   if (ok) {
     Qmsg *qm = qmsg_printf_push(NULL, "Saved to:\n%s", osoc(str));
@@ -4283,6 +4294,12 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           expand_home_tilde(&temp_name);
           if (!temp_name)
             break;
+          if (path_is_dir(osoc(temp_name))) {
+            qmsg_printf_push("Error Loading File", "%s:\nIs a directory",
+                             osoc(temp_name));
+            osofree(temp_name);
+            break;
+          }
           // The file loads into a temporary and the mark buffer grows before
           // the live grid changes, so a failed load or allocation leaves the
           // grid and the undo history as they were.
@@ -4325,6 +4342,15 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           oso *temp_name = qform_get_nonempty_single_line_input(qf);
           if (!temp_name)
             break;
+          expand_home_tilde(&temp_name);
+          if (!temp_name)
+            break;
+          if (path_is_dir(osoc(temp_name))) {
+            qmsg_printf_push("Error Saving File", "%s:\nIs a directory",
+                             osoc(temp_name));
+            osofree(temp_name);
+            break;
+          }
           qnav_stack_pop();
           bool saved_ok = try_save_with_msg(&t->ged.field, temp_name);
           if (saved_ok)
@@ -4444,6 +4470,7 @@ enum {
   Argopt_portmidi_deprecated,
   Argopt_osc_deprecated,
   Argopt_dialect,
+  Argopt_version,
   Argopt_clock_source,
   Argopt_midi_in,
 };
@@ -4459,6 +4486,7 @@ int main(int argc, char **argv) {
       {"bpm", required_argument, 0, Argopt_bpm},
       {"seed", required_argument, 0, Argopt_seed},
       {"dialect", required_argument, 0, Argopt_dialect},
+      {"version", no_argument, 0, Argopt_version},
 #ifdef BORCA_HAS_MIDI_IN
       // Unknown options in a build with no input reader.
       {"clock-source", required_argument, 0, Argopt_clock_source},
@@ -4495,6 +4523,9 @@ int main(int argc, char **argv) {
     switch (c) {
     case 'h':
       usage();
+      exit(0);
+    case Argopt_version:
+      printf("bOrca %s\n", BORCA_VERSION);
       exit(0);
     case '?':
       usage();
@@ -5378,12 +5409,12 @@ quit:
           alsa_ctx.input_pool, (int)Alsa_input_pool);
 #endif
 #ifdef BORCA_DEBUG_COUNTERS
-  fprintf(stderr,
-          "bOrca events: %zu dropped (tick %zu, preview %zu, engine %zu)\n",
-          t.ged.oevent_list.dropped + t.ged.scratch_oevent_list.dropped +
-              t.ged.engine_oevent_list.dropped,
-          t.ged.oevent_list.dropped, t.ged.scratch_oevent_list.dropped,
-          t.ged.engine_oevent_list.dropped);
+  char events_line[160];
+  events_dropped_format(events_line, sizeof events_line,
+                        t.ged.oevent_list.dropped,
+                        t.ged.scratch_oevent_list.dropped,
+                        t.ged.engine_oevent_list.dropped);
+  fputs(events_line, stderr);
   fprintf(stderr, "bOrca wakeups: %zu waits, %zu zero-timeout in %.3f s\n",
           debug_waits, debug_zero_waits,
           stm_sec(stm_since(debug_waits_since)));

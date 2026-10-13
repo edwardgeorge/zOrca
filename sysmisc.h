@@ -134,3 +134,13 @@ void ezconf_w_start(Ezconf_w *ezcw, Ezconf_opt *optsbuffer, size_t buffercap,
                     char const *conf_file_name);
 void ezconf_w_addopt(Ezconf_w *ezcw, char const *key, intptr_t id);
 bool ezconf_w_step(Ezconf_w *ezcw);
+
+// Formats the bOrca events debug counter line into buf (up to size bytes).
+// The total dropped count is the sum of tick, preview, and engine drops.
+// Returns the number of characters that would have been written (excluding '\0'),
+// as snprintf does.
+int events_dropped_format(char *buf, size_t size, Usz tick, Usz preview,
+                          Usz engine);
+
+// Returns true if path points to an existing directory.
+bool path_is_dir(char const *path);

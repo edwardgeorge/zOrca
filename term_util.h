@@ -10,6 +10,11 @@
 #ifndef ORCA_TERM_UTIL_PRINTF
 #define ORCA_TERM_UTIL_PRINTF(...)
 #endif
+#if defined(__GNUC__) || defined(__clang__)
+#define ORCA_TERM_UTIL_NORETURN __attribute__((noreturn))
+#else
+#define ORCA_TERM_UTIL_NORETURN
+#endif
 
 #define CTRL_PLUS(c) ((c)&037)
 
@@ -49,6 +54,12 @@ static ORCA_FORCEINLINE ORCA_OK_IF_UNUSED attr_t fg_bg(Color_name fg,
 }
 
 void term_util_init_colors(void);
+
+// Ends the program when the curses shell cannot allocate what it needs:
+// leaves curses mode, so the terminal works again, prints one line,
+// "bOrca: out of memory", to stderr and exits with status 1. Sounding notes
+// get no note-off.
+void term_util_exit_out_of_memory(void) ORCA_TERM_UTIL_NORETURN;
 
 typedef enum {
   Qblock_type_qmsg,
@@ -167,3 +178,4 @@ struct oso *qform_get_nonempty_single_line_input(Qform *qf);
 extern Qnav_stack qnav_stack;
 
 #undef ORCA_TERM_UTIL_PRINTF
+#undef ORCA_TERM_UTIL_NORETURN

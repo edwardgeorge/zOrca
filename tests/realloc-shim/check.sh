@@ -1,9 +1,9 @@
 #!/bin/sh
 # The realloc shim check: when realloc or malloc fails, bOrca
 # keeps its grid and mark buffer as they were, and says so where it cannot
-# go on; and a failed startup load leaks nothing. CI runs the cli case on the
-# release cli; the orca cases need a terminal (util-linux script, tmux) and
-# are a development check.
+# go on; and a failed startup load leaks nothing. CI runs the cli case and
+# the release orca cases; the leak case needs a debug build and is a
+# development check.
 #
 #   tests/realloc-shim/check.sh <cli> [<orca> [<debug-orca>]]
 #

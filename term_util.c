@@ -28,6 +28,12 @@ void term_util_init_colors(void) {
   }
 }
 
+void term_util_exit_out_of_memory(void) {
+  endwin();
+  fputs("bOrca: out of memory\n", stderr);
+  exit(1);
+}
+
 #define ORCA_CONTAINER_OF(ptr, type, member)                                   \
   ((type *)((char *)(1 ? (ptr) : &((type *)0)->member) -                       \
             offsetof(type, member)))
@@ -283,7 +289,7 @@ void qmsg_set_dismiss_mode(Qmsg *qm, Qmsg_dismiss_mode mode) {
 Qmsg *qmsg_push(int height, int width) {
   Qmsg *qm = malloc(sizeof(Qmsg));
   if (!qm)
-    exit(1);
+    term_util_exit_out_of_memory();
   qblock_init(&qm->qblock, Qblock_type_qmsg);
   qm->dismiss_mode = Qmsg_dismiss_mode_explicitly;
   qnav_stack_push(&qm->qblock, height, width);
@@ -298,7 +304,7 @@ Qmsg *qmsg_printf_push(char const *title, char const *fmt, ...) {
   va_end(ap);
   char *buffer = malloc((Usz)msgbytes + 1);
   if (!buffer)
-    exit(1);
+    term_util_exit_out_of_memory();
   va_start(ap, fmt);
   int printedbytes = vsnprintf(buffer, (Usz)msgbytes + 1, fmt, ap);
   va_end(ap);
@@ -371,7 +377,7 @@ Qmsg *qmsg_of(Qblock *qb) { return ORCA_CONTAINER_OF(qb, Qmsg, qblock); }
 Qmenu *qmenu_create(int id) {
   Qmenu *qm = (Qmenu *)malloc(sizeof(Qmenu));
   if (!qm)
-    exit(1);
+    term_util_exit_out_of_memory();
   qblock_init(&qm->qblock, Qblock_type_qmenu);
   qm->items = NULL;
   qm->items_count = 0;
@@ -387,7 +393,7 @@ int qmenu_id(Qmenu const *qm) { return qm->id; }
 static ORCA_NOINLINE Qmenu_item *qmenu_allocitems(Qmenu *qm, Usz count) {
   Usz old_count = qm->items_count;
   if (old_count > SIZE_MAX - count) // overflow
-    exit(1);
+    term_util_exit_out_of_memory();
   Usz new_count = old_count + count;
   Usz items_cap = qm->items_cap;
   Qmenu_item *items = qm->items;
@@ -401,7 +407,7 @@ static ORCA_NOINLINE Qmenu_item *qmenu_allocitems(Qmenu *qm, Usz count) {
     Usz new_size = new_cap * sizeof(Qmenu_item);
     Qmenu_item *new_items = (Qmenu_item *)realloc(items, new_size);
     if (!new_items)
-      exit(1);
+      term_util_exit_out_of_memory();
     items = new_items;
     items_cap = new_cap;
     qm->items = new_items;
@@ -444,7 +450,7 @@ void qmenu_add_printf(Qmenu *qm, int id, char const *fmt, ...) {
   va_end(ap);
   char *buffer = malloc((Usz)textsize + 1);
   if (!buffer)
-    exit(1);
+    term_util_exit_out_of_memory();
   va_start(ap, fmt);
   int printedsize = vsnprintf(buffer, (Usz)textsize + 1, fmt, ap);
   va_end(ap);
@@ -574,7 +580,7 @@ bool qmenu_top_is_menu(int id) {
 Qform *qform_create(int id) {
   Qform *qf = (Qform *)malloc(sizeof(Qform));
   if (!qf)
-    exit(1);
+    term_util_exit_out_of_memory();
   qblock_init(&qf->qblock, Qblock_type_qform);
   qf->ncurses_form = NULL;
   qf->ncurses_fields[0] = NULL;
@@ -598,10 +604,12 @@ void qform_set_title(Qform *qf, char const *title) {
 }
 void qform_add_line_input(Qform *qf, int id, char const *initial) {
   FIELD *f = new_field(1, 30, 0, 0, 0, 0);
+  if (!f)
+    term_util_exit_out_of_memory();
+  field_opts_off(f, O_WRAP | O_BLANK | O_STATIC);
   if (initial)
     set_field_buffer(f, 0, initial);
   set_field_userptr(f, (void *)(intptr_t)(id));
-  field_opts_off(f, O_WRAP | O_BLANK | O_STATIC);
   qf->ncurses_fields[qf->fields_count] = f;
   ++qf->fields_count;
   qf->ncurses_fields[qf->fields_count] = NULL;

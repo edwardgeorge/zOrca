@@ -1181,7 +1181,8 @@ must quit it with exit 0 and no `LeakSanitizer` on stderr; it runs with
 `ASAN_OPTIONS=detect_leaks=1` and an empty `LSAN_OPTIONS`, over any the
 caller exported. Each `orca` run has a scratch `XDG_CONFIG_HOME` and
 `BORCA_ALSA_CLIENT_NAME=borca-realloc-shim-<pid>`, and each tmux run a
-server of its own. CI runs the `cli` case in the `build` job.
+server of its own. CI runs the `cli` case and the release `orca` cases
+(startup, fill and resize) in the `build` job.
 
 ## ALSA name-guard check
 
@@ -1437,7 +1438,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   first checks that `CFLAGS_EXTRA` reaches the compiler, then builds the
   debug and release `cli` with `CFLAGS_EXTRA=-Werror`, checks the debug
   `cli` with `tests/check-debug-build.sh`, and runs the golden suite on
-  both and `tests/realloc-shim/check.sh` on the release `cli`. It runs
+  both and `tests/realloc-shim/check.sh` on the release `cli` and on the
+  release `orca` without mouse support. It runs
   `tests/check-examples.sh` on the debug `cli`, builds
   `readme-gen` with `-Werror` and runs `tests/check-doc-sync.sh` on it. It
   then runs `tests/check-includes.sh`, `tests/check-nm.sh` and
@@ -1536,8 +1538,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/check-debug-build.sh`, `tests/check-doc-sync.sh`,
   `tests/check-examples.sh`, `tests/lib.sh`, `tests/upstream/build-cli.sh`,
   `tests/upstream/compare.sh`, `tests/wakeups/ab.sh`,
-  `tests/realloc-shim/check.sh`, `tests/alsa-guard/devcheck.sh`,
-  `tests/alsa-contract/devcheck.sh` and `tests/alsa-clock/devcheck.sh`.
+  `tests/realloc-shim/check.sh`, `tests/check-version.sh`,
+  `tests/alsa-guard/devcheck.sh`, `tests/alsa-contract/devcheck.sh` and
+  `tests/alsa-clock/devcheck.sh`.
   `tests/lib.sh` must be in that list: without `-x`, shellcheck follows a
   sourced file only when it is given too.
 - **clang** (`ubuntu-24.04`, since v3.0.0): builds the debug

@@ -136,7 +136,7 @@ Examples, with a scale (`0`-`9`) and with a chord (`a`-`z` in root position, `A`
 ### Scales and chords
 
 <!-- tables:begin -->
-### Available Scales (0-9, `$` only):
+#### Available Scales (0-9, `$` only)
 | Value | Scale Type |
 |:-----:|------------|
 |   0   | Major |
@@ -150,7 +150,7 @@ Examples, with a scale (`0`-`9`) and with a chord (`a`-`z` in root position, `A`
 |   8   | Tetratonic |
 |   9   | Fifths |
 
-### Available Chords (a-z = root, A-Z = first inversion):
+#### Available Chords (a-z = root, A-Z = first inversion)
 | Value | Chord Type | Root Notes | First Inversion |
 |:-----:|------------|:----------:|:---------------:|
 |   a/A   | Major | C-E-G | E-G-C |
@@ -180,7 +180,7 @@ Examples, with a scale (`0`-`9`) and with a chord (`a`-`z` in root position, `A`
 |   y/Y   | Minor11 | C-Eb-G-Bb-F | Eb-G-Bb-C-F |
 |   z/Z   | Minor7b5 | C-Eb-Gb-Bb | Eb-Gb-Bb-C |
 
-### Enriched Chords (0-9, `=` only):
+#### Enriched Chords (0-9, `=` only)
 | Index | Name | Intervals | Notes (C root) |
 |:-----:|:----:|:---------:|:--------------:|
 | 0 | Major+Oct | 0,4,7,12 | C-E-G-C |
@@ -440,6 +440,7 @@ An ignored value leaves the key at its default, and its line is written back as 
 | `--osc-midi-bidule <path>` | Sends MIDI as OSC formatted for Plogue Bidule, to the path of its OSC MIDI device, such as `/OSC_MIDI_0/MIDI` | off | any |
 | `--clock-source <source>` | The clock source for this session, `internal` or `external`, over the saved one, without saving it | the saved source, else `internal` | ALSA or PortMidi |
 | `--midi-in <name>` | The MIDI input to follow for this session, over the saved one, without saving it: `client:port` in an ALSA build, the device name in a PortMidi build | the saved input | ALSA or PortMidi |
+| `--version` | Prints the version and exits | | any |
 | `-h`, `--help` | Prints the options and exits | | any |
 
 `orca` also accepts `--hard-margins <x>x<y>`, or one number for both, which `-h` does not print: it leaves that many blank columns and rows around the whole screen.
@@ -453,6 +454,7 @@ An ignored value leaves the key at its default, and its line is written back as 
 | `--events` | After each tick, prints that tick's events, one per line (`NOTE`, `CC`, `CCI`, `PB`, `OSC` and `UDP`, each after `t<tick>`), then `t<tick> GRID` and the grid; with `-q`, only the events | off |
 | `--seed <n>` | The seed for the random operators | 0 |
 | `--dialect <d>` | The operator dialect, `borca` or `upstream` | `borca` |
+| `--version` | Prints the version and exits | |
 | `-h`, `--help` | Prints the options and exits | |
 
 `--seed` defaults to 1 in `orca` and 0 in `cli`, so run `orca --seed 0` to hear the sequences that `cli` and the golden tests show.
@@ -550,7 +552,7 @@ The tables in [Scales and chords](#scales-and-chords) are generated. `build/read
 
 ### Versions and branches
 
-Each release is an annotated tag, `vX.Y.Z`, listed on the [tags page](https://github.com/ianhundere/bOrca-d/tags); the newest tag is the latest release. `git checkout vX.Y.Z` checks a release out to build it, and `git describe --tags` names the release a checkout is at or after; `orca` has no version option. `main` is bOrca's release line from v1.0.0 and moves only at a release; changes land on `spec/borca-fixes` first. The JS Orca that `main` held before v1.0.0 is kept on the `js-orca` branch.
+Each release is an annotated tag, `vX.Y.Z`, listed on the [tags page](https://github.com/ianhundere/bOrca-d/tags); the newest tag is the latest release. `git checkout vX.Y.Z` checks a release out to build it, and `git describe --tags` names the release a checkout is at or after; `orca --version` and `cli --version` print it. `main` is bOrca's release line from v1.0.0 and moves only at a release; changes land on `spec/borca-fixes` first. The JS Orca that `main` held before v1.0.0 is kept on the `js-orca` branch.
 
 ## Changelog
 

@@ -258,7 +258,9 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(prefs_flag_over_conf)                                                      \
   X(prefs_menu_noop)                                                           \
   X(prefs_saved_value)                                                         \
-  X(conf_read_line_tail)
+  X(conf_read_line_tail)                                                       \
+  X(events_dropped_format)                                                     \
+  X(path_is_dir)
 
 // The full list for the realloc hook, for each adapter FEAT_ flag, and for
 // the runner's failure canary, whatever the flags.

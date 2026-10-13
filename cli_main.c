@@ -9,6 +9,10 @@
 #include <errno.h>
 #include <getopt.h>
 
+#ifndef BORCA_VERSION
+#define BORCA_VERSION "unknown"
+#endif
+
 static ORCA_NOINLINE void usage(void) { // clang-format off
 fprintf(stderr,
 "Usage: cli [options] infile\n\n"
@@ -27,10 +31,16 @@ fprintf(stderr,
 "                  ; UDP, = OSC, r is a banged R, $ and & do\n"
 "                  nothing, and C, D, I, L, R, U and Z keep Orca-c's\n"
 "                  rules for empty inputs and R's range.\n"
+"    --version     Print version and exit.\n"
 "    -h or --help  Print this message and exit.\n"
 );} // clang-format on
 
-enum { Argopt_events = UCHAR_MAX + 1, Argopt_seed, Argopt_dialect };
+enum {
+  Argopt_events = UCHAR_MAX + 1,
+  Argopt_seed,
+  Argopt_dialect,
+  Argopt_version
+};
 
 // Parses a non-negative decimal integer: digits only, no sign, no whitespace,
 // no trailing text, no overflow, and at most max. Used by -t and --seed, so
@@ -54,6 +64,7 @@ int main(int argc, char **argv) {
       {"events", no_argument, 0, Argopt_events},
       {"seed", required_argument, 0, Argopt_seed},
       {"dialect", required_argument, 0, Argopt_dialect},
+      {"version", no_argument, 0, Argopt_version},
       {NULL, 0, NULL, 0}};
 
   char *input_file = NULL;
@@ -101,6 +112,9 @@ int main(int argc, char **argv) {
       break;
     case 'h':
       usage();
+      return 0;
+    case Argopt_version:
+      printf("bOrca %s\n", BORCA_VERSION);
       return 0;
     case '?':
       usage();

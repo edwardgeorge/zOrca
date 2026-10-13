@@ -152,3 +152,67 @@ void test_conf_read_line_tail(void) {
   ROW_SIZED("# 34567", 8, Conf_read_buffer_too_small, NULL);
   ROW_SIZED("# 3456", 8, Conf_read_irrelevant, "# 3456");
 }
+
+// Pins the formatting of the bOrca events dropped counter line: the total
+// is the sum of the three counts, and each count goes into its respective
+// position (tick, preview, engine).
+void test_events_dropped_format(void) {
+  char buf[128];
+  int n = events_dropped_format(buf, sizeof buf, 0, 0, 0);
+  CHECK(n == (int)strlen(buf));
+  CHECK(strcmp(buf, "bOrca events: 0 dropped (tick 0, preview 0, engine 0)\n") == 0);
+
+  // Isolate each count to pin its position.
+  events_dropped_format(buf, sizeof buf, 7, 0, 0);
+  CHECK(strcmp(buf, "bOrca events: 7 dropped (tick 7, preview 0, engine 0)\n") == 0);
+
+  events_dropped_format(buf, sizeof buf, 0, 8, 0);
+  CHECK(strcmp(buf, "bOrca events: 8 dropped (tick 0, preview 8, engine 0)\n") == 0);
+
+  events_dropped_format(buf, sizeof buf, 0, 0, 9);
+  CHECK(strcmp(buf, "bOrca events: 9 dropped (tick 0, preview 0, engine 9)\n") == 0);
+
+  // Distinct counts: check exact string and parse back with sscanf.
+  events_dropped_format(buf, sizeof buf, 11, 22, 33);
+  CHECK(strcmp(buf, "bOrca events: 66 dropped (tick 11, preview 22, engine 33)\n") == 0);
+
+  Usz total = 0, tick = 0, preview = 0, engine = 0;
+  int matched = sscanf(
+      buf,
+      "bOrca events: %zu dropped (tick %zu, preview %zu, engine %zu)\n",
+      &total, &tick, &preview, &engine);
+  CHECK(matched == 4);
+  CHECK(tick == 11);
+  CHECK(preview == 22);
+  CHECK(engine == 33);
+  CHECK(total == tick + preview + engine);
+  CHECK(total == 66);
+}
+
+// Verifies path_is_dir distinguishes directories from regular files and
+// non-existent paths.
+void test_path_is_dir(void) {
+  CHECK(!path_is_dir(NULL));
+  CHECK(!path_is_dir(""));
+  CHECK(!path_is_dir("/nonexistent_path_borca_unit_test"));
+  CHECK(path_is_dir("."));
+  CHECK(path_is_dir("/tmp"));
+
+  char file_path[] = "/tmp/borca-unit-isdir-file-XXXXXX";
+  int fd = mkstemp(file_path);
+  CHECK(fd >= 0);
+  if (fd >= 0) {
+    close(fd);
+    CHECK(!path_is_dir(file_path));
+    unlink(file_path);
+  }
+
+  char dir_path[] = "/tmp/borca-unit-isdir-dir-XXXXXX";
+  char *d = mkdtemp(dir_path);
+  CHECK(d != NULL);
+  if (d) {
+    CHECK(path_is_dir(dir_path));
+    rmdir(dir_path);
+  }
+}
+

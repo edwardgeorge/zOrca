@@ -372,6 +372,11 @@ build_target() {
   libraries=
   source_files=
   out_exe=
+  version=${BORCA_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || true)}
+  if [ -z "$version" ]; then
+    version=unknown
+  fi
+  add cc_flags "-DBORCA_VERSION=\"$version\""
   add cc_flags -std=c99 -pipe -finput-charset=UTF-8 -Wall -Wpedantic -Wextra \
     -Wwrite-strings
   if cc_id_and_vers_gte gcc 6.0.0 || cc_id_and_vers_gte clang 3.9.0; then
