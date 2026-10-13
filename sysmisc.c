@@ -189,7 +189,8 @@ fail:
   *out_leftsize = 0;
   goto null_right;
 ignore:
-  s[len - 1] = '\0';
+  if (len > 0 && s[len - 1] == '\n')
+    s[--len] = '\0';
   *out_left = s;
   *out_leftsize = len;
   err = Conf_read_irrelevant;

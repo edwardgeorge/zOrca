@@ -368,10 +368,18 @@ examples check: 44 files, 38 pass, 6 exceptions, 0 fail
 ### Running the unit tests
 
 `./tool build test` builds `build/unit_tests` (`build/debug/unit_tests` with
-`-d`) from the CORE list, `field.c` and every `tests/unit/*.c`, against libc
-only. `field.c` is shell code outside CORE, linked so its failure contract
-runs under the realloc hook (P4-1); it joins no `nm` or include check. The
-runner prints `ok <name>` for each passing test and
+`-d`) from the CORE list, `field.c`, `sysmisc.c`, `thirdparty/oso.c` and
+every `tests/unit/*.c`, against libc only. `field.c`, `sysmisc.c` and
+`thirdparty/oso.c` are shell code outside CORE, linked so `field.c`'s
+failure contract runs under the realloc hook (P4-1) and `sysmisc.c`'s
+`conf_read_line` has a unit test (P4-4); they join no `nm` or include
+check. For `sysmisc.c`, which includes `"oso.h"` and calls `popen`, `tool`
+gives `test` `-isystem thirdparty` and, except on mac and bsd,
+`-D_POSIX_C_SOURCE=200809L`, as it gives `orca`. `tool` compiles the runner
+in one command, so every file in it, CORE included, compiles with the
+define; CORE's strict `-std=c99` check is the `cli` build's and the armhf
+loop's, which gives the two flags to `sysmisc.c` alone. The runner prints
+`ok <name>` for each passing test and
 `FAIL <name>: <file>:<line>: <expr>` for each failed check, then
 `<n> tests, <m> failed`, and exits 0 only when no test failed. A failed check
 does not stop the run, but a crash, such as an ASan abort, ends it with a
@@ -415,6 +423,16 @@ CORE list: `test_transport.c` covers `rearm_compute` and the HUD text, and
 also `Clock_out` (the clock-out gate, span, start, F8 gate and re-arms;
 AD-16) on that recording sink, which snapshots the `Clock_out` it watches at
 each byte.
+`tests/unit/test_sysmisc.c` covers `sysmisc.c`'s `conf_read_line`, a shell
+file linked into the runner outside CORE (P4-4): a last line that is not
+`key = value` (a comment, say) and has no newline is read whole, and a save
+through an `Ezconf_w` over `tmpfile()`s writes it back with a newline; only
+a final `'\n'` is cleared (a CRLF line keeps its `'\r'`); a NUL ends a
+line's text, so the bytes after it are lost, as before P4-4, and a line
+whose first byte is NUL reads as empty, with no write before the buffer,
+which only the debug runner's ASan sees; and an unterminated last line one
+byte short of the buffer is still too long for it, where one two bytes
+short reads whole.
 `tests/unit/test_tui_prefs.c` covers `tui_prefs.c` on settings built on the
 stack, one row per key's parse and saved text, the key order, the flags
 over the conf and the setters' no-op; what it cannot reach,
@@ -550,7 +568,9 @@ and the field unchanged.
    include that backend's header; a hook test inside
    `#ifdef UNIT_TESTS_REALLOC_HOOK`; a core test includes only core headers
    (the testable shell's among them, as `test_tui_prefs.c` includes
-   `tui_prefs.h`) and libc. The declarations in `tests.h` keep a file whose flag is off
+   `tui_prefs.h`) and libc; a test of a shell file the runner links
+   includes that file's header (`test_sysmisc.c` includes `sysmisc.h`).
+   The declarations in `tests.h` keep a file whose flag is off
    from being an empty translation unit, which `-Wpedantic` rejects.
 5. Free whatever the test allocates: the debug runner also runs
    LeakSanitizer.
@@ -1184,7 +1204,10 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   cross-compiles each file in the union of `./tool sources cli`,
   `./tool sources test` and `./tool sources readme-gen` with
   `arm-linux-gnueabihf-gcc` and the warning flags copied by hand from
-  `tool`; that step compiles `tests/unit/alloc_hook.c` with no define, where
+  `tool`, plus, for `sysmisc.c` alone, the `test` target's own
+  `-isystem thirdparty` and `-D_POSIX_C_SOURCE=200809L`, which it needs, so
+  every other file keeps the strict `-std=c99` check; that step compiles
+  `tests/unit/alloc_hook.c` with no define, where
   the file holds only `tests.h`'s declarations. It then builds the release
   unit runner through `tool` with `CC=arm-linux-gnueabihf-gcc` and
   `--static`; on the arm64 image `tool` adds no `-march`, so the runner gets

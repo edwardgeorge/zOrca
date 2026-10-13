@@ -1054,7 +1054,10 @@ jobs:
   # included, one file at a time. It calls the cross compiler directly, with
   # the warning flags copied by hand from tool's build_target (the "add
   # cc_flags -std=c99 ..." lines), plus its release -O2 -DNDEBUG and
-  # -Werror, which must be kept in sync with it. It ignores CFLAGS_EXTRA and
+  # -Werror, which must be kept in sync with it, and, for sysmisc.c alone,
+  # the test target's own -isystem thirdparty and -D_POSIX_C_SOURCE=200809L,
+  # without which it fails on oso.h and on popen (P4-4); every other file
+  # keeps the strict -std=c99 check. It ignores CFLAGS_EXTRA and
   # leaves out the rest of tool's release flags (-g0, the fortify and
   # stack-protector overrides, -no-pie), and Ubuntu's cross gcc enables some
   # hardening by default, so it does not reproduce the release build; the
@@ -1089,12 +1092,16 @@ jobs:
           test -n "$files"
           status=0
           for f in $files; do
+            case $f in
+              sysmisc.c) posix_flags="-isystem thirdparty -D_POSIX_C_SOURCE=200809L";;
+              *) posix_flags=;;
+            esac
             echo "arm-linux-gnueabihf-gcc -c $f"
             arm-linux-gnueabihf-gcc -std=c99 -pipe -finput-charset=UTF-8 \
               -Wall -Wpedantic -Wextra -Wwrite-strings -Wconversion -Wshadow \
               -Wstrict-prototypes -Werror=implicit-function-declaration \
               -Werror=implicit-int -Werror=incompatible-pointer-types \
-              -Werror=int-conversion -O2 -DNDEBUG -Werror \
+              -Werror=int-conversion -O2 -DNDEBUG -Werror $posix_flags \
               -c "$f" -o /dev/null || status=1
           done
           exit "$status"

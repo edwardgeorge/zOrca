@@ -282,11 +282,12 @@ set_target_sources() {
         thirdparty/oso.c tui_main.c
     ;;
     test)
-      # field.c is libc-only shell code outside CORE, linked so its failure
-      # contract runs under the realloc hook (P4-1); it joins no nm or
-      # include check. Then tests/unit/*.c without globbing, in a fixed
-      # order.
-      add source_files field.c
+      # field.c, sysmisc.c and thirdparty/oso.c are libc-only shell code
+      # outside CORE, linked so field.c's failure contract runs under the
+      # realloc hook (P4-1) and conf_read_line has a unit test (P4-4); they
+      # join no nm or include check. Then tests/unit/*.c without globbing,
+      # in a fixed order.
+      add source_files field.c sysmisc.c thirdparty/oso.c
       if ! [ -d tests/unit ]; then
         fatal "tests/unit not found; run tool from the repository root"
       fi
@@ -540,12 +541,20 @@ build_target() {
       fi
     ;;
     test)
-      # The unit-test runner: CORE, field.c and tests/unit/*.c, against libc
-      # only.
+      # The unit-test runner: CORE, field.c, sysmisc.c, thirdparty/oso.c and
+      # tests/unit/*.c, against libc only. sysmisc.c includes "oso.h" and
+      # calls popen and pclose, so test adds -isystem thirdparty, as orca
+      # does, and -D_POSIX_C_SOURCE=200809L everywhere but on mac and bsd,
+      # as orca's *) arm does.
       # Each adapter FEAT_ flag builds that adapter's tests, and the runner
       # fails when a flag registers none. --no-mouse has no adapter tests and
       # is ignored.
       out_exe=unit_tests
+      add cc_flags -isystem thirdparty
+      case $os in
+        mac|bsd) ;;
+        *) add cc_flags -D_POSIX_C_SOURCE=200809L;;
+      esac
       case "$source_files
 " in
         *'

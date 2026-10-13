@@ -54,7 +54,8 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
 
 // X-macro lists, in run order. X(name) registers the function test_<name>.
 //
-// CORE_TESTS: tests that link CORE against libc only.
+// CORE_TESTS: tests that link the runner's sources (CORE and the shell files
+// tool adds, field.c, sysmisc.c and thirdparty/oso.c) against libc only.
 #define CORE_TESTS(X)                                                          \
   X(gbuffer_bounds)                                                            \
   X(glyph_index_of_reference)                                                  \
@@ -242,7 +243,8 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(prefs_input_keys)                                                          \
   X(prefs_flag_over_conf)                                                      \
   X(prefs_menu_noop)                                                           \
-  X(prefs_saved_value)
+  X(prefs_saved_value)                                                         \
+  X(conf_read_line_tail)
 
 // The full list for the realloc hook, for each adapter FEAT_ flag, and for
 // the runner's failure canary, whatever the flags.
