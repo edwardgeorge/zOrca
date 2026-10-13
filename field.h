@@ -12,7 +12,12 @@ typedef struct {
 } Field;
 
 void field_init(Field *field);
-void field_init_fill(Field *field, Usz height, Usz width, Glyph fill_char);
+// Allocates a height x width buffer filled with fill_char. The field must be
+// initialized (field_init) or deinitialized (field_deinit): its old buffer is
+// not freed. Callers pass at least 1 x 1. Returns true on success; on false
+// (the allocation failed) the buffer is NULL and the field 0 x 0.
+ORCA_WARN_UNUSED bool field_init_fill(Field *field, Usz height, Usz width,
+                                      Glyph fill_char);
 void field_deinit(Field *field);
 // Resizes the buffer without keeping its layout. Returns true on success.
 // Zero cells free the buffer: NULL, 0 x 0. On false (the allocation failed)

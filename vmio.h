@@ -75,10 +75,14 @@ typedef union {
 typedef struct {
   Oevent *buffer;
   Usz count, capacity;
+  // The number of events dropped into the discard slot since
+  // oevent_list_init. oevent_list_clear keeps it. Only orca reports it: a
+  // BORCA_DEBUG_COUNTERS build prints it on quit; cli does not.
+  Usz dropped;
   // The slot oevent_list_alloc_item returns when the list cannot grow: the
-  // caller writes its event here and it is dropped. Never counted, read or
-  // sent. A dropped CC is recorded by ccout as sent, the same as a failed
-  // send, so a dropped glide target is not resent.
+  // caller writes its event here and it is dropped. Never read or sent; each
+  // drop adds one to dropped. A dropped CC is recorded by ccout as sent, the
+  // same as a failed send, so a dropped glide target is not resent.
   Oevent discard;
 } Oevent_list;
 
@@ -90,6 +94,7 @@ void oevent_list_clear(Oevent_list *olist);
 ORCA_NOINLINE ORCA_WARN_UNUSED
 bool oevent_list_copy(Oevent_list const *src, Oevent_list *dest);
 // Returns the slot for one more event. When the list cannot grow it returns
-// &olist->discard and leaves the list as it was, so the event is dropped.
+// &olist->discard, leaves the list's events as they were and adds one to
+// dropped, so the event is dropped.
 ORCA_NOINLINE
 Oevent *oevent_list_alloc_item(Oevent_list *olist);

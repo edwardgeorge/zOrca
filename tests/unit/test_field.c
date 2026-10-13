@@ -33,7 +33,7 @@
 void test_field_alloc_fail(void) {
   // Part 1: the resize fails.
   Field f;
-  field_init_fill(&f, 2, 3, 'a');
+  CHECK(field_init_fill(&f, 2, 3, 'a'));
   Glyph *buffer = f.buffer;
   size_t calls = unit_realloc_calls;
   unit_realloc_fail = true;
@@ -48,8 +48,8 @@ void test_field_alloc_fail(void) {
 
   // Part 2: the copy's resize fails, then succeeds.
   Field src, dest;
-  field_init_fill(&src, 2, 3, 'a');
-  field_init_fill(&dest, 1, 1, 'z');
+  CHECK(field_init_fill(&src, 2, 3, 'a'));
+  CHECK(field_init_fill(&dest, 1, 1, 'z'));
   Glyph *dest_buffer = dest.buffer;
   calls = unit_realloc_calls;
   unit_realloc_fail = true;
@@ -73,7 +73,7 @@ void test_field_alloc_fail(void) {
 
   // Part 3: zero cells, armed, so a realloc would fail.
   Field g;
-  field_init_fill(&g, 2, 3, 'a');
+  CHECK(field_init_fill(&g, 2, 3, 'a'));
   calls = unit_realloc_calls;
   unit_realloc_fail = true;
   resized = field_resize_raw(&g, 0, 0);
@@ -116,7 +116,7 @@ void test_field_alloc_fail(void) {
     CHECK(write(fd, text, sizeof text - 1) == (ssize_t)(sizeof text - 1));
     close(fd);
     Field h;
-    field_init_fill(&h, 1, 1, 'z');
+    CHECK(field_init_fill(&h, 1, 1, 'z'));
     Glyph *h_buffer = h.buffer;
     // The lowest free descriptor: free again after the load only if the
     // load closed its file.
@@ -142,7 +142,7 @@ void test_field_alloc_fail(void) {
 
   // Part 6: the size the field already has needs no realloc.
   Field k;
-  field_init_fill(&k, 2, 3, 'a');
+  CHECK(field_init_fill(&k, 2, 3, 'a'));
   Glyph *k_buffer = k.buffer;
   calls = unit_realloc_calls;
   unit_realloc_fail = true;

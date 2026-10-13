@@ -81,6 +81,11 @@ Oosc_udp_create_error oosc_dev_create_udp(Oosc_dev **out_ptr,
     return Oosc_udp_create_error_couldnt_open_socket;
   }
   Oosc_dev *dev = malloc(sizeof(Oosc_dev));
+  if (!dev) {
+    close(udpfd);
+    freeaddrinfo(head);
+    return Oosc_udp_create_error_no_memory;
+  }
   dev->fd = udpfd;
   dev->chosen = chosen;
   dev->head = head;

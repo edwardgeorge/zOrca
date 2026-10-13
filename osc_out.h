@@ -7,6 +7,7 @@ typedef enum {
   Oosc_udp_create_error_ok = 0,
   Oosc_udp_create_error_getaddrinfo_failed = 1,
   Oosc_udp_create_error_couldnt_open_socket = 2,
+  Oosc_udp_create_error_no_memory = 3,
 } Oosc_udp_create_error;
 
 Oosc_udp_create_error oosc_dev_create_udp(Oosc_dev **out_ptr,

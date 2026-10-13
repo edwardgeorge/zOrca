@@ -4,6 +4,7 @@ void oevent_list_init(Oevent_list *olist) {
   olist->buffer = NULL;
   olist->count = 0;
   olist->capacity = 0;
+  olist->dropped = 0;
 }
 void oevent_list_deinit(Oevent_list *olist) { free(olist->buffer); }
 void oevent_list_clear(Oevent_list *olist) { olist->count = 0; }
@@ -30,11 +31,14 @@ Oevent *oevent_list_alloc_item(Oevent_list *olist) {
   if (olist->capacity == count) {
     // Note: no overflow check, but you're probably out of memory if this
     // happens anyway. A failed growth leaves the list as it was and drops
-    // the event into the discard slot, which is never counted or sent.
+    // the event into the discard slot, which is never sent, and adds one to
+    // dropped.
     Usz capacity = count < 16 ? 16 : orca_round_up_power2(count + 1);
     Oevent *grown = realloc(olist->buffer, capacity * sizeof(Oevent));
-    if (!grown)
+    if (!grown) {
+      ++olist->dropped;
       return &olist->discard;
+    }
     olist->buffer = grown;
     olist->capacity = capacity;
   }

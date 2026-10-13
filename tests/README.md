@@ -980,29 +980,51 @@ come from the installed candidate at the repin, not from this script.
 
 ## Realloc shim check
 
-`tests/realloc-shim/check.sh` (P4-1) checks, end to end, that bOrca keeps
-its grid and mark buffer when `realloc` fails, and says so where it cannot
-go on. It takes a release `cli` and, optionally, a release `orca` built
-without `--alsa` or `--portmidi` (ASan refuses a preloaded library ahead of
-its runtime):
+`tests/realloc-shim/check.sh` (P4-1, P5-1) checks, end to end, that bOrca
+keeps its grid and mark buffer when `realloc` or `malloc` fails, and says
+so where it cannot go on, and that a failed startup load leaks nothing. It
+takes a release `cli` and, optionally, a release `orca` and then a `-d`
+`orca`, both built without `--alsa` or `--portmidi` (ASan refuses a
+preloaded library ahead of its runtime, so the shim cases need release
+builds, and the leak case reads the debug build's LeakSanitizer):
 
 ```sh
-nice -n 19 taskset -c 0-2 tests/realloc-shim/check.sh build/cli build/orca
+nice -n 19 taskset -c 0-2 tests/realloc-shim/check.sh build/cli build/orca build/debug/orca
 ```
+
+It refuses, with exit 2 and before any run, an `orca` or `-d` `orca` whose
+`readelf -d` lists `libasound` or `libportmidi` (the build block below
+leaves an `--alsa` `build/debug/orca`: rebuild `-d orca` first), and it
+unsets the caller's `SHIM_MALLOC_MAX` and `SHIM_REALLOC_MAX`, so each case
+sets only the limits it names.
 
 It compiles `tests/realloc-shim/shim.c` with `$CC` (default `cc`) into a
 scratch directory, an `LD_PRELOAD` library that fails every `realloc` above
-`SHIM_REALLOC_MAX` bytes. `cli -t 1` on a 100 x 50 grid file with a limit
-of 4096 must exit 1, not on a signal, with
+`SHIM_REALLOC_MAX` bytes and every `malloc` above `SHIM_MALLOC_MAX` bytes
+(each unset or empty: none fails; a `malloc` within its limit goes to
+glibc's `__libc_malloc`). `cli -t 1` on a 100 x 50 grid file with a
+`realloc` limit of 4096 must exit 1, not on a signal, with
 `File load error: Not enough memory for the grid.`, and a 20 x 10 file must
 run. With `orca`: `--initial-size 200x200` under `script` and `timeout 10`,
-limit 30000, must exit 1 with
-`Cannot start: not enough memory for the grid`; and `--initial-size 1000x25`
-in a private tmux server, keys `+` `+` (25 rows to 33, 33000 bytes) then
-Ctrl+Q, must grow the HUD's `1000x25` to `1000x41` without a limit, and
-with limit 30000 keep running with `1000x25` and an advancing frame counter
-and exit 0. Each `orca` run has a scratch `XDG_CONFIG_HOME`. CI runs the
-`cli` case in the `build` job.
+`realloc` limit 30000, must exit 1 with
+`Cannot start: not enough memory for the grid`; the fill case, the same run
+with a `malloc` limit of 30000 and no `realloc` limit (the 40000-byte
+startup grid fails), must exit 1 with the same message; and
+`--initial-size 1000x25` in a private tmux server, keys `+` `+` (25 rows to
+33, 33000 bytes) then Ctrl+Q, must grow the HUD's `1000x25` to `1000x41`
+without a limit, and with `realloc` limit 30000 keep running with `1000x25`
+and an advancing frame counter and exit 0. With the `-d` `orca`, the leak
+case, no shim: the binary must reference `__asan_init` (a release build
+would pass vacuously); started in a private tmux server under
+`timeout --foreground 15` on a three-row file whose third row is shorter
+than the first two (the load fails mid-file, `Grid file is not a
+rectangle`), its pane must show the `File load error` message (looked for
+after 3 s, then every 0.5 s for up to 5 s more), then Escape and Ctrl+Q
+must quit it with exit 0 and no `LeakSanitizer` on stderr; it runs with
+`ASAN_OPTIONS=detect_leaks=1` and an empty `LSAN_OPTIONS`, over any the
+caller exported. Each `orca` run has a scratch `XDG_CONFIG_HOME` and
+`BORCA_ALSA_CLIENT_NAME=borca-realloc-shim-<pid>`, and each tmux run a
+server of its own. CI runs the `cli` case in the `build` job.
 
 ## ALSA name-guard check
 
@@ -1247,16 +1269,17 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   the release `orca` with `-DBORCA_DEBUG_COUNTERS`, without and then with
   ALSA, the release `orca` with ALSA and the appliance `orca`
   (`make appliance`, which is `--alsa --harden --pie`), all with `-Werror`.
-  After each counter build `grep -a` must find `bOrca wakeups:` in
-  `build/orca` (and `bOrca ALSA:` after the ALSA one), and after the plain
-  ALSA build and `make appliance` it must find neither, which proves that
-  the counters stay out of the shipped builds; the positive greps are the
-  canary for the negative ones. The plain ALSA and appliance
-  binaries must list `libasound.so.2` as `NEEDED` in `readelf -d`, and
-  `tests/alsa-guard/shim.c` must compile with `-Wall -Werror`; the
-  appliance binary must also be of type `DYN` in `readelf -h` (PIE) and
-  import `__stack_chk_fail` in `nm -D --undefined-only` (hardened). Both
-  runners install `libasound2-dev` for the ALSA builds.
+  After the first counter build `grep -a` must find `bOrca wakeups:` and
+  `bOrca events:` in `build/orca`, after the ALSA one those two and
+  `bOrca ALSA:`, and after the plain ALSA build and `make appliance` none
+  of the three, which proves that the counters stay out of the shipped
+  builds; the positive greps are the canary for the negative ones. The
+  plain ALSA and appliance binaries must list `libasound.so.2` as `NEEDED`
+  in `readelf -d`, and `tests/alsa-guard/shim.c` must compile with
+  `-Wall -Werror`; the appliance binary must also be of type `DYN` in
+  `readelf -h` (PIE) and import `__stack_chk_fail` in
+  `nm -D --undefined-only` (hardened). Both runners install
+  `libasound2-dev` for the ALSA builds.
 - **unsigned-char** (`ubuntu-24.04`): runs the golden suite on a release
   `cli`, and the release unit tests, both built with `-funsigned-char`; the
   release runner is an `-flto -s` link, and its run fails unless the log
@@ -1353,13 +1376,16 @@ CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --no-mouse orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d --alsa orca
 CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build orca
-grep -aq 'bOrca wakeups:' build/orca                                   # must succeed
+grep -aq 'bOrca wakeups:' build/orca && grep -aq 'bOrca events:' build/orca  # must succeed
 CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
-grep -aq 'bOrca wakeups:' build/orca && grep -aq 'bOrca ALSA:' build/orca  # must succeed
+grep -aq 'bOrca wakeups:' build/orca && grep -aq 'bOrca ALSA:' build/orca &&
+  grep -aq 'bOrca events:' build/orca                                  # must succeed
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --alsa orca
-! grep -aq 'bOrca wakeups:' build/orca && ! grep -aq 'bOrca ALSA:' build/orca  # neither
+! grep -aq 'bOrca wakeups:' build/orca && ! grep -aq 'bOrca ALSA:' build/orca &&
+  ! grep -aq 'bOrca events:' build/orca                                # none of the three
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 make appliance
-! grep -aq 'bOrca wakeups:' build/orca && ! grep -aq 'bOrca ALSA:' build/orca  # neither
+! grep -aq 'bOrca wakeups:' build/orca && ! grep -aq 'bOrca ALSA:' build/orca &&
+  ! grep -aq 'bOrca events:' build/orca                                # none of the three
 ```
 
 `-DBORCA_DEBUG_COUNTERS`, passed through `CFLAGS_EXTRA`, is a development
@@ -1369,12 +1395,18 @@ and, on quit, after the screen closes, prints
 wakeup check above compares with `4f349cd`. In an `--alsa` build the ALSA
 output also counts the messages it drops on `EAGAIN` or `EINTR`, and prints
 `bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`
-before it (`<m>` counts every message that did not go out). It is never
-part of a release or appliance build, and since P3-2 CI proves that on
-every run (deferred-work #37): the four greps above are its steps, and the
-positive ones show that `grep -a` finds the literals in an `-flto -s`
-binary. The MIDI-in counter line is not grepped: the same define gates all
-three, so a leak shows in `bOrca wakeups:`.
+before it (`<m>` counts every message that did not go out). In every
+build each event list counts the events it drops into its discard slot
+when it cannot grow, which only memory exhaustion reaches (P5-1), and the
+switch prints the counts just before the wakeup line as
+`bOrca events: <n> dropped (tick <t>, preview <p>, engine <e>)`, where
+`<n>` is the total and the others are the tick's, the preview's and the
+engine's lists. The switch is never part of a release or appliance build,
+and since P3-2 CI proves that on every run (deferred-work #37): the four
+grep checks above are its four check steps, and the positive ones show that
+`grep -a` finds the literals in an `-flto -s` binary. The MIDI-in counter
+line is not grepped: the same define gates all four lines, so a leak shows
+in `bOrca wakeups:` and `bOrca events:`.
 
 Building an `--alsa` `orca` is safe while the appliance runs; running one is
 not, unless it uses another client name: the appliance router refuses to

@@ -282,6 +282,8 @@ void qmsg_set_dismiss_mode(Qmsg *qm, Qmsg_dismiss_mode mode) {
 
 Qmsg *qmsg_push(int height, int width) {
   Qmsg *qm = malloc(sizeof(Qmsg));
+  if (!qm)
+    exit(1);
   qblock_init(&qm->qblock, Qblock_type_qmsg);
   qm->dismiss_mode = Qmsg_dismiss_mode_explicitly;
   qnav_stack_push(&qm->qblock, height, width);
@@ -368,6 +370,8 @@ Qmsg *qmsg_of(Qblock *qb) { return ORCA_CONTAINER_OF(qb, Qmsg, qblock); }
 
 Qmenu *qmenu_create(int id) {
   Qmenu *qm = (Qmenu *)malloc(sizeof(Qmenu));
+  if (!qm)
+    exit(1);
   qblock_init(&qm->qblock, Qblock_type_qmenu);
   qm->items = NULL;
   qm->items_count = 0;
@@ -569,6 +573,8 @@ bool qmenu_top_is_menu(int id) {
 
 Qform *qform_create(int id) {
   Qform *qf = (Qform *)malloc(sizeof(Qform));
+  if (!qf)
+    exit(1);
   qblock_init(&qf->qblock, Qblock_type_qform);
   qf->ncurses_form = NULL;
   qf->ncurses_fields[0] = NULL;

@@ -4722,7 +4722,6 @@ int main(int argc, char **argv) {
       if (t.ged.field.height < 1 || t.ged.field.width < 1) {
         // Opening an empty file or attempting to open a directory can lead us
         // here.
-        field_deinit(&t.ged.field);
         qmsg_printf_push("Unusable File", "Not a usable file:\n%s",
                          (osoc(t.file_name)));
         break;
@@ -4758,7 +4757,14 @@ int main(int argc, char **argv) {
       new_field_h = (Usz)init_grid_dim_y;
       new_field_w = (Usz)init_grid_dim_x;
     }
-    field_init_fill(&t.ged.field, (Usz)new_field_h, (Usz)new_field_w, '.');
+    // A load that failed mid-file leaves a partial grid: free it before the
+    // fill (a field that holds none has a NULL buffer).
+    field_deinit(&t.ged.field);
+    if (!field_init_fill(&t.ged.field, (Usz)new_field_h, (Usz)new_field_w,
+                         '.')) {
+      startup_no_memory = true;
+      goto quit;
+    }
   }
   // With no mark buffer there is no grid to run: quit before the clock
   // source, the startup /orca/bpm and auto-play, and say why after endwin.
@@ -5328,6 +5334,12 @@ quit:
           t.midi_in_overflows, t.midi_in_errors);
 #endif
 #ifdef BORCA_DEBUG_COUNTERS
+  fprintf(stderr,
+          "bOrca events: %zu dropped (tick %zu, preview %zu, engine %zu)\n",
+          t.ged.oevent_list.dropped + t.ged.scratch_oevent_list.dropped +
+              t.ged.engine_oevent_list.dropped,
+          t.ged.oevent_list.dropped, t.ged.scratch_oevent_list.dropped,
+          t.ged.engine_oevent_list.dropped);
   fprintf(stderr, "bOrca wakeups: %zu waits, %zu zero-timeout in %.3f s\n",
           debug_waits, debug_zero_waits,
           stm_sec(stm_since(debug_waits_since)));

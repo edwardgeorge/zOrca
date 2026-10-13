@@ -719,17 +719,21 @@ jobs:
       - name: Build release orca with debug counters
         run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build orca
 
-      - name: Check that the counter orca holds the wakeup counter string
+      - name: Check that the counter orca holds the wakeup and events counter strings
         run: |
           if ! grep -aq 'bOrca wakeups:' build/orca; then
             echo "build/orca does not hold 'bOrca wakeups:': the counter build lost its counter"
+            exit 1
+          fi
+          if ! grep -aq 'bOrca events:' build/orca; then
+            echo "build/orca does not hold 'bOrca events:': the counter build lost its dropped-events count"
             exit 1
           fi
 
       - name: Build release orca with ALSA and debug counters
         run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build --alsa orca
 
-      - name: Check that the ALSA counter orca holds both counter strings
+      - name: Check that the ALSA counter orca holds the wakeup, ALSA and events counter strings
         run: |
           if ! grep -aq 'bOrca wakeups:' build/orca; then
             echo "build/orca does not hold 'bOrca wakeups:': the counter build lost its counter"
@@ -737,6 +741,10 @@ jobs:
           fi
           if ! grep -aq 'bOrca ALSA:' build/orca; then
             echo "build/orca does not hold 'bOrca ALSA:': the counter build lost its ALSA counters"
+            exit 1
+          fi
+          if ! grep -aq 'bOrca events:' build/orca; then
+            echo "build/orca does not hold 'bOrca events:': the counter build lost its dropped-events count"
             exit 1
           fi
 
@@ -751,6 +759,10 @@ jobs:
           fi
           if grep -aq 'bOrca ALSA:' build/orca; then
             echo "build/orca holds 'bOrca ALSA:': the debug counters leaked into a release build"
+            exit 1
+          fi
+          if grep -aq 'bOrca events:' build/orca; then
+            echo "build/orca holds 'bOrca events:': the debug counters leaked into a release build"
             exit 1
           fi
 
@@ -791,6 +803,10 @@ jobs:
           fi
           if grep -aq 'bOrca ALSA:' build/orca; then
             echo "build/orca holds 'bOrca ALSA:': the debug counters leaked into the appliance build"
+            exit 1
+          fi
+          if grep -aq 'bOrca events:' build/orca; then
+            echo "build/orca holds 'bOrca events:': the debug counters leaked into the appliance build"
             exit 1
           fi
 

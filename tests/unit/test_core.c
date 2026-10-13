@@ -141,10 +141,12 @@ void test_oevent_list_growth(void) {
 // set; each part arms it just before the call under test, disarms it right
 // after, before any CHECK, and checks that exactly one realloc ran in its
 // window. Part 1, an empty list's first growth: the result is the list's
-// discard slot, the list stays NULL/0/0 and writing the event there is
-// harmless. Part 2, a full list of 16: the discard slot again, and the
-// buffer, count, capacity and items as they were. Part 3, the same call
-// unarmed: the list grows to 32 and the result is the 17th slot. Part 4,
+// discard slot, the list stays NULL/0/0, writing the event there is
+// harmless and its dropped count (P5-1) is 1. Part 2, a full list of 16
+// (dropped 0): the discard slot again, the buffer, count, capacity and items
+// as they were, and dropped 1; a second armed call, the same, and dropped 2.
+// Part 3, the same call unarmed: the list grows to 32, the result is the
+// 17th slot and dropped stays 2, as it does after oevent_list_clear. Part 4,
 // oevent_list_copy into a one-item destination that must grow: false, the
 // destination empty with its buffer and capacity; unarmed, a full copy.
 // Each part has its own lists, and reads only what a list holds, so a
@@ -163,6 +165,7 @@ void test_oevent_list_alloc_fail(void) {
   e->midi_note.oevent_type = Oevent_type_midi_note; // the caller's write
   e->midi_note.note = 60;
   CHECK(empty.buffer == NULL && empty.count == 0 && empty.capacity == 0);
+  CHECK(empty.dropped == 1);
   oevent_list_deinit(&empty);
 
   // Part 2: a full list of 16 distinct items.
@@ -177,6 +180,7 @@ void test_oevent_list_alloc_fail(void) {
     item->midi_cc.value = (U8)(40 + i);
   }
   CHECK(full.count == Cap && full.capacity == Cap);
+  CHECK(full.dropped == 0);
   Oevent before[Cap];
   memset(before, 0, sizeof before);
   if (full.count == Cap)
@@ -189,6 +193,16 @@ void test_oevent_list_alloc_fail(void) {
   CHECK(unit_realloc_calls - calls == 1);
   CHECK(e == &full.discard);
   CHECK(full.buffer == buffer && full.count == Cap && full.capacity == Cap);
+  CHECK(full.dropped == 1);
+  // A second drop: dropped counts on, it is not a flag.
+  calls = unit_realloc_calls;
+  unit_realloc_fail = true;
+  e = oevent_list_alloc_item(&full);
+  unit_realloc_fail = false;
+  CHECK(unit_realloc_calls - calls == 1);
+  CHECK(e == &full.discard);
+  CHECK(full.buffer == buffer && full.count == Cap && full.capacity == Cap);
+  CHECK(full.dropped == 2);
   if (full.buffer == buffer)
     CHECK(memcmp(full.buffer, before, sizeof before) == 0);
 
@@ -200,6 +214,9 @@ void test_oevent_list_alloc_fail(void) {
   CHECK(full.count == Cap + 1 && full.capacity == 2 * Cap);
   if (full.buffer != NULL && full.capacity == 2 * Cap)
     CHECK(memcmp(full.buffer, before, sizeof before) == 0);
+  CHECK(full.dropped == 2);
+  oevent_list_clear(&full);
+  CHECK(full.dropped == 2);
   oevent_list_deinit(&full);
 
   // Part 4: oevent_list_copy into a one-item destination that must grow.

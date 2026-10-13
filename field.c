@@ -8,13 +8,19 @@ void field_init(Field *f) {
   f->width = 0;
 }
 
-void field_init_fill(Field *f, Usz height, Usz width, Glyph fill_char) {
+bool field_init_fill(Field *f, Usz height, Usz width, Glyph fill_char) {
   assert(height <= ORCA_Y_MAX && width <= ORCA_X_MAX);
   Usz num_cells = height * width;
   f->buffer = malloc(num_cells * sizeof(Glyph));
+  if (!f->buffer) {
+    f->height = 0;
+    f->width = 0;
+    return false;
+  }
   memset(f->buffer, fill_char, num_cells);
   f->height = (U16)height;
   f->width = (U16)width;
+  return true;
 }
 
 void field_deinit(Field *f) { free(f->buffer); }
