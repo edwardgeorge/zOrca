@@ -531,6 +531,11 @@ jobs:
             exit 1
           fi
 
+      # P4-3: pins the arguments tui_main.c passes to tick_stop,
+      # clock_out_toggle and clock_out_return_internal; needs no build, no xfail.
+      - name: Shell argument check on tui_main.c (with canary)
+        run: tests/check-shell-args.sh
+
       # The unit-test runner, in debug (ASan + UBSan). The runner makes UBSan
       # halt at its first report, and the run steps also set halt_on_error,
       # as tests/run.sh does for the goldens. The --portmidi and --alsa
@@ -900,7 +905,8 @@ jobs:
       - name: Shellcheck the build and test scripts
         run: >-
           shellcheck -s sh tool tests/run.sh tests/check-includes.sh
-          tests/check-nm.sh tests/check-debug-build.sh tests/check-doc-sync.sh
+          tests/check-nm.sh tests/check-shell-args.sh
+          tests/check-debug-build.sh tests/check-doc-sync.sh
           tests/check-examples.sh tests/lib.sh tests/upstream/build-cli.sh
           tests/upstream/compare.sh tests/wakeups/ab.sh
           tests/realloc-shim/check.sh
@@ -914,10 +920,11 @@ jobs:
   # unsigned-integer-overflow checks: unsigned wrap is defined C, which
   # prng.h's PCG32 relies on, and neither check is about UB. No -Werror:
   # the gcc legs own it, and a clang warning is a ledger entry for Ian, not
-  # a flag. check-nm.sh and check-includes.sh call gcc by name, so the gcc
-  # legs own them too, with the examples, doc-sync, upstream and shellcheck
-  # steps. The last step proves the leg can fail: in a copy of the tree
-  # with the guard deleted, the runner must abort on NULL + 0.
+  # a flag. check-nm.sh, check-includes.sh and check-shell-args.sh call gcc
+  # by name, so the gcc legs own them too, with the examples, doc-sync,
+  # upstream and shellcheck steps. The last step proves the leg can fail: in
+  # a copy of the tree with the guard deleted, the runner must abort on
+  # NULL + 0.
   clang:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

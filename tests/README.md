@@ -736,6 +736,178 @@ nice -n 19 taskset -c 0-2 tests/check-debug-build.sh build/debug/unit_tests /tmp
 Each `--portmidi` or `--alsa` test build overwrites
 `build/debug/unit_tests`, so check each runner right after its own run.
 
+### Shell argument check
+
+`tests/check-shell-args.sh` (P4-3) pins the arguments `tui_main.c` passes
+to the three helpers P3-4a moved under unit test: `tick_stop` (`tick.c`),
+`clock_out_toggle` and `clock_out_return_internal` (`midi_in.h`). The unit
+tests give the helpers arguments they compute themselves, and no test
+target compiles `tui_main.c`, so a wrong argument at a call site would pass
+every build, test and CI job:
+
+- a `tick_stop` gate other than
+  `clock_out_active(&a->clock_out, a->clock_source)`, such as the stored
+  setting `a->clock_out.enabled`, sends `FC` on stop under External, back
+  to the master (AD-16);
+- an `e` without `+ a->clock_out.accum_secs`, or one taken from another
+  instant than `now`, moves the next tick after a Send MIDI Beat Clock
+  toggle;
+- a `clock_out_return_internal` `playing` other than `a->is_playing` sends
+  `FB` while stopped, or skips the re-arm while playing;
+- a toggle `src` or `playing` fixed to Internal or `true` sends `FB` or `FC`
+  under External or while stopped, and a `clock_out_return_internal` `now`
+  other than the present re-arms from the wrong instant.
+
+Like the core checks, it reads the file through
+`gcc -w -fpreprocessed -dD -E -P`, which strips comments and expands
+nothing, calls `gcc` by name, runs from any directory and needs no build;
+it takes no argument (any is a usage error, exit 2). Each preprocessor line
+is dropped with its continuations, so the code of every `#if` branch is
+scanned, but the conditionals open at each point are kept. The rest is
+joined into one string, the inside of each string and character literal is
+blanked, and each call of the three helpers (whole word, spaces allowed
+before the `(`) is split into its arguments at top-level commas, all
+whitespace dropped. If the braces do not balance, the file fails
+(`FAIL  tui_main.c: unbalanced braces …`) and no call is checked. The
+rules:
+
+- `tick_stop`: four arguments. The gate, the fourth, is
+  `clock_out_active(&a->clock_out,a->clock_source)` passed inline, or a
+  local declared once from that expression (below).
+- `clock_out_toggle`: seven arguments. `src`, the second, is
+  `a->clock_source`. `now`, the fourth, is a local declared once from
+  `stm_now()`. `e`, the fifth, is
+  `stm_sec(stm_diff(<now>,a->clock_out.clock))+a->clock_out.accum_secs`,
+  `<now>` being the fourth argument's name, inline or a local declared once
+  from it. `playing`, the sixth, is `a->is_playing`.
+- `clock_out_return_internal`: five arguments. `now`, the third, is
+  `stm_now()`, and `playing`, the fourth, is `a->is_playing`.
+- Every `tick_stop` and `clock_out_toggle` call sits under no conditional,
+  and every `clock_out_return_internal` call under exactly
+  `#ifdef BORCA_HAS_MIDI_IN`, as today's does. Any other stack (`#if 0`, an
+  `#else` or `#elif` arm, another macro, an extra level) fails the call, so
+  a call compiled out never counts as present.
+- Each helper has at least one call in `tui_main.c`
+  (`FAIL  tui_main.c: no call to <helper>` otherwise), and every call found
+  is checked, so a second call site meets the same rule. A helper name used
+  any other way fails where it is used: in a `#define` (a call through a
+  macro, whose body the scan drops), or not followed by `(` (its address
+  taken, or `(tick_stop)(…)`).
+
+A local declared once from `x`: the call's block (the text from the `{` of
+the innermost block that holds the call up to the call), at its own brace
+depth (the inside of nested `{…}` skipped), holds exactly one assignment to
+it, and that is a declaration with an initializer (only type words since
+the previous `;`, `{` or `}`, so not after `if (…)` or `else`), under the
+same conditionals as the call, from `x`; and the name is assigned nowhere
+else in the enclosing function. So a local declared further out fails
+loudly, as does one assigned again, assigned on one path only, or declared
+under `#if 0`. An assignment to `v` is `v` (not after an identifier
+character, `.` or `>`), then `=`, a compound `op=`, `<<=` or `>>=` (never
+`==`), or `v++`, `v--`, `++v` or `--v`; its right-hand side runs to its
+top-level `;` or `,`, and a compound one or an increment never counts as
+the expected value. Each call or other use gets one line, by its first
+failing rule (conditionals, argument count, then the arguments in order):
+`PASS  tui_main.c <function>: <what was found>` or
+`FAIL  tui_main.c <function>: <helper>'s <argument> is <found>, expected
+<expected>`, where an assignment failure also gives the counts and the last
+right-hand side seen. A summary line follows,
+`shell-args check: <n> calls, <p> pass, <f> fail; canary detected`, where
+the counts are of those lines and `, <k> file-level fail` follows `<f>`
+when a file-level line (no call, unbalanced braces, gcc or awk failed)
+says FAIL. The exit status is 0 only when the canary is detected, no line
+says FAIL and every helper has a call.
+
+The spellings are pinned, not the meaning: that is the only reading
+possible without compiling the shell. Renaming `a`, `now`, `e` or the
+fields (`Ged *g`, `double dt`, …) therefore fails the check loudly, naming
+the expected spelling, and is never a silent pass; whoever renames them
+updates the script's spellings and the canary in the same commit. There is
+no xfail file for this check: a wrong argument is fixed in the same commit,
+never marked.
+
+The canary `tests/shell-args/canary.c` is never compiled. It is scanned
+first, the same way, without the no-call rule, and only its one
+`PASS  canary (…)` or `FAIL  canary (…)` line is printed. Thirty functions
+each plant one mistake, and each must fail exactly once:
+
+- the gate: from `a->clock_out.enabled` as a local (`canary_gate_enabled`)
+  and passed directly (`canary_gate_direct_enabled`), the predicate with
+  `Clock_source_internal` (`canary_gate_internal`), the right local widened
+  by `|=` (`canary_gate_reassigned`), a parameter never assigned
+  (`canary_gate_param`), an outer default with the predicate assigned in a
+  nested `if` (`canary_gate_outer_default`), the right declaration under
+  `#if 0` (`canary_gate_if0_decl`), assigned by an `if` without braces
+  (`canary_gate_if_unbraced`), declared in a nested block that closes
+  before the call (`canary_gate_nested_decl`), reassigned after the call
+  that a `goto` runs again (`canary_gate_after_call`), and only ever
+  assigned by `|=` (`canary_gate_compound_only`);
+- the toggle: `e` without the carry (`canary_e_no_carry`) and from
+  `stm_since` (`canary_e_since`), `stm_now()` passed as `now`
+  (`canary_now_call`), `now` from `a->clock_out.clock` (`canary_now_stale`),
+  `now++` (`canary_now_postinc`), `--e` (`canary_e_predec`), `src`
+  `Clock_source_internal` (`canary_toggle_src_internal`) and `playing`
+  `true` (`canary_toggle_playing_true`);
+- `clock_out_return_internal`: `true` and `a->clock_out.enabled` passed as
+  `playing` (`canary_playing_true`, `canary_playing_enabled`),
+  `a->clock_out.clock` as `now` (`canary_return_now_stale`), four arguments
+  (`canary_return_four_args`), and a correct call outside any conditional
+  (`canary_return_unguarded`), in the `#else` arm of
+  `#ifdef BORCA_HAS_MIDI_IN` (`canary_return_else_arm`) and in an `#elif`
+  arm (`canary_return_elif`);
+- other uses: a correct `tick_stop` call under `#if 0` (`canary_call_if0`),
+  a call in a `#define` (`canary_call_in_define`), the address taken
+  (`canary_address_taken`) and `(tick_stop)(…)`
+  (`canary_call_parenthesised`).
+
+Every other `clock_out_return_internal` call in it sits under
+`#ifdef BORCA_HAS_MIDI_IN`, so each function fails only through its
+planted mistake. `canary_ok` holds one correct call of each helper, the
+gate and `e` passed inline, which must pass, and a comment and a string
+literal each holding a wrong `tick_stop` call and a `{`, and the character
+literals `'{'` and `'"'` before its calls, which must count for nothing.
+The script lists the thirty names in its own text, so a name dropped from
+the list fails the canary, as does any other function that shows up. Two
+fixtures are then scanned with the no-call rule:
+`tests/shell-args/nocall.c`, which holds only names that start like the
+helpers' (`tick_stop_soon`, …), must give exactly the three
+`no call to <helper>` FAILs, and `tests/shell-args/unbalanced.c`, whose
+two `#if` arms each open a `{`, exactly the unbalanced-braces FAIL.
+Otherwise it prints `FAIL  canary (the check is blind: …)`, naming each
+function missed or wrongly reported and each fixture's lines, followed by
+the reason when gcc or awk could not scan a file, and the run fails.
+
+Known edges:
+
+- An assignment through a pointer or a macro is not seen.
+- A gate held in a struct field is refused, not followed.
+- Only `tui_main.c` is scanned. A call added to another shell file is not
+  checked, but the no-call rule fails if the call leaves `tui_main.c`.
+- A declaration of a helper inside `tui_main.c` would be read as a call and
+  fail.
+- The conditionals are pinned by the directive's spelling
+  (`#ifdef BORCA_HAS_MIDI_IN`). Respelling it (`#if defined(…)`) or moving
+  a call under another guard fails loudly and needs the script updated in
+  the same commit.
+- Correct code can fail loudly: a local declared outside the call's block,
+  one declared after another declarator (`bool x = y, clock_out = …;`), and
+  a name reused in another block of the same function.
+- Not pinned: the sink and the other pointer arguments (`&a->clock_out`,
+  `&a->susnote_list`, `&a->ccout`), `bpm`, and the calls of
+  `clock_out_on_start` and `clock_out_on_deadline`, which this check does
+  not read.
+
+Today it prints:
+
+```text
+$ tests/check-shell-args.sh
+PASS  canary (rejected: canary_gate_enabled, canary_gate_direct_enabled, canary_gate_internal, canary_gate_reassigned, canary_gate_param, canary_e_no_carry, canary_e_since, canary_now_call, canary_now_stale, canary_playing_true, canary_playing_enabled, canary_call_if0, canary_gate_outer_default, canary_gate_if0_decl, canary_gate_if_unbraced, canary_gate_nested_decl, canary_gate_after_call, canary_now_postinc, canary_e_predec, canary_call_in_define, canary_address_taken, canary_call_parenthesised, canary_toggle_src_internal, canary_toggle_playing_true, canary_return_now_stale, canary_return_unguarded, canary_return_else_arm, canary_return_elif, canary_gate_compound_only, canary_return_four_args; accepted: canary_ok's 3 calls; fixtures: nocall.c's 3 no-call FAILs, unbalanced.c's unbalanced braces)
+PASS  tui_main.c ged_set_playing: tick_stop's gate is clock_out, declared from clock_out_active(&a->clock_out,a->clock_source)
+PASS  tui_main.c tui_drive_menus: clock_out_toggle's src is a->clock_source, now is now, declared from stm_now(), e is e, declared from stm_sec(stm_diff(now,a->clock_out.clock))+a->clock_out.accum_secs, and playing is a->is_playing
+PASS  tui_main.c tui_set_clock_source: clock_out_return_internal's now is stm_now() and playing is a->is_playing, under #ifdef BORCA_HAS_MIDI_IN
+shell-args check: 3 calls, 3 pass, 0 fail; canary detected
+```
+
 ## Wakeup check
 
 `tests/wakeups/ab.sh` (spec item I2, CAP-14) is a development check of the
@@ -886,15 +1058,17 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   first checks that `CFLAGS_EXTRA` reaches the compiler, then builds the
   debug and release `cli` with `CFLAGS_EXTRA=-Werror`, checks the debug
   `cli` with `tests/check-debug-build.sh`, and runs the golden suite on
-  both and `tests/realloc-shim/check.sh` on the release `cli`. It runs `tests/check-examples.sh` on the debug `cli`, builds
+  both and `tests/realloc-shim/check.sh` on the release `cli`. It runs
+  `tests/check-examples.sh` on the debug `cli`, builds
   `readme-gen` with `-Werror` and runs `tests/check-doc-sync.sh` on it. It
-  then runs `tests/check-includes.sh` and `tests/check-nm.sh`,
-  which need no build, and a grep that fails unless `tui_save_prefs` in
-  `tui_main.c` calls `tui_prefs_saves_key(&t->prefs, …)` exactly once and
-  holds no save test of its own (`TOUCHFLAG(i)`, `prefs.touched`, a
-  comparison with `Confopt_portmidi_output_device`), builds and runs the
-  debug unit tests without and with `--portmidi` and with `--alsa` (ASan,
-  UBSan with `halt_on_error=1`; the plain run fails unless it prints
+  then runs `tests/check-includes.sh`, `tests/check-nm.sh` and
+  `tests/check-shell-args.sh`, which need no build, and a grep that fails
+  unless `tui_save_prefs` in `tui_main.c` calls
+  `tui_prefs_saves_key(&t->prefs, …)` exactly once and holds no save test
+  of its own (`TOUCHFLAG(i)`, `prefs.touched`, a comparison with
+  `Confopt_portmidi_output_device`), builds and runs the debug unit tests
+  without and with `--portmidi` and with `--alsa` (ASan, UBSan with
+  `halt_on_error=1`; the plain run fails unless it prints
   `ok tick_note_alloc_fail` and `ok realloc_hook_builtin_null`, the
   `--portmidi` run unless it prints both
   `ok portmidi_error_text_and_filters` and `ok portmidi_in_decode`, the
@@ -975,7 +1149,7 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   built
   with `-DUNIT_TESTS_CANARY` exits 1 and prints `FAIL unit_check_canary:`,
   and runs `shellcheck -s sh` over `tool`, `tests/run.sh`,
-  `tests/check-includes.sh`, `tests/check-nm.sh`,
+  `tests/check-includes.sh`, `tests/check-nm.sh`, `tests/check-shell-args.sh`,
   `tests/check-debug-build.sh`, `tests/check-doc-sync.sh`,
   `tests/check-examples.sh`, `tests/lib.sh`, `tests/upstream/build-cli.sh`,
   `tests/upstream/compare.sh`, `tests/wakeups/ab.sh`,
@@ -1001,9 +1175,10 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   their output, and a non-fatal step prints each `warning:` line as a
   `::warning::` annotation, with a count. The two
   `-fno-sanitize` checks are off because unsigned wrap is defined C, which
-  `prng.h`'s PCG32 relies on, and neither is about UB. `check-nm.sh` and
-  `check-includes.sh` call gcc by name, so the gcc legs own them, with the
-  examples, doc-sync, upstream and shellcheck steps.
+  `prng.h`'s PCG32 relies on, and neither is about UB. `check-nm.sh`,
+  `check-includes.sh` and `check-shell-args.sh` call gcc by name, so the
+  gcc legs own them, with the examples, doc-sync, upstream and shellcheck
+  steps.
 - **armhf** (`ubuntu-24.04-arm`, required since P3-6, deferred-work #14):
   the one job that runs the unit tests where `Usz` is 32-bit. It
   cross-compiles each file in the union of `./tool sources cli`,
@@ -1044,6 +1219,7 @@ CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build readme-gen
 tests/check-doc-sync.sh build/readme-gen
 nice -n 19 taskset -c 0-2 tests/check-includes.sh
 nice -n 19 taskset -c 0-2 tests/check-nm.sh
+nice -n 19 taskset -c 0-2 tests/check-shell-args.sh
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d test
 UBSAN_OPTIONS=halt_on_error=1 nice -n 19 taskset -c 0-2 build/debug/unit_tests 2>&1 | tee /tmp/unit_tests.log
 nice -n 19 taskset -c 0-2 tests/check-debug-build.sh build/debug/unit_tests /tmp/unit_tests.log
