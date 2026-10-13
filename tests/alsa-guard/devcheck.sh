@@ -36,9 +36,10 @@
 #   D5  eio2: the same as D4 for the second scan, and no client of the name
 #       1 s into the run.
 #   Live  the live bOrca client's lines in /proc/asound/seq/clients (its
-#       Client line, its Port lines and their Connecting lines; not its
-#       pool counters, which move while it plays) are the same before and
-#       after, and no guard client is left.
+#       Client line, its Port lines and their "Connecting To:" and
+#       "Connected From:" lines; not its pool counters, which move while
+#       it plays) are the same before and after, and no guard client is
+#       left.
 # Device rules: every client name is guard-<pid>-<check>, never bOrca;
 # every run gets a fresh scratch XDG_CONFIG_HOME, and the patch is a
 # scratch file; the live engine's client and borca-tty.service are only
@@ -151,10 +152,10 @@ count() {
 }
 
 # live: the live bOrca client's Client line, Port lines and their
-# Connecting lines.
+# "Connecting To:" and "Connected From:" lines.
 live() {
   awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "bOrca" /) }
-    in_live && (/^Client / || /^  Port / || /Connecting/) { print }' "$clients"
+    in_live && (/^Client / || /^  Port / || /Connect(ing To|ed From):/) { print }' "$clients"
 }
 
 n_checks=0

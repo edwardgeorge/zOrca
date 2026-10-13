@@ -4,6 +4,8 @@
 # of the sanitizer pattern, the UBSAN_OPTIONS they run cli under and the 60 s
 # timeout, and the crash rule of the first two (run_checked). compare.sh
 # takes the three constants only and keeps its own run().
+# tests/alsa-contract/devcheck.sh sources it too, for the sanitizer pattern
+# and UBSAN_OPTIONS, which it passes to the orca it runs.
 #
 # It reads nothing of the caller's but UBSAN_OPTIONS and PATH. Besides
 # sanitizer_re, UBSAN_OPTIONS, timeout_cmd and run_checked, it sets the

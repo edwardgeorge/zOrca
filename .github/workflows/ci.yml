@@ -911,6 +911,7 @@ jobs:
           tests/upstream/compare.sh tests/wakeups/ab.sh
           tests/realloc-shim/check.sh
           tests/alsa-guard/devcheck.sh
+          tests/alsa-contract/devcheck.sh
 
   # The debug cli and the unit runner under clang's UBSan, whose
   # pointer-overflow check reports NULL + 0 where gcc's does not, so the

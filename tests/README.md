@@ -1049,9 +1049,9 @@ PASS or FAIL line per check:
   1 s into the run. An adapter that maps an error to the end of the list
   fails D4 and D5 (rc 124, ports created), while the unit runner passes.
 - **Live**: the live `bOrca` client's lines in `/proc/asound/seq/clients`
-  (its `Client` line, its `Port` lines and their `Connecting` lines, but not
-  its pool counters, which move while it plays) are the same before and
-  after, and no guard client is left.
+  (its `Client` line, its `Port` lines and their `Connecting To:` and
+  `Connected From:` lines, but not its pool counters, which move while it
+  plays) are the same before and after, and no guard client is left.
 
 It prints `alsa guard check: <n> checks, <f> failed` and exits 0 when none
 failed, 1 when one did, and 2 on usage, a missing tool (`script`, `timeout`,
@@ -1066,6 +1066,103 @@ live `bOrca` client or `borca-tty.service` (it only reads
 runs every `gcc` and `orca` under `nice -n 19 taskset -c 0-2`. P3-5's twenty
 racing pairs (its D3) are not part of it: `hold` makes the race
 deterministic, and the pairs stay P3-5's evidence.
+
+## ALSA runtime contract check
+
+`tests/alsa-contract/devcheck.sh` (P4-5, story 7's ALSA runtime contract,
+spine AD-17) is a development check of what `verify` cannot see on the
+installed engine and no test links: `tui_main.c`'s send path and the HUD's
+`MIDI err`. CI only shellchecks it, since hosted runners have no
+`/dev/snd/seq`. Run it on any `--alsa` `orca`: release, `-d` (nothing is
+preloaded, so ASan runs) or `make appliance`. A build without `--alsa`
+exits 2 naming `libasound`.
+
+```sh
+CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --alsa orca
+nice -n 19 taskset -c 0-2 tests/alsa-contract/devcheck.sh build/orca
+```
+
+It writes a scratch directory (`mktemp -d`) holding `xdg/orca.conf`, the
+single line `midi_beat_clock = 1`, and `note.orca`, a 7x3 grid whose `D4`
+bangs `:03C` every 4 ticks: note 36 on channel 0, velocity 127, twice a
+second at 120 BPM. It runs `<orca> --bpm 120 note.orca`, which plays at
+start, in a 120 x 40 pane of its own tmux server
+(`tmux -L alsa-contract-<pid> -f /dev/null`, with `SHELL=/bin/sh`), under
+the client name `alsa-contract-<pid>` (`BORCA_ALSA_CLIENT_NAME`),
+`XDG_CONFIG_HOME=<scratch>/xdg` and `tests/lib.sh`'s `UBSAN_OPTIONS`
+(`halt_on_error=1`), with its stderr in the scratch directory. It reads
+the HUD's first line, the pane line that holds `7x3`, with
+`tmux capture-pane -e -p`, and subscribes with
+`aseqdump -p alsa-contract-<pid>:0`. Each subscriber's time counts from
+when `/proc/asound/seq/clients` shows it on port 0 (waited for up to 3 s),
+not from its start. One PASS or FAIL line per check:
+
+- **C1**: within 10 s `aconnect -l` lists the client, `aconnect -i` lists
+  its port 0 `MIDI out` (readable and subscribable) and not port 1, and
+  `aconnect -o` its port 1 `MIDI in` and not port 0.
+  If the client never appears, C2 to C6 fail as not run.
+- **C2**: a subscriber for 3 s gets at least 4 `Note on 0, note 36,
+  velocity 127` and no other `Note on`, each followed by its `Note off`
+  before the next `Note on` and no other `Note off` (leading `Note off`s
+  are skipped, since aseqdump can subscribe mid-note), at least 100
+  `Clock`s, and every event from the client's port 0. An aseqdump that
+  never subscribes fails C2, as does one refused its subscription, whose
+  message is quoted.
+- **C3**: 1 s after that subscriber has gone, the HUD shows no `MIDI err`:
+  a send with no subscriber is normal (`send_midi_3bytes`). It runs before
+  C4, since `MIDI err` stays until quit.
+- **C4**: a second subscriber is stopped with SIGSTOP 0.5 s after it
+  subscribes; within 20 s (a capture every 0.1 s) a send to it fails and
+  the HUD shows `MIDI err`. The line gives the seconds it took (3.9 s on
+  the uConsole). A subscriber that never subscribes or has exited fails
+  C4, with its output quoted.
+- **C5**: in that capture `MIDI err` is bold. The check follows every SGR
+  sequence from the top of the capture to `MIDI err`, since
+  `capture-pane -e` carries attributes from line to line and writes bold
+  and a colour as separate sequences: 0 (or an empty sequence) resets, 1
+  sets bold, 22 clears it, and the arguments of 38, 48 and 58 (`5;n` or
+  `2;r;g;b`) are skipped, so a colour index 1 does not count as bold.
+- **C6**: the second subscriber is resumed and ended, Ctrl+Q quits `orca`,
+  within 15 s its exit status is 0 (a debug build's LeakSanitizer pass
+  takes about 4.5 s), and its stderr holds nothing that matches
+  `tests/lib.sh`'s sanitizer pattern; a report is quoted.
+- **Live**: the live `bOrca` client's lines in `/proc/asound/seq/clients`
+  (its `Client` line, its `Port` lines and their `Connecting To:` and
+  `Connected From:` lines) are the same before and after, or absent both
+  times, and no `alsa-contract-<pid>` client is left: the ALSA name-guard
+  check's rule.
+
+Beat clock is on because the notes alone send 4 events a second, while 48
+`Clock`s a second fill a stopped subscriber's input queue in about 4 s, so
+C4 sees a failed send quickly. A subscriber that leaves is not a failure,
+so a stopped one is the ordinary way to make a send fail on a working
+sequencer.
+
+It prints `alsa contract check: <k> checks, <f> failed` and exits 0 when
+none failed, 1 when one did, 2 on usage (no argument, or one that is not
+an executable file), a missing tool (`tmux`, `aseqdump`, `aconnect`,
+`readelf`, `taskset`) or `tests/lib.sh`, an unreadable
+`/proc/asound/seq/clients`, a binary that is not an `--alsa` build, an
+`alsa-contract-<pid>` client already present, or a scratch directory,
+scratch file or tmux server that cannot be made, and 129, 130 or 143 when
+SIGHUP, SIGINT or SIGTERM stops it. It takes about 10 s (13 s for a debug
+build, 25 s when C4 times out).
+It never touches the live `bOrca` client or `borca-tty.service`: `aconnect`
+only lists, no `systemctl` or `sudo` runs, and it signals only the
+aseqdumps it started, by PID, and kills only its own tmux server. It runs
+`orca` and each aseqdump under `nice -n 19 taskset -c 0-2`, and on exit or
+a signal it resumes and ends its aseqdumps, kills its tmux server and
+removes the scratch directory, ignoring a second signal meanwhile.
+
+After installing a bOrca binary, run it next to `verify`:
+
+```sh
+nice -n 19 taskset -c 0-2 tests/alsa-contract/devcheck.sh /usr/local/bin/borca
+```
+
+It runs that binary under the scratch name and config, so the live service
+is untouched. The live client's own `aseqdump` at install stays a service
+check, outside this script.
 
 ## CI
 
@@ -1173,7 +1270,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/check-debug-build.sh`, `tests/check-doc-sync.sh`,
   `tests/check-examples.sh`, `tests/lib.sh`, `tests/upstream/build-cli.sh`,
   `tests/upstream/compare.sh`, `tests/wakeups/ab.sh`,
-  `tests/realloc-shim/check.sh` and `tests/alsa-guard/devcheck.sh`.
+  `tests/realloc-shim/check.sh`, `tests/alsa-guard/devcheck.sh` and
+  `tests/alsa-contract/devcheck.sh`.
   `tests/lib.sh` must be in that list: without `-x`, shellcheck follows a
   sourced file only when it is given too.
 - **clang** (`ubuntu-24.04`, P3-2, deferred-work #19): builds the debug
