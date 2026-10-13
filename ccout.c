@@ -1,4 +1,4 @@
-// The CC engine (architecture spine AD-9, AD-10). See ccout.h.
+// The CC engine, which owns every CC, its glides and its budget. See ccout.h.
 #include "ccout.h"
 #include "base.h"
 #include "vmio.h"
@@ -15,12 +15,13 @@ static U64 const tick_len_max = (U64)1 << 32;
 // 1.0 in a glide's fixed-point values.
 static I64 const fixed_one = (I64)1 << Ccout_frac_bits;
 
-// The budget in token-us (AD-10). One token is token_us, 1 250 at 800 per
-// second, and the balance gains exactly 1 per us, so a refill keeps every
-// fraction of a token. It stays within [budget_floor, budget_full], 80
-// tokens either way. A refill first clamps the time since the last one at
-// refill_clamp, full minus floor: that refills any balance, the floor
-// included, to full, and keeps the sum in range however long the gap.
+// The budget in token-us, for the token bucket ccout.h describes. One token
+// is token_us, 1 250 at 800 per second, and the balance gains exactly 1 per
+// us, so a refill keeps every fraction of a token. It stays within
+// [budget_floor, budget_full], 80 tokens either way. A refill first clamps
+// the time since the last one at refill_clamp, full minus floor: that
+// refills any balance, the floor included, to full, and keeps the sum in
+// range however long the gap.
 static I64 const token_us = 1000000 / Ccout_cap;
 static I64 const budget_full = (I64)Ccout_burst * (1000000 / Ccout_cap);
 static I64 const budget_floor = -(I64)Ccout_burst * (1000000 / Ccout_cap);
@@ -28,7 +29,7 @@ static U64 const refill_clamp =
     (U64)2 * Ccout_burst * (1000000 / Ccout_cap); // full - floor
 
 // The exact refill needs a whole number of us per token, and the burst is a
-// tenth of the cap (AD-10). C99 has no static_assert: a false condition
+// tenth of the cap. C99 has no static_assert: a false condition
 // declares an array of size -1, which does not compile.
 typedef char ccout_cap_divides_one_second[1000000 % Ccout_cap == 0 ? 1 : -1];
 typedef char ccout_burst_is_cap_tenth[Ccout_burst * 10 == Ccout_cap ? 1 : -1];
@@ -106,7 +107,7 @@ static void budget_refill(Ccout_engine *e, U64 now) {
   e->refill_time = now;
 }
 
-// The budget's one check-and-debit point (AD-10). A step needs a token and is
+// The budget's one check-and-debit point. A step needs a token and is
 // held back without one, changing nothing; instants and target emissions
 // always go out and debit one, down to the floor.
 static bool budget_take(Ccout_engine *e, U64 now, bool is_step) {

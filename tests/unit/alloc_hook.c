@@ -1,4 +1,4 @@
-// The unit runner's realloc hook (P3-2, deferred-work #17). tool links the
+// The unit runner's realloc hook, for testing failed reallocs. tool links the
 // test target with -Wl,--wrap=realloc -fno-builtin-realloc
 // -DUNIT_TESTS_REALLOC_HOOK on Linux with gcc or clang, so every realloc
 // call in the runner, CORE's included, reaches __wrap_realloc. A test arms

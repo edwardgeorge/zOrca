@@ -1,4 +1,4 @@
-// The clock-follow machine (architecture spine AD-13, AD-15). See
+// The clock-follow machine: core code that returns actions to the shell. See
 // transport.h.
 #include "transport.h"
 #include "base.h"

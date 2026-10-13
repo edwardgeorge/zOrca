@@ -1,11 +1,10 @@
 #pragma once
 #include "base.h"
 
-// A glyph's value as an operand (spine AD-19, the one table): '0'..'9' are
-// 0..9, letters are 10..35 in either case ('F' is 'f'), and any other glyph
-// is 0. A byte above 127 reads as its low 7 bits. sim.c and tooltips.c both
-// read it; test_core.c checks it against the reference implementation in
-// sim.c.
+// A glyph's value as an operand, kept in this one table: '0'..'9' are 0..9,
+// letters are 10..35 in either case ('F' is 'f'), and any other glyph is 0. A
+// byte above 127 reads as its low 7 bits. sim.c and tooltips.c both read it;
+// test_core.c checks it against the reference implementation in sim.c.
 static U8 const glyph_index_table[128] = {
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //   0-15
     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  //  16-31

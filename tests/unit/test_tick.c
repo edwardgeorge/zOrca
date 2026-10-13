@@ -1,9 +1,9 @@
-// Unit tests for tick.c (spec items B4, B8 and B3, spine AD-12 to AD-14):
-// the tick body on a recording sink, the CAP-9 resume test, the wire order
-// within a tick, the CC engine's place in it, release-all, the shell's pause
-// and patch-forget sequences (P3-4a), the note lengths in tick bodies (B8),
-// tick_run_vm and tick_len_us. Step numbers refer to the
-// wire order in tick.h. The CAP-9, wire-order and note tests run body b at
+// Unit tests for tick.c, the one tick path and its send sink: the tick body
+// on a recording sink, the resume test (a pause's preview sends nothing),
+// the wire order within a tick, the CC engine's place in it, release-all,
+// the shell's pause and patch-forget sequences, the note lengths in tick
+// bodies, tick_run_vm and tick_len_us. Step numbers refer to the wire order
+// in tick.h. The resume, wire-order and note tests run body b at
 // b x 125 000 us, one tick at 120 BPM, and the engine tests at 10 s +
 // b x tick_len; each run has its own CC engine on the stack.
 #include "../../ccout.h"
@@ -93,9 +93,9 @@ static void put(Glyph *grid, Usz width, Usz y, Usz x, char const *text) {
   memcpy(grid + y * width + x, text, strlen(text));
 }
 
-// The CAP-9 patch: a note (ch 0, note 36), an instant CC (ch 0, CC 74, 64)
-// and a pitch bend (ch 0, LSB 127, MSB 61), each banged on every tick by the
-// D two rows above it, and a fourth D with nothing under it, where the edit
+// The resume test's patch: a note (ch 0, note 36), an instant CC (ch 0, CC 74,
+// 64) and a pitch bend (ch 0, LSB 127, MSB 61), each banged on every tick by
+// the D two rows above it, and a fourth D with nothing under it, where the edit
 // puts a second note (ch 1, note 40).
 enum { Cap9_h = 3, Cap9_w = 32, Cap9_edit_x = 24 };
 
@@ -110,7 +110,7 @@ static void cap9_patch(Glyph *grid) {
   put(grid, Cap9_w, 0, Cap9_edit_x, "D1");
 }
 
-// The CAP-9 sequence, as the TUI runs it around a pause:
+// The resume test's sequence, as the TUI runs it around a pause:
 //   1. a tick body;
 //   2. pause, as ged_set_playing(false) does: release all, then cancel the
 //      CC engine's glides;
@@ -195,7 +195,7 @@ static void run_cap9(bool edit, bool preview, Recording *out,
   opstate_free(&scratch_store);
 }
 
-// The CAP-9 test: tick, pause, an edit that adds a note operator, a preview
+// The resume test: tick, pause, an edit that adds a note operator, a preview
 // that shares the engine list, then resume. The first tick's MIDI triples
 // equal those of a control run that had no preview. A tick body that did not
 // clear its engine list would also send the preview's events, retriggering
@@ -404,7 +404,7 @@ static void run_engine_bodies(Glyph *grid, Ccout_engine *ccout, Usz bodies,
   opstate_free(&store);
 }
 
-// Matrix row "0/z CCI (tick)": a CCI at rate z or 0 is instant. Banged on
+// Case "0/z CCI (tick)": a CCI at rate z or 0 is instant. Banged on
 // every tick, each bang's CC goes out in the tick that bangs it, at step 4 in
 // VM order, before the instant CC that follows it in the grid (4f349cd sent
 // it in the next tick, at step 3). Like any instant, it goes out again on
@@ -434,7 +434,7 @@ void test_tick_cci_same_tick(void) {
   run_cci_same_tick('0');
 }
 
-// Matrix row "Poll order (tick)": step 3. The engine knows that CC 74 is 0
+// Case "Poll order (tick)": step 3. The engine knows that CC 74 is 0
 // (an instant before the first body); Dz bangs a glide to 64 at rate w (4
 // ticks) in body 0 only. Each later body sends the glide's step after the
 // note-off that ages out and before the VM's events, and the glide ends at
@@ -544,14 +544,13 @@ void test_tick_engine_cc_path(void) {
   CHECK(ccout.last_emit[0 * Ccout_controls + 74] == engine_t0 + tick_us);
 }
 
-// The sub-tick poll (I2, spine AD-14, AD-16), tick_poll_engine, as the wait
-// point makes it between ticks, on a recording sink. Two glides at y (2
-// ticks): CC 74 on channel 0 from 0 to 20, and CC 5 on channel 1 from 100 to
-// 80. The engine list starts with a leftover CC, as a preview could leave
-// there, which is never sent. A poll before glide_hz allows a step sends
-// nothing; polls at each deadline then send every step, in slot order
-// within a poll, through midi3 alone, until both glides end at their
-// targets.
+// The sub-tick poll, tick_poll_engine, as the wait point makes it between
+// ticks, on a recording sink. Two glides at y (2 ticks): CC 74 on channel 0
+// from 0 to 20, and CC 5 on channel 1 from 100 to 80. The engine list starts
+// with a leftover CC, as a preview could leave there, which is never sent. A
+// poll before glide_hz allows a step sends nothing; polls at each deadline then
+// send every step, in slot order within a poll, through midi3 alone, until both
+// glides end at their targets.
 void test_tick_poll_engine(void) {
   Ccout_engine ccout;
   ccout_init(&ccout);
@@ -820,7 +819,8 @@ void test_tick_stop_control_optional(void) {
   susnote_list_deinit(&susnotes);
 }
 
-// The note-length fixtures (B8). The grid holds D operators over note
+// The note-length fixtures: a note lasts its duration in tick bodies, with beat
+// clock on or off (since v1.0.0). The grid holds D operators over note
 // operators. Dz bangs on ticks that are multiples of 35 only, so each of its
 // notes sounds once in a 35-tick window and no retrigger falls inside it.
 enum { Note_h = 3, Note_w = 32, Note_window = 35 };
@@ -837,7 +837,7 @@ static void note_grid(Glyph *grid) {
 // Runs `bodies` tick bodies over grid from tick `start`, recording into rec,
 // with every MIDI triple stamped with the body it went out in. With
 // beat_clock set, it models the shell's sixths gate (ged_do_stuff in
-// tui_main.c), which stays in the shell (AD-14): each tick is six pulses,
+// tui_main.c), which stays in the shell: each tick is six pulses,
 // each pulse sends F8 through midi1, and the tick body runs after the F8 of
 // the pulse whose sixth is 0, so five more F8s follow it.
 static void run_note_bodies(Glyph *grid, Usz start, Usz bodies,
@@ -904,7 +904,7 @@ static bool timeline_is(Recording const *r, Stamped const *want, Usz count) {
   return true;
 }
 
-// B8, beat clock off: a duration-4 note that sounds in tick body T goes off
+// Beat clock off: a duration-4 note that sounds in tick body T goes off
 // in body T + 4, and nothing else goes out in the window.
 void test_tick_note_length(void) {
   Glyph grid[Note_h * Note_w];
@@ -918,7 +918,7 @@ void test_tick_note_length(void) {
   CHECK(rec.midi1_count == 0 && rec.osc_count == 0);
 }
 
-// B8, beat clock on: the same note goes off in the same tick body, 24 F8s
+// Beat clock on: the same note goes off in the same tick body, 24 F8s
 // after its note-on, where 1295c23 aged it by a sixth of a tick per body and
 // sent its note-off 144 F8s after.
 void test_tick_note_length_beat_clock(void) {
@@ -938,7 +938,7 @@ void test_tick_note_length_beat_clock(void) {
   CHECK(rec.osc_count == 0);
 }
 
-// B8: durations 0 and 1 both release in the next tick body, T + 1.
+// Durations 0 and 1 both release in the next tick body, T + 1.
 void test_tick_note_length_0_and_1(void) {
   Glyph grid[Note_h * Note_w];
   note_grid(grid);
@@ -955,7 +955,7 @@ void test_tick_note_length_0_and_1(void) {
   CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
 }
 
-// B8: three notes that sound in one tick body and release in the same later
+// Three notes that sound in one tick body and release in the same later
 // body go off in the aging step's swap order: the 2nd, the 3rd, then the
 // 1st, as in 1295c23.
 void test_tick_note_release_order(void) {
@@ -981,7 +981,7 @@ void test_tick_note_release_order(void) {
 // again before tick 70, so the window holds one bang of each.
 enum { Late_start = 35 };
 
-// B8: the same channel and note sounds again before its release. The old
+// The same channel and note sounds again before its release. The old
 // note's off goes out at once (step 5), as in 1295c23; its old count is
 // dropped, and the only later off is at the new end. Note 36 is retriggered
 // longer (4 ticks, then 6) and note 38 shorter (8, then 3), so an old count
@@ -1013,7 +1013,7 @@ void test_tick_note_retrigger(void) {
   CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
 }
 
-// B8: a mono note on a channel with a sustained note. The mono round sends
+// A mono note on a channel with a sustained note. The mono round sends
 // the sustained note's off, then the mono note-on (step 6), as in 1295c23;
 // the mono note's count is its duration, so it goes off 3 bodies later, and
 // the removed note sends nothing at its old end (body 0 + 8).
@@ -1035,22 +1035,21 @@ void test_tick_note_mono(void) {
   CHECK(timeline_is(&rec, want, ORCA_ARRAY_COUNTOF(want)));
 }
 
-// P3-1: the same channel and note twice in one tick body is one note-on,
-// in the first event's slot, with the later event's velocity and length,
-// so a synth that starts a voice per note-on is not left with one that
-// never gets its off. Part A, nothing sounding: note 36 at velocity 127
-// for 4 ticks, then at 79 for 6, in one body: one on at 79, one off at
-// body 6. Before, the batch's own first entry was taken for a sounding
-// note: off, on 127, on 79, then the off. Part A2: with note 38 between
-// the two, the merged on keeps the first event's place, before 38's.
-// Part B, already sounding: note 36 for 8 ticks from body 0, then at 79
-// for 6 and at 127 for 4 in body 1: the sounding note's off at once, then
-// one on at 127, and the off at body 5, the later length, not the longer
-// one (nothing at body 7 or 8). Before: off, off, on 79, on 127. Part C:
-// the same note on two channels is two notes, never merged. Part D: the
-// appliance's pair, a `=03C0ff` chord (C E G C', velocity 119, 15 ticks)
-// beside `:03Ef4` (E, 4 ticks): the E merges into the chord's second slot,
-// so four note-ons, 40 once, and 40 goes off at the E's length. Part E:
+// Since v3.0.0 the same channel and note twice in one tick body is one note-on,
+// in the first event's slot, with the later event's velocity and length, so a
+// synth that starts a voice per note-on is not left with one that never gets
+// its off. Part A, nothing sounding: note 36 at velocity 127 for 4 ticks, then
+// at 79 for 6, in one body: one on at 79, one off at body 6. Before, the
+// batch's own first entry was taken for a sounding note: off, on 127, on 79,
+// then the off. Part A2: with note 38 between the two, the merged on keeps the
+// first event's place, before 38's. Part B, already sounding: note 36 for 8
+// ticks from body 0, then at 79 for 6 and at 127 for 4 in body 1: the sounding
+// note's off at once, then one on at 127, and the off at body 5, the later
+// length, not the longer one (nothing at body 7 or 8). Before: off, off, on 79,
+// on 127. Part C: the same note on two channels is two notes, never merged.
+// Part D: the appliance's pair, a `=03C0ff` chord (C E G C', velocity 119, 15
+// ticks) beside `:03Ef4` (E, 4 ticks): the E merges into the chord's second
+// slot, so four note-ons, 40 once, and 40 goes off at the E's length. Part E:
 // the merge is by MIDI note, not glyph: `:09Y` and `:09z` both clamp to
 // note 127.
 void test_tick_note_same_batch(void) {
@@ -1162,7 +1161,7 @@ void test_tick_note_same_batch(void) {
   }
 }
 
-// B8: with no sustained notes, release-all and the aging step send nothing
+// With no sustained notes, release-all and the aging step send nothing
 // and touch no buffer: a list that never held a note keeps its NULL buffer.
 // clang's UBSan (its pointer-overflow check, part of -fsanitize=undefined)
 // reports NULL + 0 and gcc's does not, so under gcc this test cannot see
@@ -1170,7 +1169,7 @@ void test_tick_note_same_batch(void) {
 // -fsanitize=undefined,pointer-overflow is belt and braces) can: with that
 // guard deleted, the first call below forms NULL + 0 on the fresh list and
 // aborts the runner, and the job proves that on every run by deleting the
-// guard in a copy of the tree (P3-2). age_sustained_notes' guard is only an
+// guard in a copy of the tree. age_sustained_notes' guard is only an
 // early return: with count 0, advance_tick releases nothing and no note-off
 // pointer is formed, so removing it causes no UB.
 void test_tick_note_empty_list(void) {
@@ -1225,7 +1224,7 @@ void test_tick_note_empty_list(void) {
 }
 
 #ifdef UNIT_TESTS_REALLOC_HOOK
-// P3-2 (deferred-work #17): the sustained-note list cannot grow. The
+// A failed realloc: the sustained-note list cannot grow. The
 // runner's realloc hook (alloc_hook.c) returns NULL from every realloc
 // while unit_realloc_fail is set. Each part arms it just before the call
 // under test, disarms right after, before any CHECK, and checks that

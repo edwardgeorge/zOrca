@@ -1,5 +1,5 @@
 #!/bin/sh
-# No-writable-globals check for the CORE files (architecture spine AD-1).
+# No-writable-globals check for the CORE files.
 # Linux/ELF only: it relies on GNU-style nm symbol classes and gcc's
 # -no-pie. See tests/README.md.
 #
@@ -36,7 +36,7 @@
 # tests/xfail/nm-check lists the expected writable symbols, one marker per
 # line, as `<file> <symbol|glob> <item>`; # starts a comment. The pattern is
 # a symbol name, or a literal prefix of at least 3 characters followed by one
-# trailing * (scale_*); the item is the one spec item the fix waits for,
+# trailing * (scale_*); the item is the one item tag the fix waits for,
 # matching ^(B[1-8]|I[1-6])$ (B1, I3). Markers are not split by pass: each
 # marker line reports on its own, over both passes: XFAIL, naming its item
 # and every writable symbol it matched (class, name and pass), or XPASS when

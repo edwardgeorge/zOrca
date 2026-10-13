@@ -5,8 +5,8 @@
 #include "sim.h"
 #include "vmio.h"
 
-// The tick path (architecture spine AD-12, AD-14). tick.c is shell code that
-// obeys the core include allow-list (AD-2): it reads no clock, does no I/O,
+// The tick path: one tick body and one send sink. tick.c is shell code that
+// obeys the core include allow-list: it reads no clock, does no I/O,
 // keeps no writable globals and sends only through the sink below, so the
 // unit tests link it against libc alone. Every CC goes through the caller's
 // CC engine (ccout.h): the tick body and the shell's wait point poll it
@@ -35,7 +35,7 @@ typedef struct {
 // responsible for sending the note-off event. We keep a list of currently 'on'
 // notes so that they can have a matching 'off' sent at the correct time.
 //
-// A note's remaining time is a count of tick bodies (spine AD-14): it is set
+// A note's remaining time is a count of tick bodies: it is set
 // to the note's duration (Oevent_midi_note.duration, 0..127) when the note
 // sounds or is retriggered, and each tick body ages it by one, whatever the
 // clock source. A note that sounds in tick body T is released in body
@@ -75,7 +75,8 @@ void susnote_list_remove_by_chan_mask(Susnote_list *sl, Usz chan_mask,
 // One tick of the sequencer, as the internal tick deadline runs it. The
 // shell owns everything the pointers reach. Sustained notes age by one tick
 // per tick body, under every clock source; the times are only the CC
-// engine's (spine AD-13): its poll and every submit in the body use now_us.
+// engine's, U64 microseconds of the shell's one clock: its poll and every
+// submit in the body use now_us.
 typedef struct {
   Glyph *gbuffer;
   Mark *mbuffer;
@@ -121,15 +122,15 @@ typedef struct {
 //
 // Outside any tick, a stop (tick_stop) sends the note-offs of every
 // sustained note and cancels the glides, then /orca/stopped, then FC only
-// when the clock-out gate is open (AD-14, AD-16); a start sends FA, when the
+// when the clock-out gate is open; a start sends FA, when the
 // gate is open, before /orca/started, both from the shell.
 void tick_body(Tick_ctx const *ctx, Tick_sink const *sink);
 
-// One poll of the CC engine (spine AD-14, AD-16): clears engine, the engine
+// One poll of the CC engine: clears engine, the engine
 // output list, polls ccout at now_us into it, and sends its CCs through the
 // sink, in the engine's order. Step 3 of tick_body is this call, and the
 // shell's wait point makes it between ticks, the sub-tick poll, whenever
-// ccout_next_deadline has passed. now_us must never go back (AD-13).
+// ccout_next_deadline has passed. now_us must never go back.
 void tick_poll_engine(Ccout_engine *ccout, U64 now_us, Oevent_list *engine,
                       Tick_sink const *sink);
 
@@ -147,17 +148,17 @@ void tick_run_vm(Glyph *restrict gbuffer, Mark *restrict mbuffer, Usz height,
 // on quit and when the output changes.
 void tick_release_all(Tick_sink const *sink, Susnote_list *susnotes);
 
-// Pause (AD-9, AD-14): tick_release_all, then ccout_cancel, so every note is
+// Pause: tick_release_all, then ccout_cancel, so every note is
 // released and every glide ends, keeping the last values sent. No other call.
 void tick_pause(Tick_sink const *sink, Susnote_list *susnotes,
                 Ccout_engine *ccout);
 
-// Stop (AD-14, AD-16): tick_pause, then /orca/stopped through control when
+// Stop: tick_pause, then /orca/stopped through control when
 // it is set, then FC through midi1 only when clock_out, the gate, is true.
 void tick_stop(Tick_sink const *sink, Susnote_list *susnotes,
                Ccout_engine *ccout, bool clock_out);
 
-// A new or opened patch (AD-9): ccout_cancel, then ccout_forget, so no glide
+// A new or opened patch: ccout_cancel, then ccout_forget, so no glide
 // runs on and the next glide on each controller jumps. Sends nothing.
 void tick_forget_patch(Ccout_engine *ccout);
 

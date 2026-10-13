@@ -1,4 +1,4 @@
-// The canary for tests/check-includes.sh (architecture spine AD-1, AD-2).
+// The canary for tests/check-includes.sh (the core include and purity rules).
 // The check scans this file first, the same way as a CORE file, and must
 // report all nineteen planted violations for it on every run: <stdio.h>;
 // each of the fourteen banned names (rand, srand, srandom, drand48,

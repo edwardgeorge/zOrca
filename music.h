@@ -1,8 +1,8 @@
 #pragma once
 #include "base.h"
 
-// The scale and chord tables of `$` and `=` (architecture spine AD-19): every
-// selector's name and intervals, held once. sim.c decodes both operators'
+// The scale and chord tables of `$` and `=`: every selector's name and
+// intervals, held once. sim.c decodes both operators'
 // selectors through music_decode, and tooltips.c names them through
 // music_selector_name. It is core: it does no I/O and keeps no writable
 // globals, and every table is const at every level.

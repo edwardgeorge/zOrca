@@ -4,10 +4,10 @@
 #include "transport.h"
 #include <stdio.h>
 
-// The MIDI input side of the shell (architecture spine AD-2, AD-16, AD-17): the
-// pure parts, shared by tui_main.c and the unit tests, which link none of
-// tui_main.c, among them the clock-out state Clock_out and its inlines, which
-// send the beat clock through the tick.h sink, and the PortMidi reader's
+// The MIDI input side of the shell: the pure parts, shared by tui_main.c and
+// the unit tests, which link none of tui_main.c, among them the clock-out
+// state Clock_out and its inlines, which send the beat clock through the
+// tick.h sink, and the PortMidi reader's
 // decode, pm_in_decode; it also holds the ALSA client-name scan that the
 // startup guard runs (the scan's I/O is the caller's `next` callback) and the
 // client-name length limit it checks first (the sequencer keeps 63 bytes).
@@ -33,7 +33,7 @@ static inline void ext_bpm_text(bool lost, bool valid, U16 shown, char *out) {
     snprintf(out, 9, "ext --");
 }
 
-// Re-arming the internal deadline so the tick grid is kept (AD-16). The
+// Re-arming the internal deadline so the tick grid is kept. The
 // shell's deadline fires at stm_since(clock) + accum_secs >= span, where span
 // is one tick, S, or a sixth of it with clock-out on. Each case sets clock =
 // now and takes accum_secs and the sixths counter from here, given S, e (the
@@ -82,7 +82,7 @@ static inline Rearm rearm_compute(Rearm_case c, double S, double e, U8 sixths,
   return r;
 }
 
-// Clock-out (AD-16): the beat clock bOrca sends, F8, FA, FB and FC, and the
+// Clock-out: the beat clock bOrca sends, F8, FA, FB and FC, and the
 // internal deadline's state, which Ged holds by value. The shell's deadline
 // fires at stm_since(clock) + accum_secs >= the span (clock_out_span); the
 // crossing (clock = now, accum_secs = the overshoot) and its spin stay in
@@ -98,12 +98,12 @@ typedef struct {
   bool enabled;      // the stored Send MIDI Beat Clock setting
 } Clock_out;
 
-// The one predicate (AD-16): the stored setting while the source is
-// Internal. F8, FA and FB are sent only while it is true; the toggle's FC is
-// sent as it turns false, and tick_stop's FC is gated by the caller's copy of
-// it, taken before is_playing clears. External suspends clock-out for the
-// session without clearing the setting, so nothing echoes transport back to
-// a master.
+// The one predicate that gates clock-out: the stored setting while the
+// source is Internal. F8, FA and FB are sent only while it is true; the
+// toggle's FC is sent as it turns false, and tick_stop's FC is gated by the
+// caller's copy of it, taken before is_playing clears. External suspends
+// clock-out for the session without clearing the setting, so nothing echoes
+// transport back to a master.
 static inline bool clock_out_active(Clock_out const *co, Clock_source src) {
   return co->enabled && src == Clock_source_internal;
 }
@@ -209,7 +209,7 @@ static inline bool alsa_in_split(char const *name, Usz *client_len,
 #ifdef FEAT_PORTMIDI
 #include <portmidi.h>
 
-// What the PortMidi input drops (AD-17): an explicit list, never a
+// What the PortMidi input drops: an explicit list, never a
 // complement, so transport_parse, which accepts only F8, FA, FB, FC and F2,
 // sees no notes, controls or realtime noise. PortMidi has no filter bit for
 // F4 and F5, which pass the mask and are rejected by the parser.
@@ -220,7 +220,7 @@ static inline bool alsa_in_split(char const *name, Usz *client_len,
    PM_FILT_NOTE | PM_FILT_AFTERTOUCH | PM_FILT_PROGRAM | PM_FILT_CONTROL |     \
    PM_FILT_PITCHBEND)
 
-// The PortMidi reader's decode (AD-13, AD-17): a message's status, Data1 and
+// The PortMidi reader's decode: a message's status, Data1 and
 // Data2, in that order, to transport_parse, with stamp, the shell's now_us()
 // at read time; the PortMidi timestamp is never read. False, leaving *out
 // alone, for anything but F8, FA, FB, FC and F2.
@@ -235,7 +235,7 @@ static inline bool pm_in_decode(PmMessage msg, U64 stamp,
 #include <alsa/asoundlib.h>
 #include <errno.h>
 
-// The source bOrca has subscribed, while one is stored (AD-17). The shell is
+// The source bOrca has subscribed, while one is stored. The shell is
 // unsubscribed while has is false, and System Announce decides when it is
 // cleared or matched again.
 typedef struct {
@@ -246,7 +246,7 @@ typedef struct {
 // Maps a sequencer event to a transport event: CLOCK, START, CONTINUE, STOP
 // and SONGPOS, whose position (data.control.value) is clamped to 0..16383.
 // False for every other event, which the reader discards. ev->time is never
-// read: stamp is the shell's now_us() at read time (AD-13).
+// read: stamp is the shell's now_us() at read time.
 static inline bool alsa_in_map_event(snd_seq_event_t const *ev, U64 stamp,
                                      Transport_event *out) {
   Transport_type type;
@@ -281,7 +281,7 @@ static inline bool alsa_in_map_event(snd_seq_event_t const *ev, U64 stamp,
   return true;
 }
 
-// What a System Announce (0:1) event means for the stored source (AD-17):
+// What a System Announce (0:1) event means for the stored source:
 // clear it on CLIENT_EXIT naming its client, PORT_EXIT naming its address,
 // or PORT_UNSUBSCRIBED for its connection to MIDI in (own_client:own_in_port),
 // since the kernel has already dropped the subscription (a whole client's
@@ -334,7 +334,7 @@ static inline bool alsa_client_name_fits(char const *name) {
 }
 
 // The client-name scan that alsa_ctx_open runs before and after taking its
-// name (AD-17). next(arg, &client, &name) yields one client per call: >= 0
+// name. next(arg, &client, &name) yields one client per call: >= 0
 // with both filled in, -ENOENT at the end of the list, or another negative
 // error. alsa_name_scan returns 1 as soon as a client other than own is
 // named name, 0 when next returns -ENOENT first, and otherwise next's

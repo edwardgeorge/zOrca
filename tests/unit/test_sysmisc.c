@@ -1,5 +1,5 @@
 // Unit tests for sysmisc.c, shell code outside CORE that tool links into the
-// runner with thirdparty/oso.c (P4-4); both use libc only. They read lines
+// runner with thirdparty/oso.c; both use libc only. They read lines
 // from a tmpfile() through conf_read_line, the reader under ezconf's load
 // and save of orca.conf, and save through an Ezconf_w over tmpfile()s.
 #define _POSIX_C_SOURCE 200809L // fileno, dup, lseek, read, close
@@ -119,8 +119,8 @@ static void save_one(int line, char const *bytes, size_t n,
   read_one(__LINE__, bytes, sizeof(bytes) - 1, bufsize, want, left, NULL)
 #define SAVE(bytes, want) save_one(__LINE__, bytes, sizeof(bytes) - 1, want)
 
-// P4-4: conf_read_line clears a line's last byte only when it is '\n', and
-// leftsz is the length without it. Until P4-4 its ignore: path cleared the
+// conf_read_line clears a line's last byte only when it is '\n', and
+// leftsz is the length without it. Until v3.0.2 its ignore: path cleared the
 // last byte whatever it was, so an unterminated last line that is not a key
 // line (a comment at the end of orca.conf) lost its last byte on the next
 // save, and a line whose first byte is NUL (strlen 0) got a write at
@@ -139,13 +139,13 @@ void test_conf_read_line_tail(void) {
   ROW("orphan", "orphan");
   ROW("=x", "=x");
   // Row 7: a NUL first byte reads as an empty line; the bytes after it are
-  // lost, as they were before P4-4. That nothing is written before buf is
+  // lost, as they were before v3.0.2. That nothing is written before buf is
   // seen only by the debug runner's ASan.
   ROW("\0abc\n", "");
   // Row 8: an unterminated key line splits as it always has.
   KEY_ROW("key = value", "key", "value");
   // Row 9: a NUL inside a line ends its text. The byte before it stays
-  // (until P4-4 it was cleared); the bytes after it are lost, as before.
+  // (until v3.0.2 it was cleared); the bytes after it are lost, as before.
   ROW("ab\0cd\n", "ab");
   // Rows 10-11: an unterminated last line of bufsize - 1 bytes is still too
   // long for the buffer; one of bufsize - 2 bytes reads whole.

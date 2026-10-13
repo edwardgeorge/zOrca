@@ -31,7 +31,7 @@ static inline Usz oevent_size(U8 type) {
 // filled match: a struct's own fields, and for OSC and UDP only the first
 // count numbers or characters, since sim.c writes no more and the slot's tail
 // holds whatever the allocator left (found by the armhf run under qemu, where
-// the two lists' tails differ; P3-6).
+// the two lists' tails differ).
 static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   if (a->any.oevent_type != b->any.oevent_type)
     return false;

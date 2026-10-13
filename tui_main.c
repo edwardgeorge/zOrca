@@ -33,7 +33,8 @@
 #include <signal.h>
 
 // SIGTERM, SIGHUP and SIGINT quit gracefully in --alsa builds: the handler
-// only sets this flag, which the event loop checks (architecture spine AD-3).
+// only sets this flag, which the event loop checks. bOrca has one thread,
+// and this flag is the only data that crosses a signal handler.
 static volatile sig_atomic_t alsa_shutdown_requested;
 static void alsa_request_shutdown(int signo) {
   (void)signo;
@@ -41,12 +42,12 @@ static void alsa_request_shutdown(int signo) {
 }
 #endif
 
-// Microseconds since stm_setup(), as a U64: the clock for core seams
-// (architecture spine AD-13), and the only clock read this series adds; the
-// existing stm_now() reads are unchanged. stm_now() returns nanoseconds on
-// every platform (sokol_time.h:169-185), so this divides in integer
-// arithmetic rather than calling stm_us(), which goes through a double. The
-// tick body reads it once, for the CC engine's poll and submits.
+// Microseconds since stm_setup(), as a U64: the one clock for core seams,
+// and the only clock read the tick path added (v1.0.0); 4f349cd's stm_now()
+// reads were left unchanged. stm_now() returns nanoseconds on every platform
+// (sokol_time.h:169-185), so this divides in integer arithmetic rather than
+// calling stm_us(), which goes through a double. The tick body reads it once,
+// for the CC engine's poll and submits.
 static U64 now_us(void) { return stm_now() / 1000; }
 
 #if NCURSES_VERSION_PATCH < 20081122
@@ -870,7 +871,7 @@ staticni bool ged_resize_grid(Field *field, Mbuf_reusable *mbr, Usz new_height,
   }
   undo_history_push(undo_hist, scratch_field, tick_num);
   // Drop the operator state of the cells the new size cuts off; every cell
-  // inside keeps its state (AD-6). If the rebuild cannot allocate, clear the
+  // inside keeps its state. If the rebuild cannot allocate, clear the
   // store instead (clear never allocates): kept entries outside the grid
   // would come back with stale state on a later enlarge or undo.
   if (!opstate_prune(opstate, new_height, new_width))
@@ -956,11 +957,11 @@ typedef struct {
 } Midi_mode_osc_bidule;
 
 #ifdef FEAT_ALSA
-// The shell's ALSA sequencer context (architecture spine AD-17): one
-// nonblocking duplex client per process, opened before initscr in every
-// --alsa build, independent of Midi_mode. The alsa Midi_mode variant borrows
-// it for its sends, the input reader borrows it through its own pointer (so
-// the reader also works under --osc-midi-bidule), and only quit closes it.
+// The shell's ALSA sequencer context: one nonblocking duplex client per
+// process, opened before initscr in every --alsa build, independent of
+// Midi_mode. The alsa Midi_mode variant borrows it for its sends, the input
+// reader borrows it through its own pointer (so the reader also works under
+// --osc-midi-bidule), and only quit closes it.
 // The send path sees the Midi_mode as const, so the counters live here,
 // reached through the variant's pointer.
 typedef struct {
@@ -1130,7 +1131,7 @@ staticni void alsa_ctx_close(Alsa_ctx *ctx) {
   ctx->seq = NULL;
 }
 
-// The input reader's subscriptions (AD-17). They exist only while the clock
+// The input reader's subscriptions. They exist only while the clock
 // source is External; the shell waits for System Announce while no source
 // address is stored, and never retries on a timer.
 
@@ -1375,7 +1376,7 @@ static bool portmidi_find_name_of_device_id(PmDeviceID id, PmError *out_pmerror,
   osoput(out_name, info->name);
   return true;
 }
-// The input-direction variants (I6): an exact name, and the first hit wins.
+// The input-direction variants: an exact name, and the first hit wins.
 staticni bool portmidi_find_input_id_by_name(char const *name,
                                              PmError *out_pmerror,
                                              PmDeviceID *out_id) {
@@ -1443,17 +1444,17 @@ staticni void midi_mode_deinit(Midi_mode *mm) {
 typedef struct {
   Field field;
   Field scratch_field;
-  // The per-cell state of &, ; and r (AD-5, AD-6). Ticks and step-forward
-  // run on opstate; the paused re-mark runs on scratch_opstate, overwritten
-  // with a copy of opstate before each pass (AD-7).
+  // The per-cell state of &, ; and r. Ticks and step-forward run on opstate;
+  // the paused re-mark runs on scratch_opstate, overwritten with a copy of
+  // opstate before each pass.
   Opstate_store opstate;
   Opstate_store scratch_opstate;
   // The operator list every VM run uses: ticks, step-forward and the
-  // preview (spine AD-18). Changed only through ged_set_dialect.
+  // preview. Changed only through ged_set_dialect.
   Orca_dialect dialect;
   Field clipboard_field;
   Mbuf_reusable mbuf_r;
-  // The label buffer (portlabel.h, spine AD-19): one reusable buffer that
+  // The label buffer (ids from portlabel.h): one reusable buffer that
   // the tick, step-forward and the paused preview all pass to the VM, sized
   // for the field before every run by ged_labels_for_run, which remembers
   // the height and width it sized it for; draw_hud passes those to the
@@ -1462,7 +1463,7 @@ typedef struct {
   Usz labels_capacity; // cells allocated
   Usz labels_h, labels_w; // the size of the last run, 0 x 0 after a failure
   Undo_history undo_hist;
-  // The three event lists (AD-12). oevent_list is the tick list: the VM's
+  // The three event lists. oevent_list is the tick list: the VM's
   // events on each tick, sent, and shown by Ctrl+E. scratch_oevent_list is
   // the paused re-mark's (the preview's) and is never sent.
   // engine_oevent_list is the CC engine's output, cleared before each poll
@@ -1470,7 +1471,7 @@ typedef struct {
   Oevent_list oevent_list;
   Oevent_list scratch_oevent_list;
   Oevent_list engine_oevent_list;
-  // The CC engine (AD-9, AD-10): every CC of the tick path goes through it,
+  // The CC engine: every CC of the tick path goes through it,
   // and it keeps the glides and the last value sent on each controller. The
   // shell drives its lifecycle: cancel on pause, cancel and forget on open
   // and new, forget when the output changes, configure on the glide_hz
@@ -1479,7 +1480,7 @@ typedef struct {
   Ccout_engine ccout;
   Susnote_list susnote_list;
   Ged_cursor ged_cursor;
-  // The clock source (AD-15, AD-16). Internal is the 4f349cd timing path:
+  // The clock source. Internal is the 4f349cd timing path:
   // ged_do_stuff runs the ticks on its deadline. Under External the
   // transport machine runs them from the MIDI input's clock, is_playing
   // changes only through its actions, and clock-out is suspended. Changed
@@ -1490,11 +1491,11 @@ typedef struct {
   Usz ruler_spacing_y, ruler_spacing_x;
   Ged_input_mode input_mode;
   Usz bpm;
-  // One tick at bpm, in microseconds, set with bpm (AD-14); under External
+  // One tick at bpm, in microseconds, set with bpm; under External
   // it is the transport machine's estimate while that is valid, and bpm's
   // otherwise, so glide lengths follow the master's tempo.
   U64 tick_len;
-  // The internal deadline and the beat clock (midi_in.h, AD-16): the
+  // The internal deadline and the beat clock (midi_in.h): the
   // deadline's clock and carry, the sixths counter and the stored Send MIDI
   // Beat Clock setting.
   Clock_out clock_out;
@@ -1527,7 +1528,7 @@ static void ged_set_bpm(Ged *a, Usz bpm) {
   a->tick_len = tick_len_us(bpm);
 }
 
-// Every change of the operator dialect goes through here (spine AD-6), from
+// Every change of the operator dialect goes through here, from
 // the menu, orca.conf or --dialect, playing or not. The per-cell state
 // belongs to the old list's operators, so the store is cleared, as Ctrl+R
 // clears it; running CC glides stop and keep the last values sent; and the
@@ -1685,7 +1686,7 @@ staticni void send_midi_3bytes(Oosc_dev *oosc_dev, Midi_mode const *midi_mode,
   }
 }
 
-// The send sink (AD-14) over the backend dispatch above. tick.c sends every
+// The send sink over the backend dispatch above. tick.c sends every
 // event through it, and midi_in.h's clock-out inlines send the shell's F8,
 // FA, FB and FC through it.
 // Each call reads the OSC device and the MIDI mode as they are at that
@@ -1744,7 +1745,7 @@ static void send_control_message(Oosc_dev *oosc_dev, char const *osc_address) {
   oosc_send_int32s(oosc_dev, osc_address, NULL, 0);
 }
 
-// The sink's control callback (AD-14): an OSC message with no arguments, such
+// The sink's control callback: an OSC message with no arguments, such
 // as /orca/stopped, when OSC output is set.
 static void ged_sink_control(void *u, char const *osc_address) {
   Ged *a = u;
@@ -1759,7 +1760,7 @@ static Tick_sink ged_sink(Ged *a) {
                      .control = ged_sink_control};
 }
 
-// The sub-tick poll (spine AD-14, AD-16): the wait point runs it between
+// The sub-tick poll: the wait point runs it between
 // ticks whenever the CC engine's deadline has passed, so glides step on
 // wall-clock time at glide_hz. now is a now_us() read made after the tick's.
 static void ged_poll_ccout(Ged *a, U64 now) {
@@ -1809,7 +1810,7 @@ static ORCA_FORCEINLINE double ms_to_sec(double ms) { return ms / 1000.0; }
 // Seconds to the next tick or beat-clock deadline, and no other: note-offs
 // only ever go out in a tick body, so they need no deadline of their own.
 // Under External, as when stopped, there is none: the transport machine runs
-// the ticks, so the internal tick deadline drops out of the wait (AD-16).
+// the ticks, so the internal tick deadline drops out of the wait.
 static double ged_secs_to_deadline(Ged const *a) {
   if (!a->is_playing || a->clock_source == Clock_source_external)
     return 1.0;
@@ -1848,13 +1849,13 @@ static Port_label_cell *ged_labels_for_run(Ged *a, Usz height, Usz width) {
   return a->labels;
 }
 
-// One tick body (AD-14), for both callers: the internal deadline in
+// One tick body, for both callers: the internal deadline in
 // ged_do_stuff and the transport machine's tick due under External. The tick
 // body (tick.c) sends everything for the tick: note-offs that are due, the
 // CC engine's glide steps, then the VM's events, each CC through the engine.
 // The clock is read once, here, after the caller's sixths gate or the
 // event's stamp, never from the stamp itself: the engine's poll and every
-// submit in the body share this time (AD-13).
+// submit in the body share this time.
 staticni void ged_run_tick_body(Ged *a) {
   Tick_sink const sink = ged_sink(a);
   Tick_ctx const ctx = {.gbuffer = a->field.buffer,
@@ -2026,12 +2027,11 @@ staticni void ged_draw(Ged *a, WINDOW *win, char const *filename,
       field_copy(&a->field, &a->scratch_field) &&
       mbuf_reusable_ensure_size(&a->mbuf_r, a->field.height, a->field.width)) {
     // The pass advances operator state, so it runs on a throwaway copy of
-    // the store, as it does on scratch_field (AD-7). If the copy cannot
+    // the store, as it does on scratch_field. If the copy cannot
     // allocate, it runs on an empty store; the live one is untouched.
     (void)opstate_copy(&a->opstate, &a->scratch_opstate);
-    // Its events go to the preview list, which is never sent (AD-12), and
-    // its labels to the live label buffer (AD-7), so the tooltips follow
-    // the marks.
+    // Its events go to the preview list, which is never sent, and its labels
+    // to the live label buffer, so the tooltips follow the marks.
     Orca_run_ctx const preview_ctx = {
         .opstate = &a->scratch_opstate,
         .dialect = a->dialect,
@@ -2448,7 +2448,7 @@ typedef enum {
 // Play or pause on Internal, and the stop under External too (the transport
 // machine's stop and clock lost, and the switch to External, come here with
 // false): tick_stop sends the note-offs, cancels the glides, sends
-// /orca/stopped, and FC only while clock-out is active (AD-14, AD-16).
+// /orca/stopped, and FC only while clock-out is active.
 // Starting under External never comes here; see ged_external_start.
 staticni void ged_set_playing(Ged *a, bool playing) {
   if (playing == a->is_playing)
@@ -2464,7 +2464,7 @@ staticni void ged_set_playing(Ged *a, bool playing) {
   } else {
     // Pause, and quit through it (tick.h, tick_stop): the note-offs, every
     // glide ended with the last values sent kept, so the next glide starts
-    // from them (AD-9), /orca/stopped, then FC only through the gate.
+    // from them, /orca/stopped, then FC only through the gate.
     bool clock_out = clock_out_active(&a->clock_out, a->clock_source);
     a->is_playing = false;
     Tick_sink const sink = ged_sink(a);
@@ -2481,7 +2481,7 @@ staticni void ged_stop(Ged *a) {
 }
 
 #ifdef BORCA_HAS_MIDI_IN
-// The transport machine's start (AD-15): FA or FB from the master. Unlike
+// The transport machine's start: FA or FB from the master. Unlike
 // ged_set_playing(true) it pushes no undo snapshot, re-arms no internal
 // deadline, sends no MIDI and never cancels glides (FA, FB and F2 leave
 // them alone); it only marks the shell playing and tells OSC.
@@ -2493,7 +2493,7 @@ static void ged_external_start(Ged *a) {
   send_control_message(a->oosc_dev, "/orca/started");
 }
 
-// Applies one event's or poll's actions, in the spine's order (AD-15): stop
+// Applies one event's or poll's actions, in transport.h's order: stop
 // or clock lost; set tick; reset anchors; start; one tick body if a tick is
 // due and the shell is playing. Then the estimate: tick_len follows it while
 // valid, and on shown_changed the HUD redraws and /orca/bpm carries the shown
@@ -2832,7 +2832,7 @@ static void push_osc_output_port_form(char const *initial) {
   qform_single_line_input(Osc_output_port_form_id, "Set OSC Output Port",
                           initial);
 }
-// The operator dialect (sim.h, spine AD-20): a radio with the active one
+// The operator dialect (sim.h): a radio with the active one
 // marked. Picking it again changes nothing.
 enum {
   Dialect_menu_borca = 1,
@@ -2856,7 +2856,7 @@ enum {
   Playback_menu_midi_input,
 };
 // Clock & Timing. The beat-clock item shows the stored setting; under
-// External it reads (suspended), since clock-out is gated off (AD-16). Clock
+// External it reads (suspended), since clock-out is gated off. Clock
 // Source and MIDI Input exist only in a build with an input reader.
 static void push_playback_menu(bool midi_bclock_enabled, bool external) {
   Qmenu *qm = qmenu_create(Playback_menu_id);
@@ -2874,7 +2874,7 @@ static void push_playback_menu(bool midi_bclock_enabled, bool external) {
   qmenu_push_to_nav(qm);
 }
 #ifdef BORCA_HAS_MIDI_IN
-// The clock source (AD-15, AD-20): a radio with the active one marked, as
+// The clock source: a radio with the active one marked, as
 // the dialect radio. Picking it again changes nothing.
 enum {
   Clock_source_menu_internal = 1,
@@ -2894,7 +2894,7 @@ static void push_clock_source_menu(Clock_source source) {
 }
 #endif
 // The CC engine's glide_hz, the most glide steps per second on one
-// controller (ccout.h, spine AD-20): a radio of the three valid rates with
+// controller (ccout.h): a radio of the three valid rates with
 // the active one marked, as the dialect radio. Picking it again changes
 // nothing.
 enum {
@@ -3235,10 +3235,10 @@ staticni void try_send_to_gui_clipboard(Ged const *a,
     *io_use_gui_clipboard = false;
 }
 
-// The settings file; its keys and their rules are tui_prefs.h's (AD-20).
+// The settings file; its keys and their rules are tui_prefs.h's.
 static char const *const conf_file_name = "orca.conf";
 
-// The input key of the compiled backend (AD-20): the ALSA `client:port`
+// The input key of the compiled backend: the ALSA `client:port`
 // name, or the PortMidi input device name.
 #ifdef FEAT_ALSA
 #define Confopt_midi_input_device Confopt_alsa_input_device
@@ -3323,7 +3323,7 @@ staticni void tui_load_conf(Tui *t) {
 }
 
 // Applies the command-line overrides over orca.conf's values, clearing
-// their touched bits (tui_prefs_apply_overrides, AD-20), then hands the
+// their touched bits (tui_prefs_apply_overrides), then hands the
 // settings to the engine once: the dialect, glide_hz and the stored beat
 // clock setting. Nothing plays and no glide runs yet, so this one hand-off
 // after the flags is what applying the conf during the load and the flags
@@ -3461,8 +3461,8 @@ staticni void dialect_menu_was_picked(Tui *t, int picked_id) {
   tui_save_prefs(t);
 }
 
-// A new glide_hz applies at once, to running glides too (spine AD-9's
-// "glide_hz change"), and is saved.
+// A new glide_hz applies at once, to running glides too (every glide_hz
+// change configures the engine), and is saved.
 staticni void glide_rate_menu_was_picked(Tui *t, int picked_id) {
   Usz glide_hz = picked_id == Glide_rate_menu_50    ? 50
                  : picked_id == Glide_rate_menu_200 ? 200
@@ -3475,7 +3475,7 @@ staticni void glide_rate_menu_was_picked(Tui *t, int picked_id) {
 }
 
 #ifdef BORCA_HAS_MIDI_IN
-// The MIDI input (AD-17). It is open, as an ALSA subscription or a PortMidi
+// The MIDI input. It is open, as an ALSA subscription or a PortMidi
 // input stream, only while the clock source is External. A missing or failed
 // source shows a qnav message and never prints after initscr.
 
@@ -3556,7 +3556,7 @@ staticni void tui_input_open(Tui *t) {
 
 // Drains every queued input event, each stamped with now_us() at read time
 // and passed through the machine, its actions applied before the next is
-// read (AD-13, AD-15). -ENOSPC and pmBufferOverflow are counted and passed
+// read. -ENOSPC and pmBufferOverflow are counted and passed
 // to the machine as an overflow: input arrived and was flushed (usually
 // pulses), so it keeps following, and with no F8 after it clock lost comes
 // 1 s later (transport.h). The drain goes on; any other error is counted and
@@ -3653,7 +3653,7 @@ staticni void tui_input_drain(Tui *t) {
 
 // Stops without transmitting, resets the machine, drains and discards the
 // queued input, then opens the input: entering External, and changing the
-// input while External (AD-15, AD-17).
+// input while External.
 staticni void tui_input_restart(Tui *t) {
   Ged *a = &t->ged;
   ged_set_playing(a, false); // clock_out_active() is already false: no FC
@@ -3667,7 +3667,7 @@ staticni void tui_input_restart(Tui *t) {
   a->is_draw_dirty = true;
 }
 
-// The clock-source switch (AD-15, AD-16). Entering External stops playback
+// The clock-source switch. Entering External stops playback
 // without transmitting (the source changes first, so clock_out_active() is
 // false), resets the machine, drains the input and opens it. Leaving
 // External closes the input, adopts the estimate's shown value as the BPM
@@ -3898,7 +3898,7 @@ staticni bool tui_restart_osc_udp_if_enabled_diderror(Tui *t) {
   }
   // Under --osc-midi-bidule, MIDI goes out over this OSC connection, so
   // restarting it changes the output: the CC engine forgets the last values
-  // sent (AD-9). This also runs once at startup, where the engine is fresh.
+  // sent. This also runs once at startup, where the engine is fresh.
   if (t->ged.midi_mode.any.type == Midi_mode_type_osc_bidule)
     ccout_forget(&t->ged.ccout);
   return error;
@@ -4048,7 +4048,7 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           push_save_as_form(osoc(t->file_name));
           break;
         case Main_menu_set_tempo:
-          // Under External the tempo is the master's (AD-15).
+          // Under External the tempo is the master's.
           if (t->ged.clock_source == Clock_source_external)
             qmsg_printf_push("Set BPM", "BPM follows the external clock");
           else
@@ -4158,7 +4158,7 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
           // While playing on Internal, clock-out resumes with FB and the
           // sixths counter at 0, or stops with FC; either way the next tick
           // keeps its due time (midi_in.h, clock_out_toggle). Under External
-          // nothing is sent: clock-out stays suspended (AD-16).
+          // nothing is sent: clock-out stays suspended.
           Ged *a = &t->ged;
           bool external = a->clock_source == Clock_source_external;
           U64 now = stm_now();
@@ -4246,7 +4246,7 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
         ged_stop_all_sustained_notes(&t->ged);
         midi_mode_deinit(&t->ged.midi_mode);
         PmError pme = midi_mode_init_portmidi(&t->ged.midi_mode, act.picked.id);
-        // A new output knows none of the values sent (AD-9).
+        // A new output knows none of the values sent.
         ccout_forget(&t->ged.ccout);
         qnav_stack_pop();
         if (pme) {
@@ -4530,7 +4530,7 @@ int main(int argc, char **argv) {
       usage(); // then the error, last, where it shows
       OPTFAIL("Must be borca or upstream.");
     case Argopt_clock_source:
-      // A session-only override through the pending overrides (AD-20).
+      // A session-only override through the pending overrides.
       if (clock_source_from_name(optarg, &t.overrides.clock_source)) {
         t.overrides.keys |= TOUCHFLAG(Confopt_clock_source);
         break;
@@ -4737,7 +4737,7 @@ int main(int argc, char **argv) {
   wtimeout(stdscr, 0);
   int cur_timeout = 0;
 #ifdef BORCA_DEBUG_COUNTERS
-  // The wakeup counter (I2): the event loop's waits, the wgetch calls,
+  // The wakeup counter: the event loop's waits, the wgetch calls,
   // counted apart by whether they enter with a timeout above 0 or with 0,
   // from the start of the loop. Printed to stderr after endwin.
   // tests/wakeups/ compares it with a counter-only build of 4f349cd.
@@ -4812,9 +4812,9 @@ int main(int argc, char **argv) {
     goto quit;
   ged_make_cursor_visible(&t.ged);
   // The clock source and its input, once: after the overrides, before
-  // auto-play (AD-20). Under External the startup /orca/bpm is skipped (the
+  // auto-play. Under External the startup /orca/bpm is skipped (the
   // estimate's shown value goes out when it becomes valid) and so is
-  // auto-play: the master starts playback (AD-15).
+  // auto-play: the master starts playback.
 #ifdef BORCA_HAS_MIDI_IN
   tui_apply_clock_source(&t);
 #endif
@@ -4857,7 +4857,7 @@ event_loop:;
   switch (key) {
   case ERR: { // ERR indicates no more events.
 #ifdef BORCA_HAS_MIDI_IN
-    // Under External (AD-15, AD-16): every queued input event is drained
+    // Under External: every queued input event is drained
     // first, each stamped at read time, and only then the machine's
     // timeouts are polled, with a fresh now read after the drain, so a wait
     // that ends with an F8 already queued never false-fires clock lost. On
@@ -4921,7 +4921,7 @@ event_loop:;
       else new_timeout = 50;
     } // clang-format on
 #undef DEADTIME
-    // The CC engine's deadline (spine AD-16), only while a glide runs, so
+    // The CC engine's deadline, only while a glide runs, so
     // with none this is 4f349cd's path: no clock read, no call. It never
     // goes through the table above: when it has passed, the sub-tick poll
     // sends what is due, and the next one shortens the wait, rounded up to
@@ -5224,7 +5224,7 @@ event_loop:;
       ged_input_character(&t.ged, '.');
     else if (t.ged.clock_source == Clock_source_internal)
       ged_input_cmd(&t.ged, Ged_input_cmd_toggle_play_pause);
-    // Under External the master runs playback: Space is ignored (AD-15).
+    // Under External the master runs playback: Space is ignored.
     break;
   case 27: // Escape
     // Check for escape sequences we're interested in that ncurses didn't

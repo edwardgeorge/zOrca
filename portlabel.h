@@ -1,8 +1,8 @@
 #pragma once
 #include "base.h"
 
-// The port labels (architecture spine AD-19, spec item I5). Each PORT call in
-// sim.c names its port with one id from the X-macro below, and when the
+// The port labels, held once here for sim.c and the tooltips. Each PORT call
+// in sim.c names its port with one id from the X-macro below, and when the
 // caller gives orca_run a label buffer (Orca_run_ctx.labels, sim.h), PORT
 // records the id and the owner's offset in the port's cell. tooltips.c reads
 // the cursor's cell from that buffer and keys its enhancements on the id

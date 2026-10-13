@@ -1,5 +1,5 @@
 // The tick body, the sustained-note list, the event send and the shell's
-// pause, stop and patch-forget sequences (architecture spine AD-12, AD-14).
+// pause, stop and patch-forget sequences: the one tick path, in wire order.
 // See tick.h.
 #include "tick.h"
 #include "base.h"
@@ -24,7 +24,7 @@ bool susnote_list_add_notes(Susnote_list *sl, Susnote const *restrict notes,
                             Usz *restrict end_removed) {
 #ifndef NDEBUG
   // The batch holds each channel and note at most once: tick_send_events
-  // merges a second one into the first (P3-1).
+  // merges a second one into the first (since v3.0.0).
   for (Usz i = 0; i < added_count; ++i) {
     for (Usz j = i + 1; j < added_count; ++j)
       assert(notes[i].chan_note != notes[j].chan_note);
@@ -224,7 +224,7 @@ static void tick_send_events(Tick_ctx const *ctx, Tick_sink const *sink,
         // or a `=` chord sharing a note with a `:`) is one note-on, in the
         // first event's slot, with the later event's velocity and length.
         // So the batch holds each chan_note once, and add_notes below
-        // matches only notes already sounding (P3-1).
+        // matches only notes already sounding (since v3.0.0).
         U16 chan_note = (U16)((channel << 8u) | note_number);
         Usz slot = 0;
         while (slot < midi_note_count &&
@@ -344,7 +344,7 @@ void tick_run_vm(Glyph *restrict gbuffer, Mark *restrict mbuffer, Usz height,
 void tick_poll_engine(Ccout_engine *ccout, U64 now_us, Oevent_list *engine,
                       Tick_sink const *sink) {
   // The engine appends, so its list is cleared first: nothing left in it,
-  // such as a preview's events, is ever sent (CAP-9).
+  // such as a preview's events, is ever sent.
   oevent_list_clear(engine);
   ccout_poll(ccout, now_us, engine);
   send_engine_ccs(sink, engine);

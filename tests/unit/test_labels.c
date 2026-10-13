@@ -1,13 +1,12 @@
-// Unit tests for the port labels and the tooltips (spec item I5, CAP-17;
-// spine AD-4, AD-7, AD-19): what PORT records in the label buffer (the id,
-// whether the port counted as an input, and the owner's offset), the
-// recording rule (an input beats an output, the later port of the same kind
-// wins), the moved ports of G, K, O, P, Q, T and X, every operator body's
-// ports in its dialect, the upstream dialect's labels, tooltips.c's lookup
-// with its size check and its id-keyed enhancements, the placement of a
-// tooltip line on a HUD row, and the tick path: tick_run_vm clears the
-// buffer and tick_body passes it on. Positions are (row, column); an owner
-// offset is (dy, dx) from the cell to its owner.
+// Unit tests for the port labels and the tooltips: what PORT records in the
+// label buffer (the id, whether the port counted as an input, and the owner's
+// offset), the recording rule (an input beats an output, the later port of the
+// same kind wins), the moved ports of G, K, O, P, Q, T and X, every operator
+// body's ports in its dialect, the upstream dialect's labels, tooltips.c's
+// lookup with its size check and its id-keyed enhancements, the placement of a
+// tooltip line on a HUD row, and the tick path: tick_run_vm clears the buffer
+// and tick_body passes it on. Positions are (row, column); an owner offset is
+// (dy, dx) from the cell to its owner.
 #include "../../ccout.h"
 #include "../../gbuffer.h"
 #include "../../opstate.h"

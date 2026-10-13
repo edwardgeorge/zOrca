@@ -1,5 +1,5 @@
-// Unit tests for the per-cell operator state of &, ; and r (spec item B1,
-// spine AD-4 to AD-8), run through orca_run with a caller-owned store.
+// Unit tests for the per-cell operator state of &, ; and r (opstate.h), run
+// through orca_run with a caller-owned store.
 #include "../../gbuffer.h"
 #include "../../opstate.h"
 #include "../../sim.h"
@@ -73,14 +73,15 @@ static bool events_equal(Oevent_list const *a, Oevent_list const *b) {
   return true;
 }
 
-// The CAP-6 overflow fixture: a 300x80 grid with &0z12 at every 7th cell
+// The overflow fixture: a 300x80 grid with &0z12 at every 7th cell
 // from cell 1, skipping the positions where the five glyphs do not fit in
 // their row, so cell 4096, (13, 196), holds one. The baseline debug build
 // reported a global-buffer-overflow there; with the store, 256 ticks run
 // clean under ASan and UBSan, and every & outputs on every tick what a lone
 // in-range &0z12 outputs. Each output lands on an empty cell (cell index
-// 0 mod 7), so the copies never disturb one another. Since I3, rate 1 is a
-// 4-tick cycle that samples the sine at steps 0, 32, 64 and 96: 0, f, z, f.
+// 0 mod 7), so the copies never disturb one another. Since `&` counts in
+// beats (v2.0.0), rate 1 is a 4-tick cycle that samples the sine at steps
+// 0, 32, 64 and 96: 0, f, z, f.
 // So that the comparison can still fail, the & at cell 4096 is banged once,
 // at tick 5 (odd, so the banged reference is one sample off and no two of
 // the four samples 0 f z f coincide; at an even offset some would), with a
@@ -166,10 +167,10 @@ void test_sim_bouncer_overflow_fixture(void) {
   free(marks);
 }
 
-// The rate-4 table (I3, CAP-15): with the range 0-z, shape N at tick e is
-// waveforms[N][8 e] (sim.c), and rate 4 is a 16-tick cycle, so ticks 16-63
-// repeat ticks 0-15. The table's quirks (s up against r down in the
-// triangle, the saw's uneven steps) are the table's, kept on purpose.
+// The rate-4 table of the tempo-synced &: with the range 0-z, shape N at
+// tick e is waveforms[N][8 e] (sim.c), and rate 4 is a 16-tick cycle, so
+// ticks 16-63 repeat ticks 0-15. The table's quirks (s up against r down in
+// the triangle, the saw's uneven steps) are the table's, kept on purpose.
 static char const *const rate4_rows[8] = {
     "048cgkoszrnjfb73", // 0 triangle
     "zvrnjfb708cgkosw", // 1 inverted triangle
@@ -225,7 +226,7 @@ static Glyph bouncer_tick(Glyph *grid, Mark *marks, Usz tick,
   return grid[B_out];
 }
 
-// The anchor (I3): &0z36 is a 12-tick saw, 0 2 5 8 a d g i l p s w. A bang
+// The anchor: &0z36 is a 12-tick saw, 0 2 5 8 a d g i l p s w. A bang
 // moves the anchor to its tick, which outputs phase 0; an anchor above the
 // tick, as after an undo, gives the floor-mod phase; opstate_reset_anchors
 // puts the anchor back to 0 and touches no other operator's state; a new &
@@ -498,7 +499,7 @@ void test_sim_two_r_permutations(void) {
   CHECK(blocks_are_permutations(small, Ticks, 0, 4));
   CHECK(blocks_are_permutations(large, Ticks, 0, 10));
   CHECK(memcmp(small, small_alone, sizeof small) == 0);
-  // The r_single and r_shared repros (B6): no value twice in a row.
+  // The r_single and r_shared repros: no value twice in a row.
   CHECK(repeats(small, Ticks) == 0);
   CHECK(repeats(large, Ticks) == 0);
   // A different seed gives a different sequence, and is still a permutation.
@@ -516,9 +517,9 @@ void test_sim_two_r_permutations(void) {
   opstate_free(&store_alone);
 }
 
-// Lowercase r after B6 (CAP-11). Each test bangs one r at (2, 2) of a 4x6
-// grid, the cell r_single's r sits in, from a D1 two rows above it, and
-// reads its output from the cell below it.
+// Lowercase r, a shuffled bag per cell since v1.0.0. Each test bangs one r
+// at (2, 2) of a 4x6 grid, the cell r_single's r sits in, from a D1 two rows
+// above it, and reads its output from the cell below it.
 enum { R_h = 4, R_w = 6, R_y = 2, R_x = 2, R_out = (R_y + 1) * R_w + R_x };
 
 static void r_grid(Glyph *grid, char min, char max) {
@@ -559,7 +560,7 @@ static Usz const r_seeds[] = {0, 1, 7};
 
 // No value twice in a row, over every range from 0r1 to 0rz and three
 // seeds, and every full bag a permutation of min..max, max included. 0r1
-// repeated about one bang in four before B6.
+// repeated about one bang in four before r kept a bag (v1.0.0).
 void test_sim_r_no_repeat(void) {
   enum { Bangs = 1000 };
   Glyph out[Bangs];
@@ -607,9 +608,9 @@ void test_sim_r_single_value(void) {
     CHECK(out[i] == 'C');
 }
 
-// The seed still drives r as B1 set it up: two runs of r_shared's patch at
-// the same seed give the same two sequences, and a different seed changes
-// each of them.
+// The seed still drives r, through prng_seed(seed, y, x): two runs of
+// r_shared's patch at the same seed give the same two sequences, and a
+// different seed changes each of them.
 void test_sim_r_seed(void) {
   enum { H = 4, W = 12, Ticks = 40 };
   static char const patch[H * W + 1] = "..D1.....D1."
@@ -682,7 +683,7 @@ void test_sim_r_case(void) {
   }
 }
 
-// The first bag of a new r: B1's seeding, prng_seed(seed, y, x), and its
+// The first bag of a new r: its seeding, prng_seed(seed, y, x), and its
 // Fisher-Yates shuffle, with no swap, since a zeroed entry has no last value.
 static void reference_first_bag(Usz seed, Usz y, Usz x, Usz n, U8 *bag) {
   Prng rng;
@@ -739,7 +740,7 @@ void test_sim_r_first_visit_and_clear(void) {
 
 // A patch with each stateful operator: a banged ; and r, an unbanged &, and
 // a note whose velocity is r's output, so the events depend on r's state
-// too. Since I3 the & holds only its anchor, which the same tick sets the
+// too. Since v2.0.0 the & holds only its anchor, which the same tick sets the
 // same way in every pass, so ; and r carry the state that can leak.
 enum { Patch_h = 6, Patch_w = 20 };
 static char const state_patch[Patch_h * Patch_w + 1] = "D1.....D1..........."
@@ -749,7 +750,7 @@ static char const state_patch[Patch_h * Patch_w + 1] = "D1.....D1..........."
                                                        "...................."
                                                        "....................";
 
-// The paused re-mark (AD-7): 100 preview passes, each on a fresh copy of
+// The paused re-mark: 100 preview passes, each on a fresh copy of
 // the live store, between two real ticks leave the second tick's grid and
 // events as they are with no preview. The same passes on the live store
 // would change them, through the ; step and the r bag, so the check can

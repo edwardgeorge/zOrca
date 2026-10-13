@@ -1,8 +1,9 @@
 #include "opstate.h"
 
-// I4's last_length keeps the arp payload within the union's largest member,
-// so an entry is no bigger (72 bytes on aarch64). C99 has no static_assert:
-// a false condition declares an array of size -1, which does not compile.
+// The arp payload, last_length (for its Length input) included, stays within
+// the union's largest member, so an entry is no bigger (72 bytes on
+// aarch64). C99 has no static_assert: a false condition declares an array
+// of size -1, which does not compile.
 typedef char opstate_arp_fits[sizeof(Opstate_arp) <= sizeof(Opstate_random)
                                   ? 1
                                   : -1];

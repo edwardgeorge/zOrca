@@ -1,10 +1,11 @@
-// Unit tests for ccout.c, the CC engine (spec items B3, CAP-8, and I2,
-// CAP-14; spine AD-9, AD-10): one test or more for each row of the stories'
-// I/O matrices, at the API level, on engines built on the stack. The
-// tick-level rows (rates 0 and z on the wire, the step-3 poll order, the
-// sub-tick poll) are in test_tick.c. The pause row is tick_pause's
-// ccout_cancel, tested in test_tick.c (tick_pause); that ged_set_playing
-// calls it is checked by code reading.
+// Unit tests for ccout.c, the CC engine: glides that continue from the last
+// value sent (v1.0.0), and glides that step between ticks under the CC
+// budget (v2.0.0). One test or more for each case of the engine's behaviour,
+// at the API level, on engines built on the stack. The tick-level cases
+// (rates 0 and z on the wire, the step-3 poll order, the sub-tick poll) are
+// in test_tick.c. The pause case is tick_pause's ccout_cancel, tested in
+// test_tick.c (tick_pause); that ged_set_playing calls it is checked by code
+// reading.
 //
 // Rate w (index 32) glides over 36 - 32 = 4 ticks, and one tick is 125 000 us
 // at 120 BPM, so a glide at w lasts 500 000 us. The budget holds 80 tokens
@@ -82,12 +83,13 @@ static bool is_idle(Ccout_engine const *e) {
   return !ccout_next_deadline(e, 0, &t) && e->active_count == 0;
 }
 
-// Matrix row "Continuity", and the spec Appendix's "advance 5 times" test
-// rewritten against ccout_poll: two glides on channel 0, CC 74, rate 32 (w),
-// to 64 and then, after the first completes, to 80, each polled 5 times, a
-// tick apart. 4f349cd sent 16, 32, 48, 64, then 20, 40, 60, 80: the second
-// glide restarted from 0. The engine first learns that the controller is at
-// 0 from an instant; with no last value, a glide jumps to its target.
+// Case "Continuity", and the "advance 5 times" repro of the glide that
+// restarted from 0, rewritten against ccout_poll: two glides on channel 0,
+// CC 74, rate 32 (w), to 64 and then, after the first completes, to 80, each
+// polled 5 times, a tick apart. 4f349cd sent 16, 32, 48, 64, then 20, 40, 60,
+// 80: the second glide restarted from 0. The engine first learns that the
+// controller is at 0 from an instant; with no last value, a glide jumps to its
+// target.
 void test_ccout_glide_continuity(void) {
   Ccout_engine e;
   ccout_init(&e);
@@ -118,7 +120,7 @@ void test_ccout_glide_continuity(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "From an instant": instant 100, then a glide to 50 at w. The
+// Case "From an instant": instant 100, then a glide to 50 at w. The
 // falling values round half up (87.5 gives 88, 62.5 gives 63).
 void test_ccout_glide_from_instant(void) {
   Ccout_engine e;
@@ -138,7 +140,7 @@ void test_ccout_glide_from_instant(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Unknown last value": on a fresh engine a glide sends its
+// Case "Unknown last value": on a fresh engine a glide sends its
 // target at once, from the submit, and starts no glide.
 void test_ccout_unknown_last_value(void) {
   Ccout_engine e;
@@ -183,7 +185,7 @@ void test_ccout_instant_rates(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Instant cancels": an instant during a glide goes out, and the
+// Case "Instant cancels": an instant during a glide goes out, and the
 // glide emits nothing more.
 void test_ccout_instant_cancels_glide(void) {
   Ccout_engine e;
@@ -204,7 +206,7 @@ void test_ccout_instant_cancels_glide(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "No-op": idle at 64, a glide to 64 sends nothing and starts
+// Case "No-op": idle at 64, a glide to 64 sends nothing and starts
 // nothing.
 void test_ccout_noop_submit(void) {
   Ccout_engine e;
@@ -223,11 +225,11 @@ void test_ccout_noop_submit(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "No-op catch-up" (I2): glide_hz holds the step to 1 at
-// t0 + 5 000, so a glide to 1 then equals the current value (the
-// interpolant) while the wire is still at 0. The no-op sends 1 at once, a
-// target emission, and ends the glide; then nothing more goes out. Before
-// I2 it sent nothing, and the wire stayed at 0 (AD-9, amended 2026-10-10).
+// Case "No-op catch-up": glide_hz holds the step to 1 at t0 + 5 000, so a glide
+// to 1 then equals the current value (the interpolant) while the wire is still
+// at 0. The no-op sends 1 at once, a target emission, and ends the glide; then
+// nothing more goes out. Before v2.0.0 it sent nothing, and the wire stayed
+// at 0 (rule 4 of a glide submit, ccout.h).
 void test_ccout_noop_step_held_back(void) {
   Ccout_engine e;
   ccout_init(&e);
@@ -249,7 +251,7 @@ void test_ccout_noop_step_held_back(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Early end": 64 to 65 at w reaches 65 at the second poll, which
+// Case "Early end": 64 to 65 at w reaches 65 at the second poll, which
 // ends the glide, so nothing goes out at t_end.
 void test_ccout_early_end(void) {
   Ccout_engine e;
@@ -273,7 +275,7 @@ void test_ccout_early_end(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "De-dup": 0 to 2 at rate 28 (8 ticks), polled each tick, sends
+// Case "De-dup": 0 to 2 at rate 28 (8 ticks), polled each tick, sends
 // exactly 1, then 2. 4f349cd sent 0, 1, 1, 1, 1, 2, 2, 2.
 void test_ccout_dedup(void) {
   Ccout_engine e;
@@ -329,7 +331,7 @@ static void run_glide_hz(Usz glide_hz, Usz want_count, U64 want_gap) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "glide_hz": 25 emissions at least 10 000 us apart at the
+// Case "glide_hz": 25 emissions at least 10 000 us apart at the
 // default, 100; 50 at least 5 000 us apart at 200.
 void test_ccout_glide_hz(void) {
   run_glide_hz(100, 25, 10000);
@@ -337,7 +339,7 @@ void test_ccout_glide_hz(void) {
   run_glide_hz(0, 25, 10000); // 0 means the default
 }
 
-// Matrix row "Fixed length": the same glide at two tick lengths, each polled
+// Case "Fixed length": the same glide at two tick lengths, each polled
 // once at t0 + 500 000: at 125 000 us a tick it has ended at 64; at 250 000
 // it is halfway, at 32.
 void test_ccout_fixed_length(void) {
@@ -359,7 +361,7 @@ void test_ccout_fixed_length(void) {
   }
 }
 
-// Matrix row "Retarget": a glide to 80 after the second poll of 0 to 64 at w
+// Case "Retarget": a glide to 80 after the second poll of 0 to 64 at w
 // starts from the interpolant, 32, and takes 4 more ticks.
 void test_ccout_retarget(void) {
   Ccout_engine e;
@@ -382,7 +384,7 @@ void test_ccout_retarget(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Same glide again": 0 to 64 at w, submitted again on every
+// Case "Same glide again": 0 to 64 at w, submitted again on every
 // tick after the poll, as the tick path does, runs undisturbed. Restarting
 // it on each bang sent 16, 28, 37, 44 ... and reached 64 after about 17
 // ticks.
@@ -430,7 +432,7 @@ void test_ccout_same_target_new_rate(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Same glide, new tempo": the same glide submitted again with a
+// Case "Same glide, new tempo": the same glide submitted again with a
 // new tick_len keeps its start and t_end.
 void test_ccout_same_glide_new_tempo(void) {
   Ccout_engine e;
@@ -450,7 +452,7 @@ void test_ccout_same_glide_new_tempo(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Cancel" (and, with ged_set_playing's ccout_cancel, "Pause"):
+// Case "Cancel" (and, with ged_set_playing's ccout_cancel, "Pause"):
 // cancel ends the glide and keeps the last value and the emission time; the
 // next glide starts from the last value sent.
 void test_ccout_cancel_keeps_last_value(void) {
@@ -489,7 +491,7 @@ void test_ccout_cancel_keeps_last_value(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Forget": after a forget the next glide jumps to its target,
+// Case "Forget": after a forget the next glide jumps to its target,
 // and a glide active at the forget continues, under the same emission times.
 void test_ccout_forget(void) {
   Ccout_engine e;
@@ -541,7 +543,7 @@ static bool deadline_is_first_change(Ccout_engine *e, U64 now, U64 want,
   return out->count > 0 || e->active_count < active;
 }
 
-// Matrix row "Deadline": false when idle; otherwise the exact earliest time a
+// Case "Deadline": false when idle; otherwise the exact earliest time a
 // poll emits or ends a glide. The cases: a held step, then a step that waits
 // for the value to move (0 to 2 at rate 28); a retarget from 33 toward 0
 // whose path crosses the last value, 32, first while glide_hz holds it back
@@ -660,7 +662,7 @@ void test_ccout_next_deadline(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Time goes back": after 32 goes out at t0 + 250 000, a poll at
+// Case "Time goes back": after 32 goes out at t0 + 250 000, a poll at
 // t0 + 240 000 sends nothing. An unguarded U64 subtraction would wrap past
 // the glide_hz gap and send the interpolant there, 31.
 void test_ccout_time_goes_back(void) {
@@ -699,7 +701,7 @@ void test_ccout_worst_case_magnitude(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Moving target": a slow glide (rate 1, 35 ticks) whose target
+// Case "Moving target": a slow glide (rate 1, 35 ticks) whose target
 // alternates 72 and 76, submitted after each tick's poll, as the tick path
 // does. Each submit is a retarget whose start keeps 16 fractional bits of
 // the interpolant, floored, so the value creeps up. A start rounded to a
@@ -923,7 +925,7 @@ static void take_seq(void *u, Oevent_list const *out, U64 t) {
   seq_take(u, out, t);
 }
 
-// Matrix row "CAP-14 glide": at 120 BPM (tick_len 125 000 us), instant 0,
+// Case "Sub-tick glide": at 120 BPM (tick_len 125 000 us), instant 0,
 // then 0 to 127 at rate 4 (32 ticks), polled at each deadline. The glide
 // lasts exactly 4 000 000 us and sends exactly 127 values after the
 // instant, 1 to 127, rising strictly and at least step_gap apart, and every
@@ -1021,7 +1023,7 @@ static void flood_glides(Ccout_engine *e, Usz count, U8 rate, U64 now,
                        127, rate, tick_us, glide_at_us, out);
 }
 
-// Matrix row "Flood": 200 controllers glide at once, 0 to 127 at w, from a
+// Case "Flood": 200 controllers glide at once, 0 to 127 at w, from a
 // full budget, polled at each deadline. In any window [t_i, t_j] of their
 // steps at most 80 + 800 (t_j - t_i) / 1 000 000 go out: in token-us, the
 // count times 1 250 is at most 100 000 + (t_j - t_i). Every glide still
@@ -1061,7 +1063,7 @@ void test_ccout_budget_flood(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Instant flood": instants on another controller, one every
+// Case "Instant flood": instants on another controller, one every
 // 500 us (2 000 per second, above the cap), from 200 000 us before a glide
 // on (Ch, Cc), 0 to 127 at w, until after its t_end; a poll follows each
 // instant. Every instant goes out, the balance floors at -80 tokens, the
@@ -1106,7 +1108,7 @@ static void spend_budget(Ccout_engine *e, U64 now, Oevent_list *out) {
     ccout_submit_instant(e, 1, cc, 0, now, out);
 }
 
-// Matrix row "Empty bucket": at T1 a step on (Ch, Cc) is due (glide_hz
+// Case "Empty bucket": at T1 a step on (Ch, Cc) is due (glide_hz
 // allows it, and the value has moved to 3) but the balance is 0 tokens.
 // ccout_next_deadline is the token time, T1 + 1 250; every poll in
 // [T1, T1 + 1 250) emits nothing, and the poll at T1 + 1 250 sends the step.
@@ -1127,7 +1129,7 @@ void test_ccout_budget_empty(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Time goes back" (the budget): with the balance at 0 tokens
+// Case "Time goes back" (the budget): with the balance at 0 tokens
 // from T1, an instant stamped 5 000 us earlier, and then a poll 4 000 us
 // earlier that sends a glide's target (on channel 1, CC 120, at y, its t_end
 // long past), still debit, but add no tokens and leave the refill time at
@@ -1162,7 +1164,7 @@ void test_ccout_budget_time_back(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Rotation": 20 controllers glide at once, 0 to 127 at y (2
+// Case "Rotation": 20 controllers glide at once, 0 to 127 at y (2
 // ticks), so their steps (100 a second each, 2 000 in all) outrun the
 // tokens (800). Polled at each deadline, every controller steps before
 // t_end, and their step counts differ by at most 1. Starting every poll at
@@ -1197,7 +1199,7 @@ void test_ccout_budget_rotation(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "Flood ends": while a glide runs on (Ch, Cc), 0 to 127 at rate
+// Case "Flood ends": while a glide runs on (Ch, Cc), 0 to 127 at rate
 // 28 (8 ticks, 1 000 000 us), 200 instants on other controllers at L drive
 // the balance to -80 tokens, then stop. The glide's next step goes out at
 // L + 101 250, when 81 tokens have refilled, leaving the balance at 0, and
@@ -1260,12 +1262,12 @@ void test_ccout_budget_lifecycle(void) {
   oevent_list_deinit(&out);
 }
 
-// Matrix row "No-op catch-up" when the budget, not glide_hz, held the step
-// back (AD-9 rule 4): with the balance at 0 tokens, the poll at T1 holds
-// the step from 0 to 1 of a glide to 64 at w, and moves the start slot to
-// it. A glide to 1 at T1 then equals the current value while the wire is
-// still at 0: the no-op sends 1 at T1, a target emission that needs no
-// token and debits the balance below 0, and ends the glide.
+// Case "No-op catch-up" when the budget, not glide_hz, held the step back
+// (rule 4 of a glide submit, ccout.h): with the balance at 0 tokens, the poll
+// at T1 holds the step from 0 to 1 of a glide to 64 at w, and moves the start
+// slot to it. A glide to 1 at T1 then equals the current value while the wire
+// is still at 0: the no-op sends 1 at T1, a target emission that needs no token
+// and debits the balance below 0, and ends the glide.
 void test_ccout_noop_budget_held_back(void) {
   enum { T0 = 1000000, T1 = T0 + 10000 };
   Ccout_engine e;
@@ -1289,9 +1291,10 @@ void test_ccout_noop_budget_held_back(void) {
   oevent_list_deinit(&out);
 }
 
-// A glide_hz change reaches a running glide (AD-9's "glide_hz change"): at
-// 100 Hz a glide from 0 to 127 at w steps at T1, and its next step is due
-// at T1 + 10 000; after ccout_configure(50) it is due at T1 + 20 000.
+// A glide_hz change reaches a running glide (every glide_hz change
+// configures the engine): at 100 Hz a glide from 0 to 127 at w steps at T1,
+// and its next step is due at T1 + 10 000; after ccout_configure(50) it is
+// due at T1 + 20 000.
 void test_ccout_glide_hz_change_applies(void) {
   enum { T0 = 1000000, T1 = T0 + 10000 };
   Ccout_engine e;
@@ -1313,12 +1316,12 @@ void test_ccout_glide_hz_change_applies(void) {
   oevent_list_deinit(&out);
 }
 
-// The start slot is the first slot a poll held back, in poll order
-// (AD-10): five controllers on channel 2, CCs 10 to 14, glide at w with
-// the balance at 0 tokens. The poll at T1 holds all five, and the next
-// starts at CC 10; a token later, the poll sends CC 10's step and holds
-// CCs 11 to 14, and the next starts at CC 11. Keeping the last slot held
-// would start at CC 14.
+// The start slot is the first slot a poll held back, in poll order (the
+// budget's rotation, so no slot always waits): five controllers on channel 2,
+// CCs 10 to 14, glide at w with the balance at 0 tokens. The poll at T1 holds
+// all five, and the next starts at CC 10; a token later, the poll sends CC 10's
+// step and holds CCs 11 to 14, and the next starts at CC 11. Keeping the last
+// slot held would start at CC 14.
 void test_ccout_budget_first_held_slot(void) {
   enum { T0 = 1000000, T1 = T0 + 10000, Chan = 2 };
   Ccout_engine e;
@@ -1342,7 +1345,8 @@ void test_ccout_budget_first_held_slot(void) {
   oevent_list_deinit(&out);
 }
 
-// examples/misc/glide_rate.orca's first second, as README's I2 changelog
+// examples/misc/glide_rate.orca's first second, as CHANGELOG.md's v2.0.0
+// entry "CC glides step between ticks, and a held-back final step is sent"
 // shows it: a glide at y (rate 34) on (Ch, Cc) whose target alternates 0
 // and 127, submitted on ticks 0 to 8, 125 000 us apart (120 BPM). Each tick
 // polls, then submits, as tick_body does; with subtick, the engine is also
@@ -1375,10 +1379,12 @@ static Usz first_in_tick(Seq const *seq, U64 k) {
   return i;
 }
 
-// README's I2 before/after (replay_glide_rate). Polled only at ticks, the
-// engine sends 8 CCs: 0 | | 64 | 32 | 79 | 40 | 83 | 42 | 84. Polled at
-// each deadline too, it sends 89: 0 | 1 6 11 16 21 26 31 36 41 46 51 56 61
-// | 62 59 57 54 … | 32 36 40 …
+// The before/after of CHANGELOG.md's v2.0.0 entry "CC glides step between
+// ticks, and a held-back final step is sent" (replay_glide_rate). Polled
+// only at ticks, the engine sends 8 CCs:
+//   0 | | 64 | 32 | 79 | 40 | 83 | 42 | 84.
+// Polled at each deadline too, it sends 89:
+//   0 | 1 6 11 16 21 26 31 36 41 46 51 56 61 | 62 59 57 54 … | 32 36 40 …
 void test_ccout_glide_rate_example(void) {
   Seq seq;
   replay_glide_rate(&seq, false);
@@ -1409,8 +1415,7 @@ void test_ccout_glide_rate_example(void) {
 
 // Only "50", "100" and "200" are glide_hz names, exactly, and each names its
 // rate back; anything else leaves the output alone, which orca.conf's
-// glide_hz key relies on: an unknown value is kept verbatim (spec item I2,
-// P3-4b).
+// glide_hz key relies on: an unknown value is kept verbatim.
 void test_ccout_glide_hz_names(void) {
   static char const *const names[] = {"50", "100", "200"};
   static Usz const rates[] = {50, 100, 200};

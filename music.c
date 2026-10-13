@@ -1,5 +1,5 @@
-// The scale and chord tables of `$` and `=` (architecture spine AD-19). See
-// music.h.
+// The scale and chord tables of `$` and `=`, the one source that sim.c,
+// tooltips.c and readme-gen read. See music.h.
 #include "music.h"
 #include "base.h"
 

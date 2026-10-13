@@ -1,15 +1,14 @@
 #pragma once
 #include "base.h"
 
-// The clock-follow machine (architecture spine AD-13, AD-15): bOrca's side of
-// an external MIDI clock. It is core: it reads no clock, does no I/O and keeps
-// no writable globals. The shell's input readers turn F8, FA, FB, FC and F2,
-// and an overflow of their input queue, into Transport_events, each stamped
-// with the shell's now_us() at read time, and pass them to transport_event
-// one at a time, applying each event's actions before the next (AD-15).
-// transport_poll handles the timeouts. The shell owns tick_num, is_playing
-// and the clock source; the machine owns the pulse phase, the 1 s clock-lost
-// timeout and the tempo estimate.
+// The clock-follow machine: bOrca's side of an external MIDI clock. It is core:
+// it reads no clock, does no I/O and keeps no writable globals. The shell's
+// input readers turn F8, FA, FB, FC and F2, and an overflow of their input
+// queue, into Transport_events, each stamped with the shell's now_us() at read
+// time, and pass them to transport_event one at a time, applying each event's
+// actions before the next. transport_poll handles the timeouts. The shell owns
+// tick_num, is_playing and the clock source; the machine owns the pulse phase,
+// the 1 s clock-lost timeout and the tempo estimate.
 //
 // Pulses. While running, the F8 at phase 0 makes a tick due, and the phase
 // then advances mod 6, so every sixth pulse is one Orca tick (a sixteenth).
@@ -73,8 +72,9 @@
 // change of validity also sets shown_changed, so the HUD redraws. That band
 // keeps the jitter of a BLE link from flickering the HUD.
 
-// The clock source (AD-15, AD-20). Internal is the default and the 4f349cd
-// timing path; External follows a MIDI clock through the transport machine.
+// The clock source, the clock_source setting. Internal is the default and the
+// 4f349cd timing path; External follows a MIDI clock through the transport
+// machine.
 typedef enum {
   Clock_source_internal = 0,
   Clock_source_external = 1,
@@ -110,10 +110,10 @@ typedef enum {
 typedef struct {
   Transport_type type;
   U16 value; // Transport_songpos: 0..16383 sixteenths, Orca ticks
-  U64 stamp; // the shell's now_us() at read time (AD-13)
+  U64 stamp; // the shell's now_us() at read time
 } Transport_event;
 
-// What the shell does with an event or a poll, in this order (AD-15): stop or
+// What the shell does with an event or a poll, in this order: stop or
 // clock lost (release notes, cancel glides, pause, keep tick_num); set tick;
 // reset anchors; start; then one tick body if a tick is due and the shell is
 // playing. No event sets conflicting fields. The estimate fields describe the

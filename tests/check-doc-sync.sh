@@ -1,6 +1,6 @@
 #!/bin/sh
-# Doc-sync check (architecture spine AD-19, AD-21): README.md's scale and
-# chord tables must be exactly what readme-gen prints from music.h.
+# Doc-sync check: README.md's scale and chord tables must be exactly what
+# readme-gen prints from music.h, their one source.
 #
 #   tests/check-doc-sync.sh <path-to-readme-gen> [README]
 #

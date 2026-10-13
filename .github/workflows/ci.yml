@@ -1,4 +1,4 @@
-# bOrca CI (spec item P0.4, architecture decision AD-21).
+# bOrca CI: the builds, the goldens, the unit tests and the checks.
 #
 # Runs for spec/borca-fixes, the working branch, and for main, bOrca's
 # release line from v1.0.0, which moves only at tagged releases; and for v*
@@ -120,7 +120,7 @@ jobs:
       - name: Golden suite on the release cli
         run: tests/run.sh build/cli
 
-      # P4-1: a grid the release cli cannot allocate ends it with exit 1 and
+      # A grid the release cli cannot allocate ends it with exit 1 and
       # the no-memory message, not a signal. The check builds an LD_PRELOAD
       # shim that fails every realloc above 4096 bytes and loads a 100 x 50
       # grid under it; its orca cases need a terminal and run on the device.
@@ -161,9 +161,9 @@ jobs:
           git diff --exit-code
           test -z "$(git status --porcelain)"
 
-      # B7's non-empty rule: every example outside examples/upstream/ sends an
-      # event or changes its grid in 64 ticks, or is one of the exceptions
-      # the script names; a crash or sanitizer report fails it.
+      # The examples' non-empty rule: every example outside examples/upstream/
+      # sends an event or changes its grid in 64 ticks, or is one of the
+      # exceptions the script names; a crash or sanitizer report fails it.
       - name: Every example does something (debug cli)
         run: tests/check-examples.sh build/debug/cli
 
@@ -345,14 +345,14 @@ jobs:
           fi
           test -z "$(git status --porcelain)"
 
-      # The upstream dialect against Orca-c 9df9786 itself (CAP-13, spine
-      # AD-21). build-cli.sh builds Orca-c's cli with --events and --seed,
-      # fetching the commit by URL, since the checkout is shallow. compare.sh
-      # checks that the two events_print copies are one file, runs all 43
-      # of Orca-c's examples through both cli for 96 ticks (bOrca's with
-      # --dialect upstream) and fails on any byte difference or if fewer
-      # than 43 ran, and checks that the upstream goldens and examples and
-      # the six named exceptions are still Orca-c's.
+      # The upstream dialect against Orca-c 9df9786 itself. build-cli.sh builds
+      # Orca-c's cli with --events and --seed, fetching the commit by URL,
+      # since the checkout is shallow. compare.sh checks that the two
+      # events_print copies are one file, runs all 43 of Orca-c's examples
+      # through both cli for 96 ticks (bOrca's with --dialect upstream) and
+      # fails on any byte difference or if fewer than 43 ran, and checks that
+      # the upstream goldens and examples and the six named exceptions are
+      # still Orca-c's.
       - name: Build Orca-c 9df9786's cli
         run: tests/upstream/build-cli.sh
 
@@ -455,7 +455,7 @@ jobs:
 
       # The README's scale and chord tables, between its tables:begin and
       # tables:end markers, must be exactly what readme-gen prints from
-      # music.h (spine AD-19).
+      # music.h, their one source.
       - name: Build readme-gen
         run: CFLAGS_EXTRA=-Werror ./tool build readme-gen
 
@@ -498,20 +498,21 @@ jobs:
             exit 1
           fi
 
-      # AD-2 and AD-1 over every file in ./tool sources core; the expected
-      # failures are listed in tests/xfail/. They need no build, so they run
-      # before the unit-test builds and a failing build cannot hide them.
+      # The core include and no-writable-globals checks over every file in
+      # ./tool sources core; the expected failures are listed in tests/xfail/.
+      # They need no build, so they run before the unit-test builds and a
+      # failing build cannot hide them.
       - name: Core include allow-list check (with canary)
         run: tests/check-includes.sh
 
       - name: Core no-writable-globals check (nm, with canary)
         run: tests/check-nm.sh
 
-      # Which keys a save writes is decided once, by tui_prefs_saves_key
-      # (P4-2): tui_save_prefs in tui_main.c, which no test target compiles,
-      # must call it exactly once, as tui_prefs_saves_key(&t->prefs, ...),
-      # and hold no save test of its own on the touched bits or the PortMidi
-      # output key (TOUCHFLAG(i), prefs.touched, i == / !=
+      # Which keys a save writes is decided once, by tui_prefs_saves_key:
+      # tui_save_prefs in tui_main.c, which no test target compiles, must call
+      # it exactly once, as tui_prefs_saves_key(&t->prefs, ...), and hold no
+      # save test of its own on the touched bits or the PortMidi output key
+      # (TOUCHFLAG(i), prefs.touched, i == / !=
       # Confopt_portmidi_output_device). The function's body runs from its
       # definition line to the next line that is a lone closing brace.
       - name: tui_save_prefs writes the keys tui_prefs_saves_key names (grep)
@@ -531,7 +532,7 @@ jobs:
             exit 1
           fi
 
-      # P4-3: pins the arguments tui_main.c passes to tick_stop,
+      # Pins the arguments tui_main.c passes to tick_stop,
       # clock_out_toggle and clock_out_return_internal; needs no build, no xfail.
       - name: Shell argument check on tui_main.c (with canary)
         run: tests/check-shell-args.sh
@@ -649,7 +650,7 @@ jobs:
           fi
           tests/check-debug-build.sh build/debug/unit_tests "$log"
 
-      # A build has at most one hardware MIDI backend (spine AD-17). The
+      # A build has at most one hardware MIDI backend. The
       # error this step prints is the expected outcome.
       - name: Check that --alsa and --portmidi exclude each other
         run: |
@@ -675,7 +676,7 @@ jobs:
         run: CFLAGS_EXTRA=-Werror ./tool build -d --alsa orca
 
       # A client name over 63 bytes (ALSA keeps 63 and cuts a longer one short
-      # without an error) is refused before the sequencer is opened (P3-7).
+      # without an error) is refused before the sequencer is opened.
       # ALSA_CONFIG_PATH=/nonexistent makes snd_seq_open fail, so the refusal
       # shows only if the length check comes first; no sequencer is needed.
       - name: ALSA orca refuses a 200-byte client name before opening ALSA
@@ -856,7 +857,7 @@ jobs:
 
       # orca takes --dialect borca or upstream only; any other value exits 1
       # with its error on stderr, before curses starts and before the ALSA
-      # client opens (CAP-13).
+      # client opens.
       - name: orca rejects a bad --dialect value
         run: |
           err="$RUNNER_TEMP/orca_bad_dialect.err"
@@ -948,17 +949,16 @@ jobs:
 
   # The debug cli and the unit runner under clang's UBSan, whose
   # pointer-overflow check reports NULL + 0 where gcc's does not, so the
-  # empty-list guard in tick_release_all is machine-checked (deferred-work
-  # #19). tool honours $CC, and CFLAGS_EXTRA lands after tool's own
-  # sanitizer flags, so it turns off clang's implicit-conversion and
-  # unsigned-integer-overflow checks: unsigned wrap is defined C, which
-  # prng.h's PCG32 relies on, and neither check is about UB. No -Werror:
-  # the gcc legs own it, and a clang warning is a ledger entry for Ian, not
-  # a flag. check-nm.sh, check-includes.sh and check-shell-args.sh call gcc
-  # by name, so the gcc legs own them too, with the examples, doc-sync,
-  # upstream and shellcheck steps. The last step proves the leg can fail: in
-  # a copy of the tree with the guard deleted, the runner must abort on
-  # NULL + 0.
+  # empty-list guard in tick_release_all is machine-checked. tool honours $CC,
+  # and CFLAGS_EXTRA lands after tool's own sanitizer flags, so it turns off
+  # clang's implicit-conversion and unsigned-integer-overflow checks: unsigned
+  # wrap is defined C, which prng.h's PCG32 relies on, and neither check is
+  # about UB. No -Werror: the gcc legs own it, and a clang warning is noted for
+  # the maintainer, not fixed or silenced. check-nm.sh, check-includes.sh and
+  # check-shell-args.sh call gcc by name, so the gcc legs own them too, with
+  # the examples, doc-sync, upstream and shellcheck steps. The last step proves
+  # the leg can fail: in a copy of the tree with the guard deleted, the runner
+  # must abort on NULL + 0.
   clang:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -999,7 +999,7 @@ jobs:
 
       # No -Werror on this job, so its warnings would scroll by unseen: this
       # step prints each one as an annotation, with a count, and never fails.
-      # A clang warning is a ledger entry for Ian, not a flag or a fix.
+      # A clang warning is noted for the maintainer, not fixed or silenced.
       - name: Report clang warnings (non-fatal)
         if: always()
         run: |
@@ -1069,9 +1069,9 @@ jobs:
           fi
 
   # 32-bit ARM (Pi Zero 2W), where Usz is 32-bit: the one job that runs the
-  # unit tests at that width (P3-6, deferred-work #14). prng.h promises that
+  # unit tests at that width. prng.h promises that
   # a 32-bit Usz gives the PRNG lowercase r draws from the same sequence as
-  # a 64-bit one (spine AD-8), and test_prng_seed_fixed_vectors pins
+  # a 64-bit one, and test_prng_seed_fixed_vectors pins
   # prng_seed's first outputs, so the job builds the release unit runner
   # statically with arm-linux-gnueabihf-gcc through tool, checks with
   # readelf that it is a static 32-bit ARM binary, and runs it under
@@ -1082,7 +1082,7 @@ jobs:
   # Release, not debug: ASan does not run under qemu-user. The job never
   # builds or runs cli, so the R and ; pattern c goldens, which assume a
   # 64-bit Usz, stay out of it. The job is required: a red result fails
-  # the run (optional before P3-6's first green run).
+  # the run (it was optional until its first green run, in v3.0.0).
   #
   # The compile step checks each source's portability, cli and readme-gen
   # included, one file at a time. It calls the cross compiler directly, with
@@ -1090,7 +1090,7 @@ jobs:
   # cc_flags -std=c99 ..." lines), plus its release -O2 -DNDEBUG and
   # -Werror, which must be kept in sync with it, and, for sysmisc.c alone,
   # the test target's own -isystem thirdparty and -D_POSIX_C_SOURCE=200809L,
-  # without which it fails on oso.h and on popen (P4-4); every other file
+  # without which it fails on oso.h and on popen; every other file
   # keeps the strict -std=c99 check. It ignores CFLAGS_EXTRA and
   # leaves out the rest of tool's release flags (-g0, the fortify and
   # stack-protector overrides, -no-pie), and Ubuntu's cross gcc enables some

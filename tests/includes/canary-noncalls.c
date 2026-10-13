@@ -1,5 +1,5 @@
-// The non-call canary for tests/check-includes.sh (architecture spine
-// AD-1, AD-2). random, initstate and setstate are banned as calls only: the
+// The non-call canary for tests/check-includes.sh (the core purity rules).
+// random, initstate and setstate are banned as calls only: the
 // name, then optional white space and "(". This file holds the three only
 // as words that are not calls, as CORE does (the R operator's X-macro token
 // random, prng.h's parameter name initstate) and more, and none of the

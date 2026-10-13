@@ -3,10 +3,9 @@
 #include "music.h"
 #include "portlabel.h"
 
-// The tooltips (spec item I5, spine AD-19): the text the HUD shows for the
-// port under the cursor, read from the label buffer the VM filled
-// (portlabel.h, Orca_run_ctx.labels), and where each line goes on a HUD row.
-// tooltips.c is testable shell (spine AD-1, AD-2, AD-21): it obeys the core
+// The tooltips: the text the HUD shows for the port under the cursor, read from
+// the label buffer the VM filled (portlabel.h, Orca_run_ctx.labels), and where
+// each line goes on a HUD row. tooltips.c is testable shell: it obeys the core
 // include allow-list, does no I/O and keeps no writable globals, so the unit
 // runner links it. Every result goes into a buffer the caller supplies.
 

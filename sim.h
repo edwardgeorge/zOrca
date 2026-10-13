@@ -4,7 +4,7 @@
 #include "portlabel.h"
 #include "vmio.h"
 
-// The operator list orca_run runs (architecture spine AD-18). Zero is bOrca,
+// The operator list orca_run runs, one per dialect. Zero is bOrca,
 // so a zero-initialized context runs bOrca's operators.
 //   borca:    bOrca's list: ! (CC with glides), $, ; (arpeggiator),
 //             = (midichord), & and the shuffle-bag r.
@@ -16,15 +16,15 @@ typedef enum {
   Orca_dialect_upstream = 1,
 } Orca_dialect;
 
-// What orca_run takes beyond its first seven arguments (architecture spine
-// AD-4). The pointer is valid for one call and core keeps nothing between
-// calls; the data it points to stays mutable. Later fields default to their
-// zero value. The op-state store is the exception: it is required, and debug
-// builds assert it.
+// What orca_run takes beyond its first seven arguments, in one context struct.
+// The pointer is valid for one call and core keeps nothing between calls; the
+// data it points to stays mutable. Later fields default to their zero value.
+// The op-state store is the exception: it is required, and debug builds assert
+// it.
 typedef struct {
   Opstate_store *opstate; // the per-cell state of &, ; and r (opstate.h)
   Orca_dialect dialect;   // the operator list, chosen once per call
-  // The label buffer (portlabel.h, spine AD-19): height x width cells that
+  // The label buffer (ids from portlabel.h): height x width cells that
   // the caller owns and clears with the marks (tick_run_vm, tick.h). Every
   // PORT records its label id and owner into it. NULL, the default, records
   // nothing; cli passes NULL, and the marks, grid and events are the same

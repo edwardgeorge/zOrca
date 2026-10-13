@@ -1,4 +1,4 @@
-// The allocation shim for tests/realloc-shim/check.sh (P4-1, P5-1): an
+// The allocation shim for tests/realloc-shim/check.sh: an
 // LD_PRELOAD library that fails every realloc above SHIM_REALLOC_MAX bytes
 // and every malloc above SHIM_MALLOC_MAX bytes with ENOMEM (each unset or
 // empty: none fails), as an allocator out of memory would. A malloc within

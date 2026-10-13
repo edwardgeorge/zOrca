@@ -27,7 +27,7 @@ static inline Glyph glyph_of(Usz index) {
   return glyph_table[index];
 }
 
-// A glyph's value: gbuffer.h's glyph_index_of, the one table (AD-19).
+// A glyph's value: gbuffer.h's glyph_index_of, the one table.
 static ORCA_FORCEINLINE Usz index_of(Glyph c) { return glyph_index_of(c); }
 
 // Reference implementation (test_core.c's glyph_index_of_reference checks
@@ -76,7 +76,7 @@ static U8 midi_note_number_of(Glyph g) {
   return (U8)(deg / 7 * 12 + (I8[]){0, 2, 4, 5, 7, 9, 11}[deg % 7] + sharp);
 }
 
-// The velocity of `:`, `%` and `=` (CAP-10). `.` is 127. The value comes
+// The one velocity mapping of `:`, `%` and `=`. `.` is 127. The value comes
 // from index_of, which folds case (`F` is `f`) and ignores the top bit, so a
 // byte 0x80 or above reads like its low seven bits. A glyph worth 0, `0` or
 // any other glyph that is not 0-9, a-z or A-Z, returns 0: send no note. Any
@@ -103,7 +103,7 @@ typedef struct {
   Port_label_cell *labels;
 } Oper_extra_params;
 
-// PORT's record (portlabel.h, spine AD-19): the label id and the owner's
+// PORT's record (portlabel.h holds the ids): the label id and the owner's
 // offset go into the port's cell when the caller gave a buffer and the cell
 // is in the grid, the bounds the mark uses. An input that is not an output
 // replaces any record; any other port replaces only a record that counted
@@ -211,11 +211,11 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
   } while (0)
 //////// Operators
 
-// The operator lists, one per dialect (architecture spine AD-18; sim.h's
-// Orca_dialect). Each dialect runs the shared lists plus its own. orca_run
-// picks one dialect's lists once per call, outside the cell loop, so no
-// operator body reads the dialect. An ALPHA list names the uppercase glyph,
-// and ALPHA_CASE sends its lowercase to the same body.
+// The operator lists, one per dialect (sim.h's Orca_dialect). Each dialect
+// runs the shared lists plus its own. orca_run picks one dialect's lists
+// once per call, outside the cell loop, so no operator body reads the
+// dialect. An ALPHA list names the uppercase glyph, and ALPHA_CASE sends its
+// lowercase to the same body.
 #define SHARED_UNIQUE_OPERATORS(_)                                             \
   _('#', comment)                                                              \
   _('%', midi)                                                                 \
@@ -1052,14 +1052,13 @@ static Usz get_arp_degree(ArpPatternType pattern, Usz step, Usz total_degrees,
   }
 }
 
-// The arpeggiator (CAP-16, I4). Length is the number of notes per octave of
-// the $ it feeds, `.` for 7; total degrees = min(Length x Range, 36), so the
-// output is always one glyph. Step `.` steps the cell's own counter in the
-// op-state store; any other glyph is the step itself, and then the store is
-// not touched (spine AD-5, AD-7), so Ctrl+R, a file open or the paused
-// preview cannot change the output. The counter resumes where it stopped
-// when Step goes back to `.`, and restarts when Pattern, Range or Length
-// changes.
+// The arpeggiator. Length is the number of notes per octave of the $ it feeds,
+// `.` for 7; total degrees = min(Length x Range, 36), so the output is always
+// one glyph. Step `.` steps the cell's own counter in the op-state store; any
+// other glyph is the step itself, and then the store is not touched, so
+// Ctrl+R, a file open or the paused preview cannot change the output. The
+// counter resumes where it stopped when Step goes back to `.`, and restarts
+// when Pattern, Range or Length changes.
 BEGIN_OPERATOR(arpeggiator)
   LOWERCASE_REQUIRES_BANG;
   PORT(0, 1, IN | PARAM, Port_label_range);   // Range (1-4)
@@ -1096,7 +1095,7 @@ BEGIN_OPERATOR(arpeggiator)
     return;
   }
 
-  // This cell's state, from the caller's op-state store (AD-5)
+  // This cell's state, from the caller's op-state store
   Opstate_entry *entry = opstate_lookup(extra_params->ctx->opstate, y, x,
                                         This_oper_char);
   if (!entry)
@@ -1126,8 +1125,8 @@ END_OPERATOR
 
 // BOORCH's new Random Unique. Each lowercase r keeps its own bag in its
 // op-state entry (Opstate_random) and shuffles it with its own PRNG, seeded
-// from random_seed and the cell on its first visit (AD-8). It never sends one
-// value twice in a row unless min equals max (B6).
+// from random_seed and the cell on its first visit (prng.h). It never sends
+// one value twice in a row unless min equals max.
 
 // Fisher-Yates shuffle of the bag.
 static void shuffle_sequence(U8 *array, Usz n, Prng *prng) {
@@ -1175,7 +1174,7 @@ static void initialize_sequence(Opstate_random *state, Usz min, Usz max) {
 }
 
 // Uppercase R in both dialects, and upstream's banged r: Orca-c 9df9786's
-// body, unchanged, so both dialects keep its hash (spine AD-8). The output
+// body, unchanged, so both dialects keep its hash. The output
 // is min up to, but not including, max; a max of 0 counts as 36, and the
 // output takes the max's case unless min equals max.
 static ORCA_FORCEINLINE void
@@ -1232,14 +1231,14 @@ BEGIN_OPERATOR(random)
       return;
     }
 
-    // This cell's state, from the caller's op-state store (AD-5)
+    // This cell's state, from the caller's op-state store
     Opstate_entry *entry = opstate_lookup(extra_params->ctx->opstate, y, x,
                                           This_oper_char);
     if (!entry)
       return;
     Opstate_random *state = &entry->u.random;
 
-    // First visit: seed this cell's generator (AD-8)
+    // First visit: seed this cell's generator (prng.h)
     if (!state->initialized)
       prng_seed(&state->prng, extra_params->random_seed, y, x);
 
@@ -1280,14 +1279,14 @@ BEGIN_OPERATOR(random)
   }
 END_OPERATOR
 
-// Orca-c 9df9786's R and r, the upstream dialect's (CAP-13): r is a banged R.
+// Orca-c 9df9786's R and r, the upstream dialect's: r is a banged R.
 BEGIN_OPERATOR(random_upstream)
   LOWERCASE_REQUIRES_BANG;
   random_hashed(gbuffer, mbuffer, height, width, y, x, Tick_number,
                 extra_params);
 END_OPERATOR
 
-// BOORCH's BOUNCER OP, tempo-synced since I3 (CAP-15, spine AD-5, AD-6).
+// BOORCH's BOUNCER OP, tempo-synced since v2.0.0 (its rate counts beats).
 // Predefined waveform sequences: one cycle of each shape in 128 steps, each
 // step the output glyph over the full range 0-z. The table is kept as it was
 // written, quirks included, so each shape keeps its documented look.
@@ -1326,7 +1325,7 @@ enum { Ticks_per_beat = 4 };
 // the last neighbouring bang, and 0 in a new entry, so a fresh & lines up
 // with tick 0 and every & with the same rate is in step. A rate or shape
 // change keeps the anchor. The shell sets every anchor back to 0 on an
-// external MIDI start or song position (opstate_reset_anchors, AD-6).
+// external MIDI start or song position (opstate_reset_anchors).
 BEGIN_OPERATOR(bouncer)
   PORT(0, 1, IN | PARAM, Port_label_start); // Start value (a)
   PORT(0, 2, IN | PARAM, Port_label_end); // End value (b)
@@ -1342,7 +1341,7 @@ BEGIN_OPERATOR(bouncer)
   if (start_g == '.' || end_g == '.')
     return;
 
-  // This cell's state, from the caller's op-state store (AD-5)
+  // This cell's state, from the caller's op-state store
   Opstate_entry *entry = opstate_lookup(extra_params->ctx->opstate, y, x,
                                         This_oper_char);
   if (!entry)
@@ -1387,12 +1386,12 @@ BEGIN_OPERATOR(bouncer)
   POKE(1, 0, glyph_of(output_value));
 END_OPERATOR
 
-//////// The upstream dialect's own operators (CAP-13)
+//////// The upstream dialect's own operators
 
 // Orca-c 9df9786's !, ; and = bodies, unchanged but for PORT's label (so !
 // names its three input ports one by one), so the upstream dialect's events,
-// grid and locks match Orca-c's (spine AD-18, AD-21). Its R and r are
-// random_upstream, above.
+// grid and locks match Orca-c's, as the upstream goldens check. Its R and r
+// are random_upstream, above.
 
 // A plain CC from three inputs: channel, control, and a value 0-z scaled to
 // 0-127 by x 127 / 35. Never a glide.
@@ -1523,7 +1522,7 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
 
 // The cell loop, over one dialect's lists: the shared ones plus the
 // dialect's own. It is instantiated once per dialect and chosen once per
-// call (spine AD-18), so the per-cell dispatch is the same switch either way.
+// call, so the per-cell dispatch is the same switch either way.
 #define CELL_LOOP(_dialect_unique_list, _dialect_alpha_list)                   \
   for (Usz iy = 0; iy < height; ++iy) {                                        \
     Glyph const *glyph_row = gbuf + iy * width;                                \

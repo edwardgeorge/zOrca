@@ -1,6 +1,6 @@
 #!/bin/sh
-# Shell argument check (P4-3): pins the arguments tui_main.c passes to the
-# three clock-out helpers P3-4a moved under unit test, tick_stop (tick.c),
+# Shell argument check: pins the arguments tui_main.c passes to the three
+# clock-out helpers that moved under unit test in v3.0.0, tick_stop (tick.c),
 # clock_out_toggle and clock_out_return_internal (midi_in.h). No test target
 # compiles tui_main.c, and the unit tests give the helpers arguments they
 # compute themselves, so a wrong argument here passes every build and test.

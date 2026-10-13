@@ -1,4 +1,4 @@
-// The canary for tests/check-shell-args.sh (P4-3). It is never compiled: no
+// The canary for tests/check-shell-args.sh. It is never compiled: no
 // build target, tool list or include names it, and it would not compile on
 // its own. The check scans it first, the same way as tui_main.c, and on every
 // run each function below but canary_ok must fail exactly once, through the
@@ -110,8 +110,8 @@ static void canary_call_if0(Ged *a) {
 #endif
 }
 
-// An outer default from the stored setting, the predicate only on one path
-// (the review's p-outer-init shape).
+// An outer default from the stored setting, the predicate only on one path:
+// the gate's local is initialised before the branch and reassigned in it.
 static void canary_gate_outer_default(Ged *a, bool playing) {
   bool clock_out = a->clock_out.enabled;
   if (playing) {

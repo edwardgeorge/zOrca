@@ -1,6 +1,5 @@
 // Unit tests for field.c, the shell's grid and mark buffers. tool links
-// field.c into the runner outside the CORE list: it is libc-only shell code
-// (P4-1).
+// field.c into the runner outside the CORE list: it is libc-only shell code.
 #ifdef UNIT_TESTS_REALLOC_HOOK
 #define _POSIX_C_SOURCE 200809L // mkstemp, open, write, close, unlink
 #endif
@@ -12,7 +11,7 @@
 #endif
 
 #ifdef UNIT_TESTS_REALLOC_HOOK
-// P4-1: grid and mark buffers that cannot grow. The runner's realloc hook
+// Grid and mark buffers that cannot grow. The runner's realloc hook
 // (alloc_hook.c) returns NULL from every realloc while unit_realloc_fail is
 // set; each part arms it just before the call under test, disarms it right
 // after, before any CHECK, and checks how many reallocs ran in its window.

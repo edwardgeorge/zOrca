@@ -8,12 +8,12 @@
 #include <alsa/asoundlib.h>
 
 // Proves that the FEAT_ALSA test build compiles, links and runs libasound
-// code, and pins the open-mode facts I6's duplex client relies on.
+// code, and pins the open-mode facts the duplex client (MIDI in) relies on.
 void test_alsa_version_and_open_modes(void) {
   char const *version = snd_asoundlib_version();
   CHECK(version != NULL);
   CHECK(version != NULL && version[0] != '\0');
-  // I6 reopens the client duplex; duplex must be exactly output plus input.
+  // The client opens duplex for MIDI in: exactly output plus input.
   int duplex = SND_SEQ_OPEN_DUPLEX;
   int output = SND_SEQ_OPEN_OUTPUT;
   int input = SND_SEQ_OPEN_INPUT;
@@ -43,7 +43,7 @@ static bool maps_to_nothing(snd_seq_event_type_t type) {
   return !alsa_in_map_event(&ev, 77, &te) && te.stamp == 99;
 }
 
-// The event mapping (I6, AD-17): CLOCK, START, CONTINUE, STOP and SONGPOS,
+// The event mapping: CLOCK, START, CONTINUE, STOP and SONGPOS,
 // whose value is clamped to 0..16383; every other event maps to nothing.
 void test_alsa_in_mapping(void) {
   CHECK(maps_to(SND_SEQ_EVENT_CLOCK, 0, Transport_clock, 0));
@@ -82,7 +82,7 @@ static snd_seq_event_t unsub_event(int sender_client, int sender_port,
   return ev;
 }
 
-// The announce helper (I6, AD-17) with a stored address 20:0 and MIDI in at
+// The announce helper with a stored address 20:0 and MIDI in at
 // 130:1: cleared on CLIENT_EXIT of its client, PORT_EXIT of its address and
 // PORT_UNSUBSCRIBED of its connection; kept for another client; a re-match
 // asked on PORT_START only while nothing is stored.
@@ -123,7 +123,7 @@ static bool splits_to(char const *name, char const *client, char const *port) {
          strncmp(name, client, client_len) == 0 && strcmp(got_port, port) == 0;
 }
 
-// The `client:port` split (I6, AD-17): at the last ':', both sides non-empty.
+// The `client:port` split: at the last ':', both sides non-empty.
 void test_alsa_in_split(void) {
   CHECK(splits_to("Midi Through:Midi Through Port-0", "Midi Through",
                   "Midi Through Port-0"));
@@ -169,7 +169,7 @@ static int scan_of(Name_step const *steps, Usz count, Usz *calls) {
   return r;
 }
 
-// The client-name scan (P3-5, AD-17), with own client 128 named p35: free
+// The client-name scan, with own client 128 named p35: free
 // when the list ends on -ENOENT with only the own client of that name, or
 // with other clients whose names only resemble it, or at once; taken as soon
 // as another client has it; a scan error before the end of the list is
@@ -212,7 +212,7 @@ void test_alsa_name_scan(void) {
   CHECK(calls == 1);
 }
 
-// The client-name length limit (P3-7): the sequencer keeps 63 bytes, so a
+// The client-name length limit: the sequencer keeps 63 bytes, so a
 // 63-byte name fits and a 64- or 200-byte one does not. The names are built
 // with literal lengths, never from Alsa_client_name_max. The limit is in
 // bytes: with a two-byte UTF-8 character at the end, 63 bytes fit and 64 do

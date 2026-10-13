@@ -1,5 +1,5 @@
 // LD_PRELOAD shim for the ALSA name-guard device check,
-// tests/alsa-guard/devcheck.sh (from P3-5, story 27, "ALSA name guard"). It
+// tests/alsa-guard/devcheck.sh (the ALSA name guard, since v3.0.0). It
 // wraps three libasound calls that alsa_ctx_open makes, by mode in
 // BORCA_GUARD_SHIM:
 //

@@ -1,6 +1,6 @@
 // readme-gen: prints the Markdown that sits between README.md's
-// <!-- tables:begin --> and <!-- tables:end --> markers, built from music.h
-// (architecture spine AD-19). tests/check-doc-sync.sh diffs this output
+// <!-- tables:begin --> and <!-- tables:end --> markers, built from music.h,
+// the tables' one source. tests/check-doc-sync.sh diffs this output
 // against the README, so the tables cannot drift from what `$` and `=` play.
 //
 //   ./tool build readme-gen && build/readme-gen

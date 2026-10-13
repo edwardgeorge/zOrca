@@ -5,9 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-// The orca.conf settings (P3-4b, spine AD-20). Testable shell: no I/O, no
-// clock, no writable statics, and only the core include allow-list, so the
-// unit runner links this file (spine AD-1, AD-2, AD-21). See tui_prefs.h.
+// The orca.conf settings. Testable shell: no I/O, no clock, no writable
+// statics, and only the core include allow-list, so the unit runner links
+// this file. See tui_prefs.h.
 
 #define CONFOPT_STRING(x) #x,
 char const *const confopts[Confoptslen] = {TUI_PREFS_KEYS(CONFOPT_STRING)};
@@ -173,7 +173,7 @@ bool tui_prefs_read_line(Tui_prefs *p, Confopt key, char const *value) {
     break;
   case Confopt_clock_source: {
     // External in a build with no input reader is refused and its line
-    // kept, which leaves Internal (AD-20).
+    // kept, which leaves Internal.
     Clock_source source;
     if (!clock_source_from_name(value, &source) ||
         (source == Clock_source_external && !p->has_midi_in))

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Non-empty check for the bOrca examples (spec item B7, amendments.md B7).
+# Non-empty check for the bOrca examples.
 #
 #   tests/check-examples.sh <path-to-cli>
 #
@@ -21,13 +21,13 @@
 # shared through tests/lib.sh, and the non-zero exit is this script's own.
 # examples/upstream/ is skipped: those patches need --dialect upstream, and
 # their tests/run.sh goldens, which pass and hold event lines, prove that
-# each does something there (CAP-13).
+# each does something there.
 #
 # Exit status: 0 when every file passes or is a listed exception that still
 # fails the rule, 1 otherwise, 2 on usage.
 set -u
 
-# The named exceptions (Ian's decision, 2026-10-10): one per line, the path
+# The named exceptions, chosen on 2026-10-10: one per line, the path
 # relative to the repository root, then its reason. They stay byte-identical
 # to upstream Orca-c's examples, which tests/upstream/compare.sh checks with
 # its own copy of this list.

@@ -1,6 +1,6 @@
-// The canary for tests/check-nm.sh (architecture spine AD-1). The check must
-// flag each of the four symbols below by name on every run; if it misses one,
-// the check is blind to that symbol class and fails.
+// The canary for tests/check-nm.sh. The check must flag each of the four
+// symbols below by name on every run; if it misses one, the check is blind
+// to that symbol class and fails.
 //
 // One writable symbol per class: a zero-initialised static (b), an
 // initialised static (d), a zero-initialised external (B; the explicit

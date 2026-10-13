@@ -1,8 +1,8 @@
-// Unit tests for the arpeggiator's Length and Step inputs (spec item I4,
-// CAP-16; spine AD-5, AD-7), run through orca_run with a caller-owned store:
-// one test per row of the story's I/O matrix, plus a sweep over every
-// pattern, range 1-4 and Length `.` and `0`-`z`, at every Step and over 150
-// counter bangs.
+// Unit tests for the arpeggiator's Length and Step inputs (v2.0.0), run
+// through orca_run with a caller-owned op-state store, the one store a run
+// keeps, which a preview copies rather than shares (opstate.h): one test per
+// case of how the two inputs behave, plus a sweep over every pattern, range
+// 1-4 and Length `.` and `0`-`z`, at every Step and over 150 counter bangs.
 #include "../../gbuffer.h"
 #include "../../opstate.h"
 #include "../../sim.h"
@@ -84,10 +84,10 @@ static void rig_bangs(Rig *r, Usz n, char *out) {
   out[n] = '\0';
 }
 
-// CAP-16: ;103 (range 1, Up, Length 3) banged on every tick into $3Ca, the
-// C major triad, gives the degrees 0 1 2 0 1 2 ..., and the : plays 36 40 43,
-// repeating every 3 bangs. Before I4 the 7-degree range played 36 40 43 48
-// 52 55 60.
+// An arpeggio that fits its chord: ;103 (range 1, Up, Length 3) banged on
+// every tick into $3Ca, the C major triad, gives the degrees 0 1 2 0 1 2 ...,
+// and the : plays 36 40 43, repeating every 3 bangs. Before ; took a Length
+// (v2.0.0), the 7-degree range played 36 40 43 48 52 55 60.
 enum { Cap_h = 4, Cap_w = 13 };
 static char const cap16_patch[Cap_h * Cap_w + 1] = ".......D1...."
                                                    "........;103."
@@ -257,12 +257,13 @@ void test_arp_step_star(void) {
   rig_free(&r);
 }
 
-// With Step set the store is never looked up (AD-5, AD-7): 100 passes run
-// straight on the live store at a banged tick, as a leaky preview would, and
-// a clear mid-run, as Ctrl+R or a file open does, leave every tick's grid
-// equal to a control's, and neither store holds an entry. The step comes
-// from a C. The same harness with the C one cell to the right, so the ; runs
-// on its counter, diverges, so the check can fail.
+// With Step set the op-state store is never looked up, so it does not matter
+// whether a preview ran on a copy of the store, as it must, or on the store
+// itself: 100 passes run straight on the live store at a banged tick, as a
+// leaky preview would, and a clear mid-run, as Ctrl+R or a file open does,
+// leave every tick's grid equal to a control's, and neither store holds an
+// entry. The step comes from a C. The same harness with the C one cell to the
+// right, so the ; runs on its counter, diverges, so the check can fail.
 enum { Store_h = 3, Store_w = 10, Store_ticks = 20 };
 static char const step_store_patch[Store_h * Store_w + 1] = "D1..1Cc..."
                                                             ".;23......"
@@ -343,12 +344,13 @@ void test_arp_step_unset_resumes(void) {
   rig_free(&r);
 }
 
-// Each periodic pattern's first two periods at the small totals I4 makes
-// reachable, 2 to 6 (Length 2-6, range 1), written out from the patterns'
-// definitions, not from sim.c. The length of each row is twice the README's
-// Period column, which period_of restates. Bounce moves over only the lowest
-// max(1, t / 3) degrees, so below a total of 6 it outputs only 0. Random has
-// no period and is left to the sweep.
+// Each periodic pattern's first two periods at the small totals that Length
+// makes reachable (v2.0.0), 2 to 6 (Length 2-6, range 1), written out from
+// the patterns' definitions, not from sim.c. The length of each row is twice
+// the README's Period column, which period_of restates. Bounce moves over only
+// the lowest max(1, t / 3) degrees and back, so it repeats every
+// 2 * max(1, t / 3) steps, and below a total of 6 it outputs only 0. Random
+// has no period and is left to the sweep.
 static char const small_patterns[] = "0123456789abd";
 static char const *const small_totals[13][5] = {
     {"0101", "012012", "01230123", "0123401234", "012345012345"}, // Up
@@ -371,8 +373,8 @@ static char const *const small_totals[13][5] = {
      "012345543210012345543210"}, // Up-Down Alt, the same as Up-Down+
     {"10011001", "210012210012", "3210012332100123", "43210012344321001234",
      "543210012345543210012345"}, // Down-Up Alt, the same as Down-Up+
-    {"00000000", "00000000", "00000000", "00000000",
-     "0110011001100110"}, // Bounce
+    {"0000", "0000", "0000", "0000",
+     "01100110"}, // Bounce
 };
 
 // The README's Period column.
@@ -385,7 +387,7 @@ static Usz period_of(Glyph pattern, Usz t) {
   case '4': case '5': case 'a': case 'b':
     return 2 * t;
   default: // 'd', Bounce
-    return 4 * (t / 3 > 1 ? t / 3 : 1);
+    return 2 * (t / 3 > 1 ? t / 3 : 1);
   }
 }
 
@@ -534,7 +536,8 @@ void test_arp_step_is_counter_step(void) {
 }
 
 // Length `.` is 7 and Length 0 is 1, on the counter and at every Step, for
-// every pattern and range: with x+3 and x+4 empty a ; plays as before I4.
+// every pattern and range: with x+3 and x+4 empty a ; plays as it did before
+// it took a Length and a Step (v2.0.0).
 void test_arp_length_dot_and_zero(void) {
   Sweep s;
   Usz dot_differs = 0, zero_differs = 0;

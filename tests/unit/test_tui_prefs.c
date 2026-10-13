@@ -1,11 +1,12 @@
-// Unit tests for tui_prefs.c, the orca.conf settings (P3-4b; spec items I1,
-// I2 and I6; spine AD-20): the key table and its order, each key's parse and
-// saved text, the flags over the conf with their touched bits cleared, and
-// the setters' same-value no-op, on prefs built on the stack in the three
-// build shapes (an ALSA reader, a PortMidi reader, no reader). What the
-// module cannot reach, ged_set_dialect's clear, cancel and re-mark, the
-// preview's context and the file itself, is checked by the P3-4b tmux smoke
-// and by code reading.
+// Unit tests for tui_prefs.c, the orca.conf settings, the dialect, glide_hz,
+// clock-source and input keys among them: the key table and its order, each
+// key's parse and saved text, the flags over the conf with their touched
+// bits cleared, and the setters' same-value no-op, on prefs built on the
+// stack in the three build shapes (an ALSA reader, a PortMidi reader, no
+// reader). What the module cannot reach, ged_set_dialect's clear, cancel and
+// re-mark, the preview's context and the file itself, was checked by a
+// smoke run of the TUI under tmux when the module was split out (v3.0.0), and
+// is checked by code reading.
 #include "../../ccout.h"
 #include "../../tui_prefs.h"
 #include "tests.h"
@@ -123,7 +124,8 @@ void test_prefs_read_line(void) {
   touched |= TOUCHFLAG(Confopt_osc_output_port);
   CHECK(strcmp(p.osc_output_port, "7000") == 0 && p.touched == touched);
   // The port line is stored as given, empty included, and saves back as ""
-  // (the pre-P3-4b load did the same); only the form's setter refuses empty.
+  // (tui_load_conf did the same before v3.0.0); only the form's setter
+  // refuses empty.
   {
     char buf[Tui_prefs_number_cap];
     CHECK(tui_prefs_read_line(&p, Confopt_osc_output_port, ""));
@@ -206,8 +208,8 @@ void test_prefs_read_line(void) {
   CHECK(strlen(p.osc_output_address) == Tui_prefs_value_cap - 1);
 }
 
-// The margins parser against the %dx%d results it replaces: the P3-4b
-// drafter's probe, input by input.
+// The margins parser against the %dx%d results it replaced (v3.0.0), as
+// they were recorded, input by input, when it was written.
 static void check_nxn(char const *s, bool ok, int a, int b) {
   int x = -77, y = -77;
   bool got = tui_prefs_read_nxn_or_n(s, &x, &y);
@@ -286,7 +288,7 @@ void test_prefs_bad_values(void) {
   }
   // An unknown glide_hz line on top of a good one keeps the good value, and
   // a file with only the unknown line leaves 100 and the key untouched,
-  // which is what keeps `glide_hz = 150` byte-identical on save (I2).
+  // which is what keeps `glide_hz = 150` byte-identical on save.
   {
     Tui_prefs p;
     init_alsa(&p);
@@ -327,7 +329,7 @@ void test_prefs_bad_values(void) {
     CHECK(p.softmargin_x == 0 && p.softmargin_y == 0);
     CHECK(p.touched == TOUCHFLAG(Confopt_margins));
   }
-  // The parser itself, on the probe's inputs: what %dx%d gave.
+  // The parser itself, on those recorded inputs: what %dx%d gave.
   check_nxn("2x1", true, 2, 1);
   check_nxn("3", true, 3, 3);
   check_nxn("3x", true, 3, 3);
@@ -434,8 +436,7 @@ void test_prefs_input_keys(void) {
 
 // A flag beats the conf for the session, and clears its key's touched bit
 // so the stored line's value is written back unchanged until a menu touches
-// the key again
-// (AD-20); keys the flags do not name keep their bits.
+// the key again; keys the flags do not name keep their bits.
 void test_prefs_flag_over_conf(void) {
   Tui_prefs p;
   init_alsa(&p);

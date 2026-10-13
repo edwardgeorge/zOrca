@@ -1,13 +1,13 @@
 #!/bin/sh
-# The ALSA name-guard device check (from P3-5, story 27; architecture spine
-# AD-17): an --alsa orca refuses a client name another client holds, scans
-# the sequencer a second time after it takes the name and before it creates
-# any port, and reports a failed scan as a scan error, never as a free name.
-# The unit row alsa_name_scan sees only the pure helper (midi_in.h); this
-# check runs the real binary, so it sees the second scan's place in
-# alsa_ctx_open and the adapter (alsa_name_next_client) passing a scan
-# error through. It is a development check: CI shellchecks it and compiles
-# shim.c, but cannot run it, since the runners have no sequencer.
+# The ALSA name-guard device check (since v3.0.0): an --alsa orca refuses a
+# client name another client holds, scans the sequencer a second time after
+# it takes the name and before it creates any port, and reports a failed scan
+# as a scan error, never as a free name. The unit test of alsa_name_scan sees
+# only the pure helper (midi_in.h); this check runs the real binary, so it
+# sees the second scan's place in alsa_ctx_open and the adapter
+# (alsa_name_next_client) passing a scan error through. It is a development
+# check: CI shellchecks it and compiles shim.c, but cannot run it, since the
+# runners have no sequencer.
 #
 #   tests/alsa-guard/devcheck.sh <orca>
 #

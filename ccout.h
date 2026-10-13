@@ -2,13 +2,12 @@
 #include "base.h"
 #include "vmio.h"
 
-// The CC engine (architecture spine AD-9, AD-10, AD-13): every CC from the
-// tick path goes through it. It owns the glides, the last value sent on each
-// controller, the glide_hz step limit, the de-duplication of glide steps and
-// the aggregate budget, and it is the only place a `!` rate index maps to a
-// duration. It is core: it reads no clock, does no I/O and
-// keeps no writable globals. The shell holds one engine by value (Ged), and
-// tests build theirs on the stack.
+// The CC engine: every CC from the tick path goes through it. It owns the
+// glides, the last value sent on each controller, the glide_hz step limit, the
+// de-duplication of glide steps and the aggregate budget, and it is the only
+// place a `!` rate index maps to a duration. It is core: it reads no clock,
+// does no I/O and keeps no writable globals. The shell holds one engine by
+// value (Ged), and tests build theirs on the stack.
 //
 // Times are U64 microseconds of the shell's one clock (now_us() in
 // tui_main.c). Output is Oevent_midi_cc items appended to the caller's list,
@@ -40,17 +39,17 @@
 // A glide submit takes the first of these that applies:
 //   1. rate index 0 or 35: an instant;
 //   2. the last value is unknown: the target goes out at once, as an instant
-//      would, cancelling any active glide (AD-10);
+//      would, cancelling any active glide;
 //   3. the same target and rate as the active glide: nothing changes, and
 //      tick_len is ignored (the glide keeps its start and t_end);
 //   4. the target equals the current value: a no-op. If the last value
 //      differs from the target, because glide_hz or the budget held back the
 //      step to it, the target goes out first, as a target emission; then any
-//      active glide ends (AD-9);
+//      active glide ends;
 //   5. otherwise a new glide, or a retarget of the active one, from the
 //      current value.
 //
-// The budget (AD-10): a token bucket of Ccout_burst tokens that refills at
+// The budget: a token bucket of Ccout_burst tokens that refills at
 // Ccout_cap per second, deterministic from the times it is given. It starts
 // full, and cancel, forget and configure leave it alone. It keeps its
 // balance in token-us, 1 000 000 / Ccout_cap per token, so a refill is exact:

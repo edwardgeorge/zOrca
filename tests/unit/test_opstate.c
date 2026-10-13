@@ -1,5 +1,5 @@
-// Unit tests for the core PRNG (prng.h, spine AD-8) and the op-state store
-// (opstate.h, spine AD-5 and AD-6). They use the store alone, with no grid.
+// Unit tests for the core PRNG (prng.h) and the op-state store (opstate.h).
+// They use the store alone, with no grid.
 #include "../../opstate.h"
 #include "../../prng.h"
 #include "tests.h"
@@ -66,7 +66,7 @@ void test_prng_pcg32_reference(void) {
 }
 
 // prng_seed's first eight outputs for two cells, as fixed values that every
-// platform must reproduce (spine AD-8): lowercase r gives the same stream
+// platform must reproduce: lowercase r gives the same stream
 // wherever it runs, and CI's armhf job runs this test at a 32-bit Usz under
 // qemu. The values were derived on the uConsole (aarch64, gcc 12.2, 64-bit
 // Usz) and again from a scratch copy of prng.h with Usz typedef'd to
@@ -402,7 +402,7 @@ void test_opstate_copy(void) {
 }
 
 #ifdef UNIT_TESTS_REALLOC_HOOK
-// P3-2: opstate_copy into a destination that must grow, with realloc
+// opstate_copy into a destination that must grow, with realloc
 // failing (the runner's hook, alloc_hook.c). The store grows by calloc,
 // which is not wrapped, so the one realloc in the armed window is the
 // copy's. The copy returns false and leaves the destination empty.

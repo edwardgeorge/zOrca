@@ -1,5 +1,5 @@
 #!/bin/sh
-# The realloc shim check (P4-1, P5-1): when realloc or malloc fails, bOrca
+# The realloc shim check: when realloc or malloc fails, bOrca
 # keeps its grid and mark buffer as they were, and says so where it cannot
 # go on; and a failed startup load leaks nothing. CI runs the cli case on the
 # release cli; the orca cases need a terminal (util-linux script, tmux) and
@@ -25,7 +25,7 @@
 # - startup (with <orca>): `orca --initial-size 200x200` under script and
 #   `timeout 10`, with SHIM_REALLOC_MAX=30000, must exit 1 with "Cannot
 #   start: not enough memory for the grid".
-# - fill (with <orca>, P5-1): the same run with SHIM_MALLOC_MAX=30000 and no
+# - fill (with <orca>): the same run with SHIM_MALLOC_MAX=30000 and no
 #   realloc limit, so the 40000-byte startup grid cannot be allocated, must
 #   exit 1 with the same message.
 # - resize (with <orca>): `orca --initial-size 1000x25` in a private tmux
@@ -35,7 +35,7 @@
 #   1000x25 and its frame counter advance, and it must exit 0 on Ctrl+Q.
 #   timeout runs with --foreground: in its own process group it would leave
 #   orca in the background, stopped by SIGTTIN.
-# - leak (with <debug-orca>, P5-1, no shim): the binary must reference
+# - leak (with <debug-orca>, no shim): the binary must reference
 #   __asan_init, else FAIL (a release build would pass vacuously). In a
 #   private tmux server, under `timeout --foreground 15`, it is started on a
 #   three-row file whose third row is shorter than the first two, which fails

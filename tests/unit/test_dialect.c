@@ -1,8 +1,8 @@
-// Unit tests for the operator dialects (spec item I1, CAP-13; spine AD-4,
-// AD-18): which list orca_run runs, the upstream-only bodies of !, r, ; and
-// =, the inert $ and & upstream, and the dialect names that cli, orca and
-// orca.conf share. tests/upstream/compare.sh checks the upstream dialect
-// against Orca-c 9df9786 itself, byte for byte, on all 43 of its examples.
+// Unit tests for the operator dialects: which list orca_run runs, the
+// upstream-only bodies of !, r, ; and =, the inert $ and & upstream, and the
+// dialect names that cli, orca and orca.conf share. tests/upstream/compare.sh
+// checks the upstream dialect against Orca-c 9df9786 itself, byte for byte, on
+// all 43 of its examples.
 #include "../../ccout.h"
 #include "../../gbuffer.h"
 #include "../../opstate.h"
@@ -52,7 +52,7 @@ void test_dialect_names(void) {
   CHECK(strcmp(orca_dialect_name(Orca_dialect_upstream), "upstream") == 0);
   // orca_run runs any other value as bOrca, and the name says so.
   CHECK(strcmp(orca_dialect_name((Orca_dialect)7), "borca") == 0);
-  CHECK(Orca_dialect_borca == 0); // a zeroed context is bOrca (AD-4)
+  CHECK(Orca_dialect_borca == 0); // a zeroed context is bOrca
 }
 
 // A context that names no dialect runs bOrca's list. Three copies of a grid

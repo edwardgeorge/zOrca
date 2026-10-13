@@ -4,9 +4,9 @@
 #include "portlabel.h"
 #include <string.h>
 
-// The tooltips (spec item I5, spine AD-19). Testable shell: no I/O, no
-// writable globals, and only the core include allow-list, so the unit runner
-// links this file (spine AD-1, AD-2, AD-21). See tooltips.h.
+// The tooltips, read from the port labels the simulation records. Testable
+// shell: no I/O, no writable globals, and only the core include allow-list,
+// so the unit runner links this file. See tooltips.h.
 
 // Copies text into buf, which holds Tooltip_line_max bytes, cut to fit.
 static void put_text(char *buf, char const *text) {

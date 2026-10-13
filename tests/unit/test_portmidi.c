@@ -16,7 +16,7 @@ void test_portmidi_error_text_and_filters(void) {
   char const *text = Pm_GetErrorText(pmInvalidDeviceId);
   CHECK(text != NULL);
   CHECK(text != NULL && text[0] != '\0');
-  // The filter bits I6's clock input needs are set and do not overlap.
+  // The filter bits the clock input needs are set and do not overlap.
   int filt_clock = PM_FILT_CLOCK;
   int filt_play = PM_FILT_PLAY;
   int filt_song_position = PM_FILT_SONG_POSITION;
@@ -43,7 +43,7 @@ static bool pm217_drops(int status, uint32_t filters) {
   return status_filtered || (real_time && realtime_filtered);
 }
 
-// The drop mask (I6, AD-17): F8, FA, FB, FC and F2 pass; active sensing,
+// The drop mask: F8, FA, FB, FC and F2 pass; active sensing,
 // notes and controls drop; bit 31 is clear; the mask shares no bit with
 // CLOCK, PLAY or SONG_POSITION; and its complement, which is never used,
 // would drop F8.
@@ -80,12 +80,12 @@ void test_portmidi_in_filter(void) {
   CHECK((mask & (uint32_t)PM_FILT_PITCHBEND) != 0);
 }
 
-// The reader's decode (pm_in_decode, AD-17) on PortMidi's own message
+// The reader's decode (pm_in_decode) on PortMidi's own message
 // packing: F2 with Data1 16 is song position 16 (Data1 and Data2 swapped
 // would give 16 << 7) and F2 with Data1 16 and Data2 1 is 144 (Data2 is the
 // high seven bits), FA is start, FB continue, FC stop and F8 a clock, each
 // with its stamp, and a note is refused with *out left alone. Applied in
-// order to a reset machine, as the shell applies them (AD-15): F2 sets tick
+// order to a reset machine, as the shell applies them: F2 sets tick
 // 16, FB starts, and of six F8s only the first makes a tick due, so a tick
 // counter ends at 17.
 void test_portmidi_in_decode(void) {

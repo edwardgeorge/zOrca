@@ -1,6 +1,5 @@
 #!/bin/sh
-# The upstream dialect's byte-identity check against Orca-c 9df9786 (spec
-# item I1, CAP-13; architecture spine AD-21).
+# The upstream dialect's byte-identity check against Orca-c 9df9786.
 #
 #   tests/upstream/compare.sh <path-to-bOrca-cli>
 #
@@ -18,7 +17,7 @@
 #    its golden, tests/expected/examples/upstream/<rel>.events, is byte for
 #    byte what Orca-c's cli prints for it, so neither can drift from Orca-c,
 #    and holds at least one event line: the proof that the patch does
-#    something in the upstream dialect (CAP-13).
+#    something in the upstream dialect.
 # 4. The six examples that tests/check-examples.sh names as exceptions are
 #    Orca-c's files at the same paths. The list below must name exactly the
 #    paths of check-examples.sh's list, in its order.
@@ -29,7 +28,7 @@ set -u
 
 ticks=96
 min_examples=43
-# tests/check-examples.sh's named exceptions (amendments.md B7), which stay
+# tests/check-examples.sh's named exceptions, which stay
 # byte-identical to Orca-c's examples. Check 4 fails unless they are the
 # paths of that script's list, so the two lists change together.
 exceptions='examples/basics/a.orca

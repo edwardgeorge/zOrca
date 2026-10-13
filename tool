@@ -255,14 +255,13 @@ try_make_dir() {
 
 build_dir=build
 
-# The CORE list (architecture spine AD-1, AD-21): the core modules, which do
-# no I/O, read no clock and keep no writable globals, plus the testable
-# shell that obeys the same rules: tick.c (AD-14), tooltips.c (I5, the
-# tooltip text and placement) and tui_prefs.c (P3-4b, the orca.conf key
-# table, line reading, flag overrides and menu setters). Every build target
-# links all of it, and tests/check-nm.sh and tests/check-includes.sh check
-# each file in it through './tool sources core', so adding a core module
-# edits only this line.
+# The CORE list: the core modules, which do no I/O, read no clock and keep no
+# writable globals, plus the testable shell that obeys the same rules: tick.c
+# (the tick path), tooltips.c (the tooltip text and placement) and
+# tui_prefs.c (the orca.conf key table, line reading, flag overrides and menu
+# setters). Every build target links all of it, and tests/check-nm.sh and
+# tests/check-includes.sh check each file in it through
+# './tool sources core', so adding a core module edits only this line.
 core_sources='gbuffer.c vmio.c sim.c opstate.c ccout.c music.c transport.c tick.c tooltips.c tui_prefs.c'
 
 # set_target_sources <core|cli|orca|test|readme-gen>: sets source_files to
@@ -275,7 +274,7 @@ set_target_sources() {
   case $1 in
     core) ;;
     cli) add source_files field.c events_print.c cli_main.c;;
-    # Prints README.md's scale and chord tables from music.h (spine AD-19).
+    # Prints README.md's scale and chord tables from music.h, their one source.
     readme-gen) add source_files tools/readme-gen.c;;
     orca|tui)
       add source_files field.c osc_out.c term_util.c sysmisc.c \
@@ -284,7 +283,7 @@ set_target_sources() {
     test)
       # field.c, sysmisc.c and thirdparty/oso.c are libc-only shell code
       # outside CORE, linked so field.c's failure contract runs under the
-      # realloc hook (P4-1) and conf_read_line has a unit test (P4-4); they
+      # realloc hook and conf_read_line has a unit test; they
       # join no nm or include check. Then tests/unit/*.c without globbing,
       # in a fixed order.
       add source_files field.c sysmisc.c thirdparty/oso.c
@@ -349,7 +348,7 @@ EOF
   fi
 }
 
-# ALSA (architecture spine AD-17): Linux only, and a build has at most one
+# ALSA: Linux only, and a build has at most one
 # hardware MIDI backend, so --alsa excludes --portmidi. Debian and Ubuntu ship
 # no static libasound, so --alsa excludes --static too.
 check_alsa_option() {

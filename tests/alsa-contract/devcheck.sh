@@ -1,12 +1,12 @@
 #!/bin/sh
-# The ALSA runtime contract device check (P4-5; story 7's contract, ledger
-# #6; architecture spine AD-17): an --alsa orca's "MIDI out" can be
-# subscribed to, the notes it plays reach a subscriber as note-on and
-# note-off pairs, and a send that fails shows a bold "MIDI err" on the HUD.
-# verify checks the installed engine's client, ports and duplicate refusal;
-# no test links tui_main.c's send path or HUD, so this check covers the
-# rest on a real binary. It is a development check: CI only shellchecks it,
-# since the runners have no /dev/snd/seq.
+# The ALSA runtime contract device check, the in-tree ALSA backend's
+# contract: an --alsa orca's "MIDI out" can be subscribed to, the notes it
+# plays reach a subscriber as note-on and note-off pairs, and a send that
+# fails shows a bold "MIDI err" on the HUD. verify checks the installed
+# engine's client, ports and duplicate refusal; no test links tui_main.c's
+# send path or HUD, so this check covers the rest on a real binary. It is a
+# development check: CI only shellchecks it, since the runners have no
+# /dev/snd/seq.
 #
 #   tests/alsa-contract/devcheck.sh <orca>
 #

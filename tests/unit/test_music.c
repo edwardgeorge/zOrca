@@ -1,10 +1,10 @@
-// Unit tests for music.c, the scale and chord tables of `$` and `=` (spec
-// item B2, CAP-7; spine AD-19). The tables below are written out by hand,
-// independently of music.c, with the 26 first inversions spelled out. Each of
-// the 62 selectors of each operator is checked through music_decode, through
-// orca_run and through music_selector_name. The velocity tests at the end
-// check, through orca_run, the mapping that `:`, `%` and `=` share (B5,
-// CAP-10).
+// Unit tests for music.c, the scale and chord tables of `$` and `=`, whose
+// uppercase selectors play first inversions (v1.0.0). The tables below are
+// written out by hand, independently of music.c, with the 26 first
+// inversions spelled out. Each of the 62 selectors of each operator is
+// checked through music_decode, through orca_run and through
+// music_selector_name. The velocity tests at the end check, through
+// orca_run, the one mapping that `:`, `%` and `=` share (v1.0.0).
 #include "../../gbuffer.h"
 #include "../../music.h"
 #include "../../opstate.h"
@@ -297,7 +297,8 @@ void test_music_midichord_selectors(void) {
 }
 
 // `$3CA2` and `$3CA0`, the C major first inversion E-G-C: degree 2 is C in
-// octave 4, degree 0 is E. Before B2 they printed 3G and 3C.
+// octave 4, degree 0 is E. Before uppercase selectors played inversions
+// (v1.0.0) they printed 3G and 3C.
 void test_music_scale_inversion(void) {
   Glyph octave_g, note_g;
   CHECK(scale_out("$3CA2", &octave_g, &note_g) == 48);
@@ -312,7 +313,7 @@ void test_music_scale_inversion(void) {
 }
 
 // `=13CAf1` plays E-G-C (40, 43, 48); `=13Caf1` still plays C-E-G. Since
-// B5, velocity f is 119 on every note.
+// `=` shares the velocity of `:` (v1.0.0), velocity f is 119 on every note.
 void test_music_midichord_inversion(void) {
   CHECK(chord_plays("=13CAf1", 3, (U8 const[]){40, 43, 48}));
   CHECK(chord_plays("=13Caf1", 3, (U8 const[]){36, 40, 43}));
@@ -342,8 +343,9 @@ void test_music_inversion_sorts_12(void) {
 }
 
 // A glyph that is not 0-9, a-z or A-Z decodes as scale 0 for `$` and as
-// enriched chord 0 for `=`, as before B2, and has no name. The cells of
-// tests/patches/io_borca.orca ($pg:a, =aGA.) are included.
+// enriched chord 0 for `=`, as before the inversions (v1.0.0), and has no
+// name. The cells of tests/patches/io_borca.orca ($pg:a, =aGA.) are
+// included.
 void test_music_other_glyphs(void) {
   static Glyph const others[] = {'*', ':', '.', '#', '=', '$', '!', '?'};
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(others); ++i) {
@@ -437,10 +439,9 @@ void test_music_shared_intervals(void) {
         named(Music_op_scale, 'b', "Minor"));
 }
 
-// Velocity (B5, CAP-10). `:`, `%` and `=` share one mapping: `.` is 127, a
-// glyph worth 0 sends nothing, and any other value v gives min(v x 8 - 1,
-// 127). Before B5, `=` used v x 127 / 35 and sent a glyph worth 0 at
-// velocity 0.
+// Velocity. `:`, `%` and `=` share one mapping: `.` is 127, a glyph worth 0
+// sends nothing, and any other value v gives min(v x 8 - 1, 127). Before
+// v1.0.0, `=` used v x 127 / 35 and sent a glyph worth 0 at velocity 0.
 
 // Bangs text once: it plays count notes, each at velocity vel and with mono
 // flag mono.
@@ -517,8 +518,8 @@ void test_music_velocity_midi_unchanged(void) {
 // A velocity glyph worth 0, `0` or any glyph that is not 0-9, a-z or A-Z,
 // sends nothing: `=` no longer sends velocity-0 note-ons, which synths read
 // as note-offs. `=` still marks its own cell as an output before it checks
-// for a bang. `:` and `%` return before marking theirs, as before B5, and
-// `%` sends no event, so a mono note it holds keeps sounding.
+// for a bang. `:` and `%` return before marking theirs, as they did before
+// v1.0.0, and `%` sends no event, so a mono note it holds keeps sounding.
 void test_music_velocity_zero(void) {
   static char const *const chords[] = {"=13Ca01", "=13Ca;1", "=13Ca*1",
                                        "=13Ca#1"};

@@ -1,5 +1,5 @@
-The I2 wakeup counter, and nothing else, for bOrca's base, boorch/bOrca
-4f349cdb0a8a4bb157df67a5178df7df100f9dcf (spec item I2, CAP-14). It counts
+The wakeup counter, and nothing else, for bOrca's base, boorch/bOrca
+4f349cdb0a8a4bb157df67a5178df7df100f9dcf, for the glide wakeup A/B. It counts
 the event loop's waits, the wgetch calls, at the same code point as bOrca's
 -DBORCA_DEBUG_COUNTERS counter in tui_main.c, and prints the same line to
 stderr after endwin: `bOrca wakeups: <n> waits, <z> zero-timeout in <s> s`.
@@ -13,7 +13,7 @@ tests/wakeups/ab.sh applies it to a `git archive` of 4f349cd with
  
    wtimeout(stdscr, 0);
    int cur_timeout = 0;
-+  // The wakeup counter (bOrca I2, tests/wakeups/): the event loop's waits,
++  // The wakeup counter (as in bOrca, tests/wakeups/): the event loop's waits,
 +  // the wgetch calls, counted apart by whether they enter with a timeout
 +  // above 0 or with 0, from the start of the loop. Printed to stderr after
 +  // endwin. This counter-only patch of 4f349cd defines it unconditionally.

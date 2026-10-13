@@ -1,6 +1,6 @@
-# Expected failures of tests/check-nm.sh (architecture spine AD-1).
+# Expected failures of tests/check-nm.sh, the core no-writable-globals check.
 # One line per (file, pattern): <file> <symbol|glob> <item>, naming the one
-# spec item the fix waits for. The check compiles each file at -O2 and
+# item tag the fix waits for. The check compiles each file at -O2 and
 # again at -O0; a line spans both passes and reports XFAIL with the symbols
 # it matched, each with its pass, or XPASS, which fails the run, once it
 # matches none in either pass: the series that removes a symbol deletes its

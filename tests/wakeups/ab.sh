@@ -1,6 +1,6 @@
 #!/bin/sh
-# The I2 wakeup A/B (spec item I2, CAP-14; architecture spine AD-16 and its
-# debug-instrumentation convention): bOrca's event loop wakes as often as
+# The wakeup A/B for the glides that step between ticks (v2.0.0), read from
+# the debug wakeup counter: bOrca's event loop wakes as often as
 # 4f349cd's when no glide runs, and a running glide wakes it for the CC
 # engine's deadline without going through the strict-timing table. It is a
 # development check: CI only shellchecks it.

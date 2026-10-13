@@ -1,5 +1,5 @@
 bOrca's golden-test options for upstream Orca-c's cli, against Orca-c
-9df9786e2ad3c01955cdf4cdd5ae1fffad8fa5cc (architecture spine AD-21). It adds
+9df9786e2ad3c01955cdf4cdd5ae1fffad8fa5cc, for the upstream goldens. It adds
 only --events and --seed, with the same output and parsing as bOrca's cli,
 and links bOrca's events_print.c, which tests/upstream/build-cli.sh copies
 into the tree before applying this patch with `patch -p1`.

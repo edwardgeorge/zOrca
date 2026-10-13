@@ -2,10 +2,10 @@
 #include "base.h"
 #include "prng.h"
 
-// The op-state store (architecture spine AD-5, AD-6): the per-cell state of
-// the stateful operators &, ; and lowercase r, in one table that the caller
-// owns and passes to orca_run through Orca_run_ctx (sim.h). The TUI owns a
-// live store and a scratch store for the paused preview; cli owns one.
+// The op-state store: the per-cell state of the stateful operators &, ; and
+// lowercase r, in one table that the caller owns and passes to orca_run through
+// Orca_run_ctx (sim.h). The TUI owns a live store and a scratch store for the
+// paused preview; cli owns one.
 //
 // An entry is keyed by its cell (y, x) and records the raw glyph of the
 // operator that owns it. That glyph tags the payload union: '&' uses
@@ -28,7 +28,7 @@ typedef struct {
                     // & does not read it
   Usz anchor; // the tick of the last bang; 0 in a new entry, which lines the
               // & up with tick 0. The phase is (tick - anchor) floor-mod
-              // the cycle length (sim.c's bouncer, CAP-15).
+              // the cycle length (sim.c's tempo-synced bouncer).
 } Opstate_bouncer; // '&'
 
 typedef struct {
@@ -38,7 +38,7 @@ typedef struct {
   Usz last_range;
   Usz last_length; // the effective Length (`.` is 7, a glyph worth 0 is 1);
                    // a change restarts the counter, as Pattern and Range do
-} Opstate_arp; // ';'; not looked up while its Step input is set (I4)
+} Opstate_arp; // ';'; not looked up while its Step input is set
 
 enum { Opstate_random_max_size = 36 }; // the values 0-9 and a-z
 
@@ -48,7 +48,7 @@ typedef struct {
   U8 current_index; // next position in the bag
   U8 sequence_size;
   U8 last_min, last_max;
-  U8 last_value; // the last value sent, so no bag starts with it (B6)
+  U8 last_value; // the last value sent, so no bag starts with it
   U8 sequence[Opstate_random_max_size]; // the shuffled bag
   Prng prng;
 } Opstate_random; // 'r'
@@ -92,8 +92,9 @@ bool opstate_prune(Opstate_store *store, Usz height, Usz width);
 // already matches. False if dest cannot be resized; dest is then empty.
 bool opstate_copy(Opstate_store const *src, Opstate_store *dest);
 
-// Sets the anchor of every & entry to 0, so each lines up with tick 0 again,
-// as a new entry does; the shell calls it on an external MIDI start (FA) and
-// song position (F2), spine AD-15. It touches nothing else: the & entries'
-// other fields and the other operators' entries keep their state.
+// Sets the anchor of every & entry to 0, so each lines up with tick 0 again, as
+// a new entry does; the shell calls it on an external MIDI start (FA) and song
+// position (F2), the transport machine's reset-anchors action. It touches
+// nothing else: the & entries' other fields and the other operators' entries
+// keep their state.
 void opstate_reset_anchors(Opstate_store *store);

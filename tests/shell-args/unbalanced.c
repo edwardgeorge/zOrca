@@ -1,4 +1,4 @@
-// A fixture for tests/check-shell-args.sh (P4-3), never compiled. Each arm of
+// A fixture for tests/check-shell-args.sh, never compiled. Each arm of
 // its #if opens a {, so once the directives are dropped one { is left open.
 // The check scans it with the no-call rule: it must give exactly the
 // unbalanced-braces FAIL, or the check is blind and the run fails.

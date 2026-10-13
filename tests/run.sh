@@ -8,7 +8,7 @@
 # the expected file appends flags; later flags win) and its output is compared
 # byte for byte with tests/expected/<examples|patches>/<name>.events.
 #
-# A <name>.xfail sidecar names the one spec item whose fix the case still
+# A <name>.xfail sidecar names the one item tag whose fix the case still
 # waits for: exactly one id matching ^(B[1-8]|I[1-6])$, so a repro that waits
 # for two items is two cases. An output mismatch is then XFAIL and does not
 # fail the run, while an unexpected pass (XPASS) does, so the commit that

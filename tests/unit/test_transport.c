@@ -1,4 +1,4 @@
-// Unit tests for transport.c (spec item I6, CAP-18; spine AD-13, AD-15): the
+// Unit tests for transport.c, which follows an external MIDI clock: the
 // machine driven by synthetic events, a model shell that applies each
 // event's actions in the shell's order over a real tick_body, the estimate
 // with its refills and drops, the display value's hysteresis, the deadline
@@ -25,7 +25,7 @@ static bool triple_is(Triple t, int status, int d1, int d2) {
 
 // The model shell: the grid, store, lists, sustained notes and CC engine a
 // tick body needs, tick_num and the playing flag, which the machine's
-// actions drive as tui_main.c's do (AD-15): stop or clock lost is
+// actions drive as tui_main.c's do: stop or clock lost is
 // tick_stop with the clock-out gate shut, as ged_set_playing(false) under
 // External (note-offs, glides cancelled, /orca/stopped, no FC), then pause,
 // keeping tick_num; set tick; reset
@@ -85,11 +85,11 @@ static void put(Model *md, Usz y, Usz x, char const *text) {
   memcpy(md->grid + y * Model_w + x, text, strlen(text));
 }
 
-// The CAP-18 stop grid: a D banging a note every tick, with the bang landing
-// west of the ':' (D1 over .:03C.f), plus the glide fixture of the FA-while-
-// running row (D1 over .!3..7g5): a glide on channel 3, control 7, at rate
-// 5. seed_glide gives that controller a last value, so the first bang starts
-// a glide rather than jumping (ccout.h, rule 2).
+// The clock-follow stop grid: a D banging a note every tick, with the bang
+// landing west of the ':' (D1 over .:03C.f), plus the glide fixture of the
+// FA-while-running case (D1 over .!3..7g5): a glide on channel 3, control 7,
+// at rate 5. seed_glide gives that controller a last value, so the first
+// bang starts a glide rather than jumping (ccout.h, rule 2).
 static void cap18_grid(Model *md) {
   put(md, 0, 0, "D1");
   put(md, 1, 1, ":03C.f");
@@ -146,7 +146,7 @@ static void model_apply(Model *md, Transport_actions const *act, U64 now) {
 }
 
 // Feeds one event. The tick body's time is a fresh read after the stamp,
-// never the stamp itself (AD-13): here one us later.
+// never the stamp itself: here one us later.
 static void model_event(Model *md, Transport_type type, U16 value,
                         U64 stamp) {
   Transport_event const e = {.type = type, .value = value, .stamp = stamp};
@@ -748,7 +748,7 @@ void test_transport_rearm(void) {
   }
 }
 
-// Clock-out (midi_in.h, Clock_out; spine AD-16): the gate, the span, the
+// Clock-out (midi_in.h, Clock_out): the gate, the span, the
 // start, the F8 gate at each deadline, the re-arms and the stop's FC, on a
 // recording sink whose midi1 snapshots the Clock_out it watches, so a row
 // can tell the state a byte went out with. Every row starts from a stale

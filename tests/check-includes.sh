@@ -1,6 +1,6 @@
 #!/bin/sh
 # Include allow-list, core/shell tiers and banned-name and banned-call check
-# for the CORE files (architecture spine AD-1, AD-2). See tests/README.md.
+# for the CORE files. See tests/README.md.
 #
 #   tests/check-includes.sh
 #
@@ -80,7 +80,7 @@
 # tests/xfail/include-check lists the expected violations, one per line, as
 # `<file> <pattern> <item...>`; # starts a comment. The pattern is a banned
 # name or banned call (banned_names, banned_calls), <name.h> or "name.h" (a
-# shell header's "tick.h" among them). The items are the spec items the fix
+# shell header's "tick.h" among them). The items are the item tags the fix
 # waits for, each matching ^(B[1-8]|I[1-6])$ (B1, I3). A marked violation
 # reports XFAIL and does not fail the run. A marker whose violation is gone
 # reports XPASS and fails the run, so the series that removes the violation
@@ -101,17 +101,17 @@ marker_rel=tests/xfail/include-check
 canary_rel=tests/includes/canary.c
 noncalls_rel=tests/includes/canary-noncalls.c
 
-# AD-2's allow-list, in two tiers: the core headers, the port-label header
-# (portlabel.h, I5) among them, for every CORE file; the testable shell's
+# The include allow-list, in two tiers: the core headers, the port-label
+# header (portlabel.h) among them, for every CORE file; the testable shell's
 # headers only for the testable shell's files.
 allowed_system='<assert.h> <errno.h> <limits.h> <stdbool.h> <stddef.h> <stdint.h> <stdlib.h> <string.h>'
 core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h music.h portlabel.h'
 shell_headers='tick.h tooltips.h tui_prefs.h'
 shell_files='tick.c tooltips.c tui_prefs.c'
-# AD-1's banned names, each a pattern of its own, matched as a whole word.
+# The banned names, each a pattern of its own, matched as a whole word.
 banned_names='rand srand srandom drand48 lrand48 srand48 seed48 mrand48 lcong48 getenv secure_getenv environ __environ _environ'
-# AD-1's banned calls, checked as AD-2 says: each a pattern of its own, the
-# name, then optional white space and an opening parenthesis.
+# The banned calls, each a pattern of its own: the name, then optional white
+# space and an opening parenthesis.
 banned_calls='random initstate setstate'
 
 if ! command -v gcc >/dev/null 2>&1; then

@@ -3,18 +3,17 @@
 #include "sim.h"
 #include "transport.h"
 
-// The orca.conf settings (architecture spine AD-20), as a testable shell
-// module (AD-1, AD-2, AD-21): the key table and its order, the reading of
-// one conf line into a value and a touched bit, the command-line overrides
-// over those values, the setters the menus and forms call, and the text
-// saved after each `key = `. Like tick.c and tooltips.c it does no I/O,
-// reads no clock, holds no writable statics and includes only the core
-// allow-list, never midi_in.h or a backend header, and it holds no FEAT_ or
-// BORCA_HAS_MIDI_IN ifdef: the build's input reader comes in as
-// tui_prefs_init's has_midi_in and the backend's input key. tui_main.c owns
-// the file (ezconf_r_step and ezconf_w_step in sysmisc.c), curses, the
-// menus and forms, the PortMidi output device's save, and every engine call
-// (ged_set_dialect's clear, cancel and re-mark among them, AD-6).
+// The orca.conf settings, as a testable shell module: the key table and its
+// order, the reading of one conf line into a value and a touched bit, the
+// command-line overrides over those values, the setters the menus and forms
+// call, and the text saved after each `key = `. Like tick.c and tooltips.c it
+// does no I/O, reads no clock, holds no writable statics and includes only the
+// core allow-list, never midi_in.h or a backend header, and it holds no FEAT_
+// or BORCA_HAS_MIDI_IN ifdef: the build's input reader comes in as
+// tui_prefs_init's has_midi_in and the backend's input key. tui_main.c owns the
+// file (ezconf_r_step and ezconf_w_step in sysmisc.c), curses, the menus and
+// forms, the PortMidi output device's save, and every engine call
+// (ged_set_dialect's clear, cancel and re-mark among them).
 //
 // The touched bits. A key's bit is set when its line was read from the file
 // with a value taken, or when a setter changed its value; tui_save_prefs writes
@@ -23,17 +22,17 @@
 // spacing, as it always has) and every comment line as it was (an
 // unterminated last line gains its newline; a CRLF comment line keeps its \r;
 // key lines are written with \n). A NUL ends a line's text: the bytes after
-// it are lost on save, as before P4-4. A line that does not fit ezconf's
-// 1024-byte buffer, an unterminated last line of 1023 bytes among them, still
-// fails the save as a whole. An override clears its key's bit, whether or not
-// the override took effect (External without a reader; an input name that
-// does not fit), so a flag lasts for the session and the stored line is kept
-// until a menu change touches the key again (AD-20).
+// it are lost on save, as they were before the last-line fix (v3.0.2). A line
+// that does not fit ezconf's 1024-byte buffer, an unterminated last line of
+// 1023 bytes among them, still fails the save as a whole. An override clears
+// its key's bit, whether or not the override took effect (External without a
+// reader; an input name that does not fit), so a flag lasts for the session and
+// the stored line is kept until a menu change touches the key again.
 // portmidi_output_device and the input key are never touched by a read.
 
 // The keys, in the order ezconf appends missing keys (TUI_PREFS_KEYS order
 // is behaviour: a key absent from the file is appended in this order). A
-// new key is appended in snake_case (AD-20).
+// new key is appended in snake_case.
 #define TUI_PREFS_KEYS(_)                                                      \
   _(portmidi_output_device)                                                    \
   _(osc_output_address)                                                        \
@@ -88,7 +87,7 @@ typedef struct {
   bool has_midi_in; // the build has an input reader
 } Tui_prefs;
 
-// Settings given on the command line (AD-20). main() parses each flag into
+// Settings given on the command line. main() parses each flag into
 // a pending override before curses starts: it sets the key's TOUCHFLAG in
 // keys and its value below. tui_prefs_apply_overrides applies them after
 // the conf has loaded, so a flag beats orca.conf. A new override adds its
@@ -127,12 +126,13 @@ void tui_prefs_init(Tui_prefs *p, bool has_midi_in, Confopt midi_in_key);
 // leaving both alone, when there is no leading number.
 bool tui_prefs_read_nxn_or_n(char const *str, int *out_a, int *out_b);
 
-// Takes one conf line's value for key, as tui_load_conf read it before P3-4b.
+// Takes one conf line's value for key, as tui_load_conf read it before this
+// file took the reading over (v3.0.0).
 // True when the value is taken: it is stored and the key touched (but for
 // portmidi_output_device and the input key, stored only). The two OSC strings
 // are stored as given, empty included: the port line too, which
 // tui_prefs_set_osc_output_port alone refuses empty. One difference from
-// before P3-4b: a later empty osc_output_address line now wins (loopback),
+// before then: a later empty osc_output_address line now wins (loopback),
 // where tui_load_conf kept an earlier non-empty address; only a hand-edited
 // file holds the key twice, since a save comments out a repeated key. False,
 // with nothing changed, for a value that is not one of the key's (that line is

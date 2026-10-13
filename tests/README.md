@@ -34,12 +34,14 @@ files sit under `tests/expected/examples/upstream/<dir>/` (see
 
 - `<name>.args` holds extra flags appended after the defaults; a later flag
   wins, so `-t 1` in a sidecar overrides the default `-t 64`.
-- `<name>.xfail` names the one spec item whose fix the case waits for:
+- `<name>.xfail` names the one item tag whose fix the case waits for:
   exactly one id matching `^(B[1-8]|I[1-6])$` (`B2`). A repro that waits for
   two items is two cases, one per item, so each flips in the commit that
   lands its item. While the fix is missing the case reports XFAIL and the
   run stays green. Once the output matches, the case reports XPASS and the
-  run fails: the commit that lands the item deletes the marker.
+  run fails: the commit that lands the item deletes the marker. The tags
+  name the fork's original fix items: `B1` to `B8` shipped in v1.0.0 and
+  `I1` to `I6` in v2.0.0; none is pending, so no marker is live.
 - A marker that holds no id, anything but one such id (`TODO`, `B9`, `b2`)
   or two ids fails the case as `FAIL <case> (bad marker: …)`, in both modes;
   `--update` never rewrites that case's expected file, and the other cases
@@ -76,85 +78,92 @@ then part of the review.
    that two items change is split so that each case waits for one.
 4. Run the suite: the case must report XFAIL, not FAIL.
 
-No marked repro remains. `scale_inv` (`$3CA2`, `$3CA0`) and
-`midichord_inv` (`=13CA.1`) waited for B2, and `midichord_vel` (`=13Caf1`,
-`=13C0f1`, `=13Ca01`) for B5; each item deleted the markers that waited
-for it, and the hand-written goldens now pass unchanged. `midichord_inv`
-used velocity `.` so that B5 could not change it; CAP-7's literal
-`=13CAf1`, which both items changed, is checked by the unit test
-`music_midichord_inversion`, its notes and, since B5, its velocity of 119.
+No marked repro remains. `scale_inv` (`$3CA2`, `$3CA0`) and `midichord_inv`
+(`=13CA.1`) waited for uppercase selectors to play first inversions, and
+`midichord_vel` (`=13Caf1`, `=13C0f1`, `=13Ca01`) for `=` to read velocity
+like `:`, both in v1.0.0; each fix deleted the markers that waited for it, and
+the hand-written goldens now pass unchanged. `midichord_inv` used velocity `.`
+so that the velocity change could not change it; the inversion example
+`=13CAf1`, which both fixes changed, is checked by the unit test
+`music_midichord_inversion`, its notes and, since the velocity change, its
+velocity of 119.
 When these fixed goldens were written, a throwaway script derived them
 from the current output and asserted each line it edited; the script is
 not committed.
 
 ### Goldens that record current behaviour on purpose
 
-`r_single` and `r_shared` record lowercase `r` as B6 left it. Each `r`
+`r_single` and `r_shared` record lowercase `r` as v1.0.0 left it. Each `r`
 keeps its own bag in the op-state store and shuffles it with the PCG32 in
 `prng.h`, seeded from `--seed`, its row and its column, so the goldens hold
 the same stream on every platform, and `r_shared`'s `0r3` emits exactly
 `r_single`'s sequence. A bag that would start with the value just sent
 swaps its first slot with a random other slot, so neither golden sends a
-value twice in a row. They were replaced, not marked expected-fail, twice:
-B1 replaced the glibc `rand()` stream they held before, when it removed
-`rand()` from `sim.c` (spine AD-1), and B6 replaced them again when it fixed
-`r`; only the `0r3` column changed, from tick 28, where its eighth bag
-started with the value just sent. The unit tests `sim_r_*` in
+value twice in a row. They were replaced, not marked expected-fail, twice,
+both in v1.0.0: the per-cell state store replaced the glibc `rand()` stream
+they held before, when it removed `rand()` from `sim.c` (core code never calls
+`rand`), and the fix that stopped `r` repeating replaced them again; only the
+`0r3` column changed, from tick 28, where its eighth bag started with the
+value just sent. The unit tests `sim_r_*` in
 `test_sim_state.c` prove no-repeat and permutation over every range from
 `0r1` to `0rz`, and range change, seed, case, single value and first visit
 on fixed patches.
 
-Eight characterization goldens pin, unmarked, what the operators that
-Phase 1 touches produce today, so a refactor that changes their output
-fails a case. Three were replaced, not marked, by the Phase 2 item that
-redefines their operator. `bouncer_shapes` was replaced that way by I3, and
-now records the anchored, tempo-synced `&`, regenerated with `--update`.
-I4 replaced `arp_patterns` and the `;` rows of `seeded_random`, whose `;`s
-now sit in 6-column groups, so that no `D` bangs the Step input I4 added
-at x+4; with Length and Step empty, each `;` outputs exactly the sequence
+Eight characterization goldens pin, unmarked, what the operators that the
+v1.0.0 fixes touch produce today, so a refactor that changes their output
+fails a case. Three were replaced, not marked, by the v2.0.0 change that
+redefines their operator. `bouncer_shapes` was replaced that way when `&`
+began to count in beats, and now records the anchored, tempo-synced `&`,
+regenerated with `--update`. `;`'s Length and Step replaced `arp_patterns` and
+the `;` rows of `seeded_random`, whose `;`s now sit in 6-column groups, so
+that no `D` bangs the new Step input at x+4; with Length and Step empty, each
+`;` outputs exactly the sequence
 the old golden held. `seeded_random` keeps its width and its first four
 rows byte for byte, because uppercase `R` hashes y × width + x, so its `R`
 outputs are unchanged too.
 
 | Case | Pins | `.args` | Replaced by |
 | --- | --- | --- | --- |
-| `bouncer_shapes` | `&` shapes 0–7 at rate 5 over `0`–`z`, an end below the start, a partial range, rate `.`, shape `z`, a `D` bang every 7 ticks, and a rate and a shape that a `C` clock changes; a bang restarts the phase; rate and shape changes keep the anchor (a shape change keeps the phase, a rate change re-takes the elapsed ticks mod the new cycle) | none | none (I3 replaced it) |
-| `arp_patterns` | `;` ranges 1–4 with every non-random pattern, ranges `0` and `z`, a bang every 3 ticks, and a clocked pattern change that restarts the step, each `;` in a 6-column group with Length and Step empty | none | none (I4 replaced it) |
-| `seeded_random` | `R` with a lowercase, an uppercase and a `0` max, and `;` pattern `c` with Length and Step empty, under a non-zero seed | `--seed 7` | none (I4 replaced its `;` rows) |
+| `bouncer_shapes` | `&` shapes 0–7 at rate 5 over `0`–`z`, an end below the start, a partial range, rate `.`, shape `z`, a `D` bang every 7 ticks, and a rate and a shape that a `C` clock changes; a bang restarts the phase; rate and shape changes keep the anchor (a shape change keeps the phase, a rate change re-takes the elapsed ticks mod the new cycle) | none | none (replaced when `&` began to count in beats, v2.0.0) |
+| `arp_patterns` | `;` ranges 1–4 with every non-random pattern, ranges `0` and `z`, a bang every 3 ticks, and a clocked pattern change that restarts the step, each `;` in a 6-column group with Length and Step empty | none | none (replaced with `;`'s Length and Step, v2.0.0) |
+| `seeded_random` | `R` with a lowercase, an uppercase and a `0` max, and `;` pattern `c` with Length and Step empty, under a non-zero seed | `--seed 7` | none (its `;` rows replaced with `;`'s Length and Step, v2.0.0) |
 | `cc_instant` | `!` at rate `.` on CC 1 and CC 74 with values `0`, `g`, `v` and `w` (clamped to 127), sent again on every tick; a channel above 15 that sends nothing, a hundreds digit (CC 100), and controller 130 clamped to 127 | `-t 2` | none |
-| `cc_rates` | the VM's classification of `!` at rates `0` and `z`: still `CCI`, with the rate index (0 and 35) (B3, spine AD-11). `cli` runs no CC engine, so the unit test `tick_cci_same_tick` checks that both go out in the tick that bangs them | `-t 2` | none |
+| `cc_rates` | the VM's classification of `!` at rates `0` and `z`: still `CCI`, with the rate index (0 and 35), as in 4f349cd, since only the CC engine maps a rate to a duration. `cli` runs no CC engine, so the unit test `tick_cci_same_tick` checks that both go out in the tick that bangs them | `-t 2` | none |
 | `pitch_bend` | `?` with MSB and LSB at `0`, `z` and between, and a channel above 15 that sends nothing | `-t 2` | none |
 | `scale_selectors` | `$` with every digit and lowercase selector at degrees 0, 2, 5 and 9 (with `$3Ca2` and `$3C02`), other roots, no octave, input octave `a` clamped to 9, and a result above octave 9 that writes nothing | `-t 1` | none |
 | `chord_notes` | `=` with every digit and lowercase chord at velocity `.` and at `z`, an octave-9 chord that drops the notes above 127, input octave `a` clamped to 9, a channel above 15, and `:13Cf1` | `-t 1` | none |
-| `note_same_tick` | the VM's two NOTE lines for one tick: `:03C.4` then `:03Ca6` (channel 0, note 36, velocity 127 then 79, length 4 then 6), both banged at tick 0 by a `D8`. P3-1 merges them on the wire in `tick.c`, which `cli` never runs, so the golden is identical before and after; the unit test `tick_note_same_batch` checks the wire: one note-on at 79 and one note-off 6 ticks later | `-t 1` | none |
+| `note_same_tick` | the VM's two NOTE lines for one tick: `:03C.4` then `:03Ca6` (channel 0, note 36, velocity 127 then 79, length 4 then 6), both banged at tick 0 by a `D8`. Since v3.0.0 `tick.c` merges them on the wire, and `cli` never runs it, so the golden is identical before and after; the unit test `tick_note_same_batch` checks the wire: one note-on at 79 and one note-off 6 ticks later | `-t 1` | none |
 
-Their patches avoid what Phase 1 changes on purpose: no lowercase `r`
-operator (B1 and B6 changed it; `r` appears only as a `$` or `=` selector,
-which those operators lock), no uppercase `$` or `=` selector (B2 changed
-them; `examples/misc/chord_inversions.orca` and `tests/unit/test_music.c`
-cover them), and no `=` velocity other than `.` or `z`, which gave 127
-before and after B5. Every `&` and `;` cell keeps y × width + x below 4096:
-before B1, `&` indexed its state with no bounds check and `;` returned early
-from cell 4096 on. Each case was captured with `--update`. When the cases
+Their patches avoid what the v1.0.0 fixes change on purpose: no lowercase `r`
+operator (the per-cell state store and the no-repeat fix changed it; `r`
+appears only as a `$` or `=` selector, which those operators lock), no
+uppercase `$` or `=` selector (the first inversions changed them;
+`examples/misc/chord_inversions.orca` and `tests/unit/test_music.c` cover
+them), and no `=` velocity other than `.` or `z`, which gave 127 before and
+after the velocity change. Every `&` and `;` cell keeps y × width + x below
+4096: before the per-cell state store, `&` indexed its state with no bounds
+check and `;` returned early from cell 4096 on. Each case was captured with
+`--update`. When the cases
 were written, a throwaway model of the operators' source checked each cell;
 it is not committed.
 
-`note_same_tick`, the table's last row, is P3-1's repro patch, not a
-Phase 1 characterization, and cannot catch a P3-1 regression: it pins the
-VM's two NOTE lines for one tick, which P3-1 leaves as they were, since its
-change is in `tick.c` and `cli` never runs `tick.c`. The unit test
-`tick_note_same_batch` in `tests/unit/test_tick.c` checks the wire.
+`note_same_tick`, the table's last row, is the repro patch of the
+one-note-per-tick change (v3.0.0), not a characterization of the v1.0.0 fixes,
+and cannot catch a regression of that change: it pins the VM's two NOTE lines
+for one tick, which the change leaves as they were, since it is in `tick.c`
+and `cli` never runs `tick.c`. The unit test `tick_note_same_batch` in
+`tests/unit/test_tick.c` checks the wire.
 
 The `R` and `;` pattern `c` goldens assume a 64-bit `Usz`: their hashes
 differ where `Usz` is 32-bit, as on armhf, whose CI job runs the unit tests
 but never `cli`.
 
 `j_banged_under_j` and `y_banged_right_of_y` were captured before the
-upstream "Allow wires to grow" cherry-pick (P0.1) and replaced by it; together
+upstream "Allow wires to grow" cherry-pick (v1.0.0) and replaced by it; together
 with `j_reads_locked_J`, added with that pick, they now pin the grown-wire
 behaviour.
 
-`arp_length_step` (I4) pins `;`'s Length and Step: Length `z` at range 4,
+`arp_length_step` pins `;`'s Length and Step (v2.0.0): Length `z` at range 4,
 which counts `0` to `z` and wraps; a total of 1 under Up-Down and Down-Up,
 and Length `0`, which output `0` on every bang; and a Step written by a
 `1C3` into `;103` and `$3Ca`, banged every 2 ticks, which plays 36 43 40
@@ -165,14 +174,15 @@ total-1 guard on every pattern, range 1–4 and Length at every Step and over
 150 counter bangs, Step as the counter's step, and a Step that never
 touches the op-state store.
 
-`bouncer_rate4` (I3) pins all eight `&` shapes at rate `4` over `0`–`z`,
-which repeat every 16 ticks: ticks 0–15 are the rate-4 table in
+`bouncer_rate4` pins all eight shapes of the tempo-synced `&` at rate `4`
+over `0`–`z`, which repeat every 16 ticks: ticks 0–15 are the rate-4 table in
 `tests/unit/test_sim_state.c`, and ticks 16–63 repeat them. Captured with
 `--update`.
 
 The `&` state-overflow fixture is a unit test, not a golden
 (`sim_bouncer_overflow_fixture` in `tests/unit/test_sim_state.c`): before
-B1 its output differed between builds, because the overflow read whatever
+the per-cell state store (v1.0.0) its output differed between builds,
+because the overflow read whatever
 lay past the array. It builds the 300×80 grid in memory, runs 256 ticks
 under the debug runner's ASan and UBSan, and checks that every `&` matches
 a lone in-range reference `&0z12`; the one at cell 4096 is banged once, at
@@ -190,20 +200,22 @@ dialect (`--dialect upstream`). Each has two files under
 `tests/expected/examples/upstream/<dir>/`:
 
 - `<name>.events`: Orca-c `9df9786`'s own `cli --events -t 96 --seed 0`
-  output, 96 ticks long because CAP-13 compares 96 ticks against Orca-c;
+  output, 96 ticks long because the comparison with Orca-c runs 96 ticks;
 - `<name>.args`: `-t 96 --dialect upstream`.
 
 They pass: bOrca's upstream dialect prints exactly what Orca-c does. Each
 golden holds event lines, which is the proof that every patch under
-`examples/upstream/` does something in the upstream dialect (CAP-13;
-`tests/check-examples.sh` covers the rest of `examples/` in bOrca's).
-Until I1 added the dialect, `cli` rejected `--dialect upstream` and each case
-carried an `I1` marker; I1 deleted the markers.
+`examples/upstream/` does something in the upstream dialect
+(`tests/check-examples.sh` covers the rest of `examples/` in bOrca's).
+Until the dialects arrived (v2.0.0), `cli` rejected `--dialect upstream`
+and each case carried a marker that waited for them; the change that added
+the dialects deleted the markers.
 
 `benchmarks/io` drives `:`, `!`, `;`, `=`, `?` and `$` from clocked tracks.
 Its bOrca-dialect coverage stays in `tests/patches/io_borca.orca`, a copy of
 the patch, whose `tests/expected/patches/io_borca.events` is the golden
-`benchmarks/io` had before the move but for one cell: I4 reads x+3, which
+`benchmarks/io` had before the move but for one cell: since `;` took a
+Length input (v2.0.0) it reads x+3, which
 the K rewrites every tick, as Length on each banged tick, so the `;` output
 cell changed on those ticks while every event line stayed as it was.
 
@@ -218,7 +230,7 @@ mark and keep nothing; the tick body runs `Tick_ctx`'s dialect, so upstream
 and only `borca` and `upstream` are dialect names.
 
 The unit tests `labels_*` and `tooltip_place` in `tests/unit/test_labels.c`
-check the port labels and the tooltips (I5, CAP-17): what each `PORT`
+check the port labels and the tooltips: what each `PORT`
 records in the label buffer (`portlabel.h`), the id, whether the port
 counted as an input, and the owner's offset; the recording rule (an input
 beats an output, the later port of the same kind wins, `I`'s and `Z`'s
@@ -237,7 +249,7 @@ HUD row over widths 0-200, lengths 0-40 and every limit; and the tick path,
 ### The upstream comparison
 
 `tests/upstream/` holds an Orca-c build, which made the goldens above, and
-the check that compares bOrca's upstream dialect with it (spine AD-21):
+the check that compares bOrca's upstream dialect with it:
 
 - `orca-c-cli.patch` adds `--events` and `--seed` to Orca-c's `cli_main.c`,
   with the output and parsing of bOrca's `cli`, and `events_print.c` to the
@@ -296,7 +308,7 @@ upstream check: 43 examples, 43 identical; 5 goldens, 5 match; 13 files, 13 matc
 `tools/readme-gen.c` prints the Markdown between `README.md`'s
 `<!-- tables:begin -->` and `<!-- tables:end -->` markers: the scale, chord
 and enriched-chord tables, with their headings and header rows and one blank
-line between tables (spine AD-19). It reads `music.h` only through
+line between tables. It reads `music.h` only through
 `music_selector_name` and `music_decode` and copies no table, so the README
 cannot drift from what `$` and `=` play. Note names come from one spelling
 map per table: C Db D Eb E F Gb G G# A Bb B for 0 to 11, continuing an
@@ -324,7 +336,7 @@ tests/check-doc-sync.sh build/readme-gen
 
 `tests/check-examples.sh <cli>` runs every `examples/**/*.orca` outside
 `examples/upstream/` through `cli --events -t 64 --seed 0`, and requires each
-to do something in bOrca's dialect (`amendments.md` B7):
+to do something in bOrca's dialect:
 
 - a file that contains an event operator glyph (`!`, `%`, `:`, `=` or `?`,
   anywhere in the file) passes on at least one event line;
@@ -353,7 +365,7 @@ fails the file, exception or not, as does output that is not 64 ticks of
 event lines and grids. The sanitizer, signal and timeout part is the golden
 suite's crash rule, from `tests/lib.sh`; the non-zero exit is this script's
 own addition. The script exits 0 only when every file passes or is a listed
-exception. An example run, with B7's examples:
+exception. An example run, with the examples as they stood in v1.0.0:
 
 ```text
 $ nice -n 19 taskset -c 0-2 tests/check-examples.sh build/debug/cli
@@ -371,8 +383,8 @@ examples check: 44 files, 38 pass, 6 exceptions, 0 fail
 `-d`) from the CORE list, `field.c`, `sysmisc.c`, `thirdparty/oso.c` and
 every `tests/unit/*.c`, against libc only. `field.c`, `sysmisc.c` and
 `thirdparty/oso.c` are shell code outside CORE, linked so `field.c`'s
-failure contract runs under the realloc hook (P4-1) and `sysmisc.c`'s
-`conf_read_line` has a unit test (P4-4); they join no `nm` or include
+failure contract runs under the realloc hook and `sysmisc.c`'s
+`conf_read_line` has a unit test; they join no `nm` or include
 check. For `sysmisc.c`, which includes `"oso.h"` and calls `popen`, `tool`
 gives `test` `-isystem thirdparty` and, except on mac and bsd,
 `-D_POSIX_C_SOURCE=200809L`, as it gives `orca`. `tool` compiles the runner
@@ -402,16 +414,16 @@ runner's defaults.
 `tool` defines the CORE list once (today `gbuffer.c vmio.c sim.c
 opstate.c ccout.c music.c transport.c tick.c tooltips.c tui_prefs.c`).
 `tick.c`, `tooltips.c` and `tui_prefs.c` are shell code held to the core
-rules, the testable shell (spine AD-1, AD-2, AD-21): `tick.c` is the tick
+rules, the testable shell: `tick.c` is the tick
 body, the sustained-note list and the shell's pause, stop and patch-forget
-sequences (`tick_pause`, `tick_stop`, `tick_forget_patch`; AD-14), which the
+sequences (`tick_pause`, `tick_stop`, `tick_forget_patch`), which the
 unit tests drive through a recording sink that logs every call in order
 (`tests/unit/recorder.h`, shared by `test_tick.c` and `test_transport.c`
 with its two-note fixture `seed_notes`),
-`tooltips.c` the tooltip text and placement (I5), which reads the
+`tooltips.c` the tooltip text and placement, which reads the
 label buffer the VM fills (`portlabel.h`) and formats its integers itself,
-with no `<stdio.h>`, and `tui_prefs.c` the `orca.conf` settings (P3-4b,
-AD-20): the key table and its order, the reading of one conf line into a
+with no `<stdio.h>`, and `tui_prefs.c` the `orca.conf` settings:
+the key table and its order, the reading of one conf line into a
 value and a touched bit, the flags over the conf, the menus' setters with
 their same-value no-op, and the text saved after each `key = `, while
 `tui_main.c` keeps the file, curses, the menus and every engine call.
@@ -420,15 +432,15 @@ their same-value no-op, and the text saved after each `key = `, while
 the checks below and the CI `armhf` job read the same lists.
 `midi_in.h`'s static inlines are shell code under test too, outside the
 CORE list: `test_transport.c` covers `rearm_compute` and the HUD text, and
-also `Clock_out` (the clock-out gate, span, start, F8 gate and re-arms;
-AD-16) on that recording sink, which snapshots the `Clock_out` it watches at
+also `Clock_out` (the clock-out gate, span, start, F8 gate and re-arms)
+on that recording sink, which snapshots the `Clock_out` it watches at
 each byte.
 `tests/unit/test_sysmisc.c` covers `sysmisc.c`'s `conf_read_line`, a shell
-file linked into the runner outside CORE (P4-4): a last line that is not
+file linked into the runner outside CORE: a last line that is not
 `key = value` (a comment, say) and has no newline is read whole, and a save
 through an `Ezconf_w` over `tmpfile()`s writes it back with a newline; only
 a final `'\n'` is cleared (a CRLF line keeps its `'\r'`); a NUL ends a
-line's text, so the bytes after it are lost, as before P4-4, and a line
+line's text, so the bytes after it are lost, as before v3.0.2, and a line
 whose first byte is NUL reads as empty, with no write before the buffer,
 which only the debug runner's ASan sees; and an unterminated last line one
 byte short of the buffer is still too long for it, where one two bytes
@@ -436,8 +448,8 @@ short reads whole.
 `tests/unit/test_tui_prefs.c` covers `tui_prefs.c` on settings built on the
 stack, one row per key's parse and saved text, the key order, the flags
 over the conf and the setters' no-op; what it cannot reach,
-`ged_set_dialect`'s clear, cancel and re-mark and the file itself, the
-P3-4b tmux smoke checked.
+`ged_set_dialect`'s clear, cancel and re-mark and the file itself, a smoke
+run of the TUI under tmux checked when the module was split out (v3.0.0).
 
 Adapter `FEAT_` flags apply to `test` as they do to `orca`: `--portmidi`
 builds the PortMidi adapter tests, `--alsa` builds the ALSA adapter tests,
@@ -477,7 +489,7 @@ error if `tests/unit/main.c`, the runner, is missing.
 On Linux with gcc or clang, `tool` links the `test` target with
 `-Wl,--wrap=realloc -fno-builtin-realloc -DUNIT_TESTS_REALLOC_HOOK`, so
 every `realloc` call in the runner, CORE's included, reaches
-`__wrap_realloc` in `tests/unit/alloc_hook.c` (P3-2). A test arms the hook
+`__wrap_realloc` in `tests/unit/alloc_hook.c`. A test arms the hook
 by setting `unit_realloc_fail` just before the call under test and disarms
 it right after, before any `CHECK`; while it is set every `realloc` returns
 NULL and touches nothing. `unit_realloc_calls` counts every call, armed or
@@ -493,9 +505,8 @@ link on `__real_realloc`. Without `-fno-builtin-realloc`, any optimised
 build (the `-Og` debug runner or the `-O2 -flto` release runner) may fold a
 `realloc` whose pointer the compiler proves NULL into `malloc`, past the
 wrap, so the hook never sees it. On the uConsole's gcc 12.2 and binutils
-2.40, the P3-2 verification probe (`lto-wrap-probe/m.c` under
-`_bmad-output/test-artifacts/p3-2-verification/`, which git does not
-track), which arms the hook around `realloc(b, 64)` with `b = NULL` in a
+2.40, a probe program, which was not committed and arms the hook around
+`realloc(b, 64)` with `b = NULL` in a
 local, counts 0 calls at `-Og`, `-O2` and `-O2 -flto`, and 1 call at `-O0`
 or with the flag. The hook test `realloc_hook_builtin_null` makes the same
 call, `realloc(NULL, 64)`, armed, and fails unless the hook saw it and
@@ -531,12 +542,12 @@ by one; neither the retriggered seed's off nor any on goes out), then
 recovers on the same list. It pins `tick.c`'s batch skip: a batch whose
 list cannot grow sends none of its note-offs or note-ons, so no note
 sounds without an entry to release it. `oevent_list_alloc_fail`, in
-`tests/unit/test_core.c` (P4-1): an event list whose growth fails, empty
+`tests/unit/test_core.c`: an event list whose growth fails, empty
 or full at 16, returns its discard slot, so the event is dropped, and
 keeps its buffer, count, capacity and items; the same call unarmed grows
 the list to 32; and an `oevent_list_copy` whose destination
 must grow returns false and leaves the destination empty with its buffer
-and capacity. `field_alloc_fail`, in `tests/unit/test_field.c` (P4-1):
+and capacity. `field_alloc_fail`, in `tests/unit/test_field.c`:
 a failed `field_resize_raw` or `field_copy` leaves the field's buffer,
 size and contents as they were, a resize to 0 x 0 frees the buffer with
 no `realloc`, and a mark buffer that cannot grow keeps its buffer and
@@ -582,7 +593,7 @@ error), call `gcc` by name, run from any directory and exit 0 only when their
 canary is detected and every result is PASS or XFAIL; the include check also
 needs its non-call canary to pass.
 
-- `tests/check-includes.sh` (spine AD-1, AD-2) strips comments with
+- `tests/check-includes.sh` strips comments with
   `gcc -fpreprocessed -dD -E -P`, then reports each `#include` in the CORE
   file, or in a core header it includes, that is not allowed for that
   file. The allow-list has two tiers. `core_headers` (`base.h`, `vmio.h`,
@@ -599,8 +610,8 @@ needs its non-call canary to pass.
   includes `music.h`, naming `music.h`, while the shell tier's files pass. A
   testable-shell module adds its `.c` to `shell_files` and its header to
   `shell_headers`, never to `core_headers`, where any core file could
-  include it (P3-4b's `tui_prefs.c` and `tui_prefs.h` were the latest).
-  It also reports each of AD-1's fourteen banned names, `rand`, `srand`,
+  include it (`tui_prefs.c` and `tui_prefs.h`, in v3.0.0, were the latest).
+  It also reports each of the fourteen banned names, `rand`, `srand`,
   `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`, `mrand48`,
   `lcong48`, `getenv`, `secure_getenv`, `environ`, `__environ` and
   `_environ`, the calls that use a hidden global PRNG state and the reads
@@ -658,7 +669,7 @@ needs its non-call canary to pass.
   hold each banned call as a word and `canary_random(`, the witness for
   the call style's left boundary, or the non-call canary is blind and the
   run fails the same way.
-- `tests/check-nm.sh` (spine AD-1) compiles each CORE file on its own with
+- `tests/check-nm.sh` compiles each CORE file on its own with
   `gcc -c -std=c99 -O2 -DNDEBUG -g0 -fno-pie -no-pie -fno-lto`, and again
   with `-O0` in place of `-O2`, and fails each writable symbol (class
   `B b C D d G g S s V v`) that `nm -P` lists in either pass and no marker
@@ -669,7 +680,7 @@ needs its non-call canary to pass.
   `sim.c`'s `note_sequence` fails as `FAIL  sim.c d note_sequence (unmarked
   symbol at -O0)`. Every PASS, FAIL and XFAIL line names its pass or
   passes. Markers name a symbol or a prefix and span both passes (below);
-  the marker set is empty since B3, so any writable global in a CORE file
+  the marker set is empty since v1.0.0, so any writable global in a CORE file
   fails. The canary `tests/nm/canary.c` holds one writable symbol of each
   class `b`, `d`, `B` and `D`, each with its address escaping. In each pass
   the check must flag all four by name, and its marker code must sort them
@@ -729,10 +740,10 @@ count results, so one file can add several.
 
 | Marker file | Line format | Today |
 | --- | --- | --- |
-| `tests/xfail/include-check` | `<file> <pattern> <item...>`, where the pattern is a banned name (`rand`, `srand`, `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`, `mrand48`, `lcong48`, `getenv`, `secure_getenv`, `environ`, `__environ`, `_environ`) or banned call (`random`, `initstate`, `setstate`), `<name.h>` or `"name.h"` (a shell header's `"tick.h"` or `"tooltips.h"` among them) | none (B1 deleted `sim.c rand B1`) |
-| `tests/xfail/nm-check` | `<file> <symbol\|glob> <item>`, where the pattern is a symbol name, or a literal prefix of at least 3 characters followed by one trailing `*` (`chord_*`); a line spans both passes | none (B1 deleted its three lines and B3 its four) |
+| `tests/xfail/include-check` | `<file> <pattern> <item...>`, where the pattern is a banned name (`rand`, `srand`, `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`, `mrand48`, `lcong48`, `getenv`, `secure_getenv`, `environ`, `__environ`, `_environ`) or banned call (`random`, `initstate`, `setstate`), `<name.h>` or `"name.h"` (a shell header's `"tick.h"` or `"tooltips.h"` among them) | none (the per-cell state store deleted its one line, for `sim.c` and `rand`, in v1.0.0) |
+| `tests/xfail/nm-check` | `<file> <symbol\|glob> <item>`, where the pattern is a symbol name, or a literal prefix of at least 3 characters followed by one trailing `*` (`chord_*`); a line spans both passes | none (v1.0.0 deleted its seven lines: three with the per-cell state store and four with the CC engine) |
 
-- The items are the spec items the fix waits for, each matching
+- The items are the item tags the fix waits for, each matching
   `^(B[1-8]|I[1-6])$` (`B1`, `I3`); an nm marker names exactly one. A
   marked violation reports XFAIL and the run stays green.
 - A marker whose violation is gone reports XPASS and fails the run: the
@@ -741,24 +752,27 @@ count results, so one file can add several.
 - Each nm marker line reports on its own, over both passes: XFAIL with its
   item and every writable symbol it matched (class, name and pass, as
   `d note_sequence at -O0`), or XPASS once it matches none in either pass,
-  so each item removes the lines of the symbols it deletes, as B1 did. A
+  so each fix removes the lines of the symbols it deletes, as the per-cell
+  state store did in v1.0.0. A
   symbol that is writable only at `-O0` is therefore markable, and
   `sim.c note_sequence B3` over a `note_sequence` without `const` reports
   one XFAIL naming `-O0` and exits 0. A writable symbol that no line of its
   file matches fails as `FAIL <file> <class> <name> (unmarked symbol at
   <pass>)`.
-- B3 made every lookup table in `sim.c` `const` at every pointer level and
-  deleted the `chord_*` and `scale_*` lines, which covered the 72 tables
-  that stayed writable because `scales` and `scales_and_chords` held their
-  addresses. At `-O2` a table that nothing addresses or writes shows as `r`
-  even when it is not `const`, because gcc places never-written statics in
-  read-only data, so the `-O2` pass alone cannot prove AD-1's rule; B3 and
-  B2 (which moved the scale and chord tables to `music.c`) each recorded a
-  one-off `-O0` `nm`. Since P3-2 the script makes that `-O0` pass itself on
-  every run (deferred-work #24, closing #8), so a commit that drops
-  `const` from such a table fails CI. An XFAIL line names every symbol it
-  matched, so a CI log records the runner gcc's list, which may differ from
-  the uConsole's; that log is the evidence for any marker change.
+- The change that brought the CC engine (v1.0.0) made every lookup table in
+  `sim.c` `const` at every pointer level and deleted the `chord_*` and
+  `scale_*` lines, which covered the 72 tables that stayed writable because
+  `scales` and `scales_and_chords` held their addresses. At `-O2` a table that
+  nothing addresses or writes shows as `r` even when it is not `const`,
+  because gcc places never-written statics in read-only data, so the `-O2`
+  pass alone cannot prove the no-writable-globals rule; that change and the
+  first inversions (which moved the scale and chord tables to `music.c`), both
+  in v1.0.0, each recorded a one-off `-O0` `nm`. Since v3.0.0 the script makes
+  that `-O0` pass itself on every run, so the rule no longer rests on a
+  one-off check, and a commit that drops `const` from such a table fails CI.
+  An XFAIL line names every symbol it matched, so a CI log records the runner
+  gcc's list, which may differ from the uConsole's; that log is the evidence
+  for any marker change.
 - A marker that names a file outside CORE, a malformed line, any other nm
   pattern (`*_*`, `_*`, `sc*`, `sca?`) or a duplicate (file, pattern) fails
   the run. An nm marker never hides an object with no symbols or a failed
@@ -795,8 +809,8 @@ Each `--portmidi` or `--alsa` test build overwrites
 
 ### Shell argument check
 
-`tests/check-shell-args.sh` (P4-3) pins the arguments `tui_main.c` passes
-to the three helpers P3-4a moved under unit test: `tick_stop` (`tick.c`),
+`tests/check-shell-args.sh` pins the arguments `tui_main.c` passes to the
+three helpers that moved under unit test in v3.0.0: `tick_stop` (`tick.c`),
 `clock_out_toggle` and `clock_out_return_internal` (`midi_in.h`). The unit
 tests give the helpers arguments they compute themselves, and no test
 target compiles `tui_main.c`, so a wrong argument at a call site would pass
@@ -805,7 +819,7 @@ every build, test and CI job:
 - a `tick_stop` gate other than
   `clock_out_active(&a->clock_out, a->clock_source)`, such as the stored
   setting `a->clock_out.enabled`, sends `FC` on stop under External, back
-  to the master (AD-16);
+  to the master;
 - an `e` without `+ a->clock_out.accum_secs`, or one taken from another
   instant than `now`, moves the next tick after a Send MIDI Beat Clock
   toggle;
@@ -967,8 +981,9 @@ shell-args check: 3 calls, 3 pass, 0 fail; canary detected
 
 ## Wakeup check
 
-`tests/wakeups/ab.sh` (spec item I2, CAP-14) is a development check of the
-event loop's wakeups; CI only shellchecks it. It needs no arguments:
+`tests/wakeups/ab.sh` is a development check of the event loop's wakeups,
+since glides step between ticks (v2.0.0); CI only shellchecks it. It needs
+no arguments:
 
 ```sh
 nice -n 19 taskset -c 0-2 tests/wakeups/ab.sh
@@ -1017,7 +1032,7 @@ come from the installed candidate at the repin, not from this script.
 
 ## Realloc shim check
 
-`tests/realloc-shim/check.sh` (P4-1, P5-1) checks, end to end, that bOrca
+`tests/realloc-shim/check.sh` checks, end to end, that bOrca
 keeps its grid and mark buffer when `realloc` or `malloc` fails, and says
 so where it cannot go on, and that a failed startup load leaks nothing. It
 takes a release `cli` and, optionally, a release `orca` and then a `-d`
@@ -1065,7 +1080,7 @@ server of its own. CI runs the `cli` case in the `build` job.
 
 ## ALSA name-guard check
 
-`tests/alsa-guard/devcheck.sh` (P3-5, spine AD-17) is a development check
+`tests/alsa-guard/devcheck.sh` is a development check
 of the ALSA client-name guard in a real `--alsa` `orca`; CI shellchecks it
 and compiles its shim but cannot run it, since the runners have no
 sequencer. The unit row
@@ -1122,14 +1137,15 @@ before it exits. Every client name is `guard-<pid>-<check>`, never `bOrca`,
 and every run gets a fresh scratch `XDG_CONFIG_HOME`; it never touches the
 live `bOrca` client or `borca-tty.service` (it only reads
 `/proc/asound/seq/clients`, and calls no `systemctl` or `aconnect`), and it
-runs every `gcc` and `orca` under `nice -n 19 taskset -c 0-2`. P3-5's twenty
-racing pairs (its D3) are not part of it: `hold` makes the race
-deterministic, and the pairs stay P3-5's evidence.
+runs every `gcc` and `orca` under `nice -n 19 taskset -c 0-2`. The twenty
+racing pairs run when the guard was written (check D3, v3.0.0) are not part
+of it: `hold` makes the race deterministic, and the pairs stay in that
+release's record.
 
 ## ALSA runtime contract check
 
-`tests/alsa-contract/devcheck.sh` (P4-5, story 7's ALSA runtime contract,
-spine AD-17) is a development check of what `verify` cannot see on the
+`tests/alsa-contract/devcheck.sh`, for the in-tree ALSA backend's runtime
+contract, is a development check of what `verify` cannot see on the
 installed engine and no test links: `tui_main.c`'s send path and the HUD's
 `MIDI err`. CI only shellchecks it, since hosted runners have no
 `/dev/snd/seq`. Run it on any `--alsa` `orca`: release, `-d` (nothing is
@@ -1418,7 +1434,7 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/alsa-contract/devcheck.sh` and `tests/alsa-clock/devcheck.sh`.
   `tests/lib.sh` must be in that list: without `-x`, shellcheck follows a
   sourced file only when it is given too.
-- **clang** (`ubuntu-24.04`, P3-2, deferred-work #19): builds the debug
+- **clang** (`ubuntu-24.04`, since v3.0.0): builds the debug
   `cli` and the debug unit runner with `CC=clang` and
   `CFLAGS_EXTRA="-fsanitize=undefined,pointer-overflow
   -fno-sanitize=implicit-conversion,unsigned-integer-overflow"`, runs the
@@ -1433,15 +1449,15 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `NULL + 0 is undefined`), the runner must exit non-zero with
   `applying zero offset to null pointer`, which `test_tick_note_empty_list`
   forms on its fresh list. No `-Werror` (the gcc legs own it; a clang
-  warning is a ledger entry for Ian, not a flag): both clang builds keep
-  their output, and a non-fatal step prints each `warning:` line as a
-  `::warning::` annotation, with a count. The two
+  warning is noted for the maintainer, not fixed or silenced): both clang
+  builds keep their output, and a non-fatal step prints each `warning:` line
+  as a `::warning::` annotation, with a count. The two
   `-fno-sanitize` checks are off because unsigned wrap is defined C, which
   `prng.h`'s PCG32 relies on, and neither is about UB. `check-nm.sh`,
   `check-includes.sh` and `check-shell-args.sh` call gcc by name, so the
   gcc legs own them, with the examples, doc-sync, upstream and shellcheck
   steps.
-- **armhf** (`ubuntu-24.04-arm`, required since P3-6, deferred-work #14):
+- **armhf** (`ubuntu-24.04-arm`, required since v3.0.0):
   the one job that runs the unit tests where `Usz` is 32-bit. It
   cross-compiles each file in the union of `./tool sources cli`,
   `./tool sources test` and `./tool sources readme-gen` with
@@ -1459,13 +1475,13 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `qemu-arm-static build/unit_tests` must exit 0 with
   `ok prng_seed_fixed_vectors` and `ok tick_note_alloc_fail` in its log,
   so the hook's 32-bit `-Werror` build runs too. The first test pins
-  `prng_seed`'s first eight outputs for two cells (spine AD-8) and, on a
+  `prng_seed`'s first eight outputs for two cells and, on a
   mismatch, prints the observed values before its `FAIL` line. The runner
   is release, not debug (ASan does not run under qemu-user), and the job
   never builds `cli`, so the `R` and `;` pattern `c` goldens stay out of
   it. A unit test whose expected values legitimately differ at 32 bits is
   guarded with `#if SIZE_MAX == 0xffffffff` in its file (`Usz` is
-  `size_t`; the coordinator's call over the spec's `UINTPTR_MAX`, which
+  `size_t`, chosen over `UINTPTR_MAX`, which
   follows pointer width and is optional in C99), with a comment naming the
   `Usz` arithmetic that differs; none does today. A red result fails the
   run.
@@ -1518,12 +1534,12 @@ output also counts the messages it drops on `EAGAIN` or `EINTR`, and prints
 `bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`
 before it (`<m>` counts every message that did not go out). In every
 build each event list counts the events it drops into its discard slot
-when it cannot grow, which only memory exhaustion reaches (P5-1), and the
+when it cannot grow, which only memory exhaustion reaches, and the
 switch prints the counts just before the wakeup line as
 `bOrca events: <n> dropped (tick <t>, preview <p>, engine <e>)`, where
 `<n>` is the total and the others are the tick's, the preview's and the
 engine's lists. The switch is never part of a release or appliance build,
-and since P3-2 CI proves that on every run (deferred-work #37): the four
+and since v3.0.0 CI proves that on every run: the four
 grep checks above are its four check steps, and the positive ones show that
 `grep -a` finds the literals in an `-flto -s` binary. The MIDI-in counter
 line is not grepped: the same define gates all four lines, so a leak shows
@@ -1534,7 +1550,7 @@ not, unless it uses another client name: the appliance router refuses to
 route two `bOrca` clients. Run a test build with
 `BORCA_ALSA_CLIENT_NAME=bOrca-test` (any name but `bOrca`, at most 63
 bytes), a scratch `XDG_CONFIG_HOME` and a copy of a patch, or stop
-`borca-tty.service` first with Ian's approval.
+`borca-tty.service` first, with the maintainer's approval.
 
 On aarch64 plain `char` is already unsigned, so the release `cli` and
 release unit-test runs above cover the `unsigned-char` job. The x86_64
@@ -1549,9 +1565,10 @@ UBSAN_OPTIONS=halt_on_error=1 nice -n 19 taskset -c 0-2 build/debug/unit_tests
 
 Some steps cannot be reproduced on the uConsole as it stands: the PortMidi
 builds, including `-d --portmidi test`, need `libportmidi-dev` (installing
-it needs Ian's approval), the `armhf` job needs the armhf cross compiler,
-and the `clang` job needs clang, which the device lacks (installing it
-needs Ian's approval too), so its CI runs are the only clang evidence.
+it needs the maintainer's approval), the `armhf` job needs the armhf cross
+compiler, and the `clang` job needs clang, which the device lacks
+(installing it needs the maintainer's approval too), so its CI runs are the
+only clang evidence.
 `tests/check-nm.sh` results depend on the architecture, so an x86_64
 result from the `build` leg may differ from the uConsole's aarch64 one.
 The runners' gcc can warn where the uConsole's gcc 12.2 does not; each job
@@ -1561,8 +1578,9 @@ The device has `/usr/bin/qemu-arm-static` (qemu 7.2; no package owns it)
 but no `arm-linux-gnueabihf-gcc`, and its own gcc has no 32-bit ABI (`-m32`
 is unknown and `-mabi=ilp32` finds no libgcc), so the `armhf` job's runs
 are the only 32-bit evidence. Installing `gcc-arm-linux-gnueabihf` needs
-Ian's approval; with it, the job's runner build and run should reproduce
-it (untested on the device: its kernel uses 16K pages and qemu 7.2). The
+the maintainer's approval; with it, the job's runner build and run should
+reproduce it (untested on the device: its kernel uses 16K pages and qemu
+7.2). The
 cross build replaces the native `build/unit_tests`, so rebuild it with
 `./tool build test` afterwards:
 

@@ -1,8 +1,8 @@
 #pragma once
 #include "base.h"
 
-// The core PRNG (architecture spine AD-8): PCG32, the XSH RR output function
-// over a 64-bit LCG, as in the PCG reference implementation (pcg-basic,
+// The core's one PRNG: PCG32, the XSH RR output function over a 64-bit LCG,
+// as in the PCG reference implementation (pcg-basic,
 // pcg32_random_r, pcg32_srandom_r and pcg32_boundedrand_r). Lowercase r and
 // any later stateful randomness draw from it. R keeps its upstream hash and
 // the arpeggiator's random pattern keeps its seed+step hash; neither uses

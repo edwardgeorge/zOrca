@@ -64,7 +64,7 @@ static Usz glyph_index_reference(Glyph c) {
   return 0;
 }
 
-// gbuffer.h's one glyph index table (AD-19) against the reference, over
+// gbuffer.h's one glyph index table against the reference, over
 // every byte: '0'..'9' are 0..9, letters 10..35 in either case, anything
 // else 0, and a byte above 127 reads as its low 7 bits. A typo in any of
 // the 128 entries fails here.
@@ -136,13 +136,13 @@ void test_oevent_list_growth(void) {
 }
 
 #ifdef UNIT_TESTS_REALLOC_HOOK
-// P4-1: an event list that cannot grow. The runner's realloc hook
+// An event list that cannot grow. The runner's realloc hook
 // (alloc_hook.c) returns NULL from every realloc while unit_realloc_fail is
 // set; each part arms it just before the call under test, disarms it right
 // after, before any CHECK, and checks that exactly one realloc ran in its
 // window. Part 1, an empty list's first growth: the result is the list's
 // discard slot, the list stays NULL/0/0, writing the event there is
-// harmless and its dropped count (P5-1) is 1. Part 2, a full list of 16
+// harmless and its dropped count is 1. Part 2, a full list of 16
 // (dropped 0): the discard slot again, the buffer, count, capacity and items
 // as they were, and dropped 1; a second armed call, the same, and dropped 2.
 // Part 3, the same call unarmed: the list grows to 32, the result is the
