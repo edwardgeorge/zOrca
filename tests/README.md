@@ -26,7 +26,7 @@ case is PASS or XFAIL and no expected file is orphaned.
 | Input | Expected output | Sidecars (same directory) |
 | --- | --- | --- |
 | `examples/<dir>/<name>.orca` (referenced in place, never copied) | `tests/expected/examples/<dir>/<name>.events` | `<name>.args`, `<name>.xfail` |
-| `tests/patches/<name>.orca` (repro patches) | `tests/expected/patches/<name>.events` | `<name>.args`, `<name>.xfail` |
+| `tests/patches/<name>.orca` (repro and feature patches) | `tests/expected/patches/<name>.events` | `<name>.args`, `<name>.xfail` |
 
 `examples/upstream/<dir>/<name>.orca` follows the first row: its expected
 files sit under `tests/expected/examples/upstream/<dir>/` (see
@@ -154,9 +154,9 @@ for one tick, which the change leaves as they were, since it is in `tick.c`
 and `cli` never runs `tick.c`. The unit test `tick_note_same_batch` in
 `tests/unit/test_tick.c` checks the wire.
 
-The `R` and `;` pattern `c` goldens assume a 64-bit `Usz`: their hashes
-differ where `Usz` is 32-bit, as on armhf, whose CI job runs the unit tests
-but never `cli`.
+The `R`, `;` pattern `c` and `op_selftest` (its `.R.` cell) goldens assume
+a 64-bit `Usz`: their hashes differ where `Usz` is 32-bit, as on armhf, whose
+CI job runs the unit tests but never `cli`.
 
 `j_banged_under_j` and `y_banged_right_of_y` were captured before the
 upstream "Allow wires to grow" cherry-pick (v1.0.0) and replaced by it; together
@@ -270,7 +270,11 @@ the check that compares bOrca's upstream dialect with it:
   2. every `examples/**/*.orca` of the Orca-c tree, 43 files: Orca-c's
      `cli --events -t 96 --seed 0` and bOrca's, with `--dialect upstream`
      added, print byte-identical events and grids, and both exit 0 with no
-     sanitizer report. Fewer than 43 files fails;
+     sanitizer report. Fewer than 43 files fails. Then the same for its
+     extras, files of this repository that are not Orca-c's examples:
+     `tests/patches/op_selftest.orca`, [the operator
+     self-test](#the-operator-self-test). They are counted apart from the
+     43; a missing extra fails, and so does a list with none;
   3. each `examples/upstream/<rel>.orca` is Orca-c's `examples/<rel>.orca`,
      and its golden is what Orca-c's `cli` prints for it, so neither can
      drift from Orca-c, and holds at least one event line;
@@ -298,8 +302,71 @@ PASS  events_print.c is the Orca-c build's copy
 …
 PASS  examples/basics/_midi.orca
 …
-upstream check: 43 examples, 43 identical; 5 goldens, 5 match; 13 files, 13 match; 0 fail
+upstream check: 43 examples, 43 identical; extras: 1, 1 identical; 5 goldens, 5 match; 13 files, 13 match; 0 fail
 ```
+
+### The operator self-test
+
+`tests/patches/op_selftest.orca` is the operator self-test that neauoire,
+Orca's author, posted to the lines forum on 2025-11-12, in
+[post #2283](https://llllllll.co/t/orca-livecoding-tool/17689/2283): "it
+might be useful to anyone else who wants to test parity". The file is the
+post's patch, byte for byte: 21 rows of 68 glyphs, 1449 bytes, sha256
+`6aeb49b31c6a77fba3195a241ba9b040b64d7941a38238dca07a7e33d409b066`. It
+ships with this credit and link; the post states no licence.
+
+Each block puts an operator with its inputs in one row and its result in
+the row below. The result is left of an `F` and the expected glyph right of
+it, and the `F` writes `*` under itself when the two match (two empty cells
+match too): `2A9` on row 2 writes `b` below its `A`, and the `bFb` there
+bangs on row 4. Rows count from 0. Row 0 sets the variables `a` and `0`
+that the `V` and `K` blocks of row 2 read. Row 2's `.Vb` reads `b`, which
+row 19's `bV5` writes only later in the same frame, and variables do not
+carry over between frames, so it reads empty. The four `F`s on row 10 are
+operators under test, checked by the `F`s below them, which leaves 65
+comparators. The `H`s on row 10 hold the `N`, `S`, `E`, `W` and `*` below
+them in place for the `F` beside each. In rows 13 to 16, `Q`, `G`, `T`,
+`P`, `O` and `X`, and the `J` chain, write their result where their ports
+put it, with an `F` beside that cell. Row 19 tests `Y`, with its bangs on
+row 20.
+
+Its golden, `tests/expected/patches/op_selftest.events`, runs `run.sh`'s
+default 64 ticks at seed 0 and has no `.args` file. It runs 64 ticks
+because `.I.` first wraps at tick 35, and every 8-tick cycle repeats within
+64. The patch sends nothing, so the golden holds grids and no event line.
+[The upstream comparison](#the-upstream-comparison) also runs it, for 96
+ticks, through Orca-c's `cli` and bOrca's `--dialect upstream`, which print
+the same bytes. Its `.R.` cell hashes like any `R`, so the golden assumes a
+64-bit `Usz`, as noted [above](#goldens-that-record-current-behaviour-on-purpose).
+
+In both of bOrca's dialects and in Orca-c, 55 of the 65 comparators bang
+on every tick. These 10 do not:
+
+| Cell | Expects | bOrca and Orca-c | Bangs (of 64 ticks, seed 0) | Why |
+| --- | --- | --- | --- | --- |
+| `.L.` | `0` | `.` | 0 | an empty input makes `L` write `.` |
+| `2L.` | `0` | `.` | 0 | the same |
+| `.L9` | `0` | `.` | 0 | the same |
+| `.I.` | `0` | 1, 2, … z, 0 | 1 (tick 35) | an empty step is 1 and an empty mod is 36 |
+| `.U.` | `.` | a bang every 8 ticks | 56 | an empty step is 1 and an empty max is 8 |
+| `1U.` | `*` | a bang every 8 ticks | 8 | an empty max is 8 |
+| `.U1` | `.` | a bang every tick | 0 | an empty step is 1 |
+| `.R.` | `0` | a random 0 to z | 1 (tick 7) | an empty max is 36, exclusive |
+| `.D.` | `*` | a bang every 8 ticks | 8 | an empty mod is 8 |
+| `.C.` | `0` | 0 to 7 | 8 | an empty mod is 8 |
+
+The post's expected glyphs follow the operator rules that the JS Orca
+adopted on 2025-11-16, in hundredrabbits/Orca commits `6079f10` to
+`223e45c`. Orca-c and bOrca keep the older rules, which the JS Orca also
+had before then. The same commits made `R` inclusive at both ends for every
+range, where this patch tests only `.R.` and equal inputs, and dropped
+`Z`'s default rate, which it does not test.
+
+The self-test was tried against changes to `I`, `U`, `D`, `C`, `L`, `F`,
+`B`, `M` and `A`, and the rest of the suite already failed on each, so for
+those operators it adds no new coverage. It is a record of parity in the
+author's own terms, and a compact regression file whose failing diff points
+at the block that broke.
 
 ## README tables and examples
 
@@ -1388,8 +1455,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   and exits 0, then exits 3, with `FAIL  examples/basics/_midi.orca (bOrca
   cli sanitizer report)` (with the excerpt the first time) or
   `FAIL  examples/basics/_midi.orca (bOrca cli exited 3)` and
-  `upstream check: 43 examples, 42 identical; …; 1 fail`, proving
-  compare.sh's own crash rule (its `run()`);
+  `upstream check: 43 examples, 42 identical; extras: 1, 1 identical; …;
+  1 fail`, proving compare.sh's own crash rule (its `run()`) and that the
+  extras ran;
   `tests/check-doc-sync.sh` must exit 1 on a README copy under
   `$RUNNER_TEMP` whose `k/K` row has one cell changed, printing that row,
   and on one with its end marker deleted, as bad markers;

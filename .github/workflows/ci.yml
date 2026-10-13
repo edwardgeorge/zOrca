@@ -350,9 +350,10 @@ jobs:
       # since the checkout is shallow. compare.sh checks that the two
       # events_print copies are one file, runs all 43 of Orca-c's examples
       # through both cli for 96 ticks (bOrca's with --dialect upstream) and
-      # fails on any byte difference or if fewer than 43 ran, and checks that
-      # the upstream goldens and examples and the six named exceptions are
-      # still Orca-c's.
+      # fails on any byte difference or if fewer than 43 ran, runs Orca's
+      # operator self-test (tests/patches/op_selftest.orca) the same way, and
+      # checks that the upstream goldens and examples and the six named
+      # exceptions are still Orca-c's.
       - name: Build Orca-c 9df9786's cli
         run: tests/upstream/build-cli.sh
 
@@ -409,7 +410,9 @@ jobs:
       # exits 0 (asan-stdout), or exits 3 (exit3). For each, compare.sh must
       # exit 1 with its exact FAIL line for the file ("bOrca cli sanitizer
       # report" twice, the first with the report excerpt; "bOrca cli exited
-      # 3"), and a summary with 42 of the 43 examples identical and 1 fail.
+      # 3"), and a summary with 42 of the 43 examples identical, the one
+      # extra (Orca's operator self-test) identical, and 1 fail, so a run
+      # that skips the extras fails too.
       - name: Upstream comparison catches a planted crash (canary)
         run: |
           fake="$RUNNER_TEMP/cli-planted-upstream"
@@ -443,8 +446,8 @@ jobs:
                 exit 1
               fi
             done
-            if ! grep -Eqx 'upstream check: 43 examples, 42 identical; .*; 1 fail' "$log"; then
-              echo "$mode: expected the summary with 43 examples, 42 identical and 1 fail"
+            if ! grep -Eqx 'upstream check: 43 examples, 42 identical; extras: 1, 1 identical; .*; 1 fail' "$log"; then
+              echo "$mode: expected the summary with 43 examples, 42 identical, 1 extra identical and 1 fail"
               exit 1
             fi
           }

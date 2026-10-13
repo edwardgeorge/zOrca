@@ -18,7 +18,7 @@ Documentation, comments and tests only: the programs are unchanged.
 - **Bounce's period.** The README gave the period of the arpeggiator's Bounce pattern (`d`) as `4·max(1, ⌊t/3⌋)` steps, but its output repeats every `2·max(1, ⌊t/3⌋)` steps, as the README's [Period column](README.md#arpeggio-patterns) now says.
 - **Gaps in the README.** It now says that `=` and `!`, like `:`, run only when banged; which inputs make `;`, `&` and `!` send nothing; that `orca` starts playing at once on its internal clock; and that a stall in bOrca does not count as a lost clock once the queued pulses arrive, whichever the MIDI backend, where it said so of an ALSA build only. It no longer says that the appliance's `verify` check cannot see the `MIDI in` port.
 
-Tests: the Bounce rows of the arpeggiator's unit test, and the period it checks them against, follow the corrected Period column.
+Tests: the Bounce rows of the arpeggiator's unit test, and the period it checks them against, follow the corrected Period column; and [the operator self-test](tests/README.md#the-operator-self-test) that Orca's author posted to check implementations against each other is a new golden, which the upstream comparison also runs through Orca-c's `cli`, byte for byte.
 
 ## v3.0.3 (2026-10-13)
 

@@ -12,7 +12,11 @@
 # 2. Every examples/**/*.orca of the Orca-c tree (43 at 9df9786): Orca-c's
 #    `cli --events -t 96 --seed 0` and bOrca's, with `--dialect upstream`
 #    added, print byte-identical event lines and grids, and both exit 0 with
-#    no sanitizer report. Fewer than 43 files fails the run.
+#    no sanitizer report. Fewer than 43 files fails the run. Then each of
+#    the extras below, files of this repository that are not Orca-c's
+#    examples (Orca's operator self-test), goes through the same comparison.
+#    They are counted apart, so they never count toward the 43. Fewer than
+#    one extra fails the run.
 # 3. Each examples/upstream/<rel>.orca is Orca-c's examples/<rel>.orca, and
 #    its golden, tests/expected/examples/upstream/<rel>.events, is byte for
 #    byte what Orca-c's cli prints for it, so neither can drift from Orca-c,
@@ -28,6 +32,7 @@ set -u
 
 ticks=96
 min_examples=43
+min_extras=1
 # tests/check-examples.sh's named exceptions, which stay
 # byte-identical to Orca-c's examples. Check 4 fails unless they are the
 # paths of that script's list, so the two lists change together.
@@ -37,6 +42,9 @@ examples/basics/l.orca
 examples/misc/multiplication.orca
 examples/misc/colors.orca
 examples/setups/sequencer.orca'
+# Files of this repository that check 2 also runs through both cli, one
+# repository-relative path per line; a blank line is skipped.
+extras='tests/patches/op_selftest.orca'
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cli=${1-}
@@ -113,37 +121,68 @@ for f in events_print.c events_print.h; do
   fi
 done
 
+# compare <label> <path>: runs the patch at <path> through Orca-c's
+# `cli --events -t $ticks --seed 0` and bOrca's, with `--dialect upstream`
+# added, and prints PASS or FAIL for <label>. It returns 0 when both ran
+# clean and printed byte-identical output, and 1 on every FAIL. It changes
+# no count but fail()'s, so each caller counts its own. A failed run
+# returns 1 rather than `continue`: dash ignores a `continue` inside a
+# function, so the run would fall through to the cmp and could print PASS.
+compare() {
+  c_label=$1 c_path=$2
+  run "$up_out" "$up_err" "$up_cli" --events -t "$ticks" --seed 0 "$c_path"
+  if [ -n "$run_error" ]; then
+    fail "$c_label (Orca-c cli $run_error)"
+    indent "$up_err"
+    return 1
+  fi
+  run "$bo_out" "$bo_err" "$cli" --events -t "$ticks" --seed 0 \
+    --dialect upstream "$c_path"
+  if [ -n "$run_error" ]; then
+    fail "$c_label (bOrca cli $run_error)"
+    indent "$bo_err"
+    return 1
+  fi
+  if [ ! -s "$up_out" ]; then
+    fail "$c_label (Orca-c cli printed nothing)"
+    return 1
+  elif cmp -s "$up_out" "$bo_out"; then
+    printf 'PASS  %s\n' "$c_label"
+    return 0
+  fi
+  fail "$c_label (output differs; - Orca-c, + bOrca --dialect upstream)"
+  diff -u "$up_out" "$bo_out" >"$tmpd/diff"
+  sed -n '3,$p' "$tmpd/diff" | head -n 12 | sed 's/^/      /'
+  return 1
+}
+
 # 2. Orca-c's examples, through both cli.
 n_examples=0 n_examples_ok=0
 (cd "$tree" && find examples -name '*.orca' | LC_ALL=C sort) >"$list"
 while IFS= read -r rel; do
   n_examples=$((n_examples + 1))
-  run "$up_out" "$up_err" "$up_cli" --events -t "$ticks" --seed 0 "$tree/$rel"
-  if [ -n "$run_error" ]; then
-    fail "$rel (Orca-c cli $run_error)"
-    indent "$up_err"
-    continue
-  fi
-  run "$bo_out" "$bo_err" "$cli" --events -t "$ticks" --seed 0 \
-    --dialect upstream "$tree/$rel"
-  if [ -n "$run_error" ]; then
-    fail "$rel (bOrca cli $run_error)"
-    indent "$bo_err"
-    continue
-  fi
-  if [ ! -s "$up_out" ]; then
-    fail "$rel (Orca-c cli printed nothing)"
-  elif cmp -s "$up_out" "$bo_out"; then
-    printf 'PASS  %s\n' "$rel"
+  if compare "$rel" "$tree/$rel"; then
     n_examples_ok=$((n_examples_ok + 1))
-  else
-    fail "$rel (output differs; - Orca-c, + bOrca --dialect upstream)"
-    diff -u "$up_out" "$bo_out" >"$tmpd/diff"
-    sed -n '3,$p' "$tmpd/diff" | head -n 12 | sed 's/^/      /'
   fi
 done <"$list"
 if [ "$n_examples" -lt "$min_examples" ]; then
   fail "only $n_examples Orca-c examples ran, expected at least $min_examples"
+fi
+
+# Then the extras, the same way, counted apart from Orca-c's examples.
+n_extras=0 n_extras_ok=0
+printf '%s\n' "$extras" >"$list"
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  n_extras=$((n_extras + 1))
+  if [ ! -f "$root/$rel" ]; then
+    fail "$rel (missing)"
+  elif compare "$rel" "$root/$rel"; then
+    n_extras_ok=$((n_extras_ok + 1))
+  fi
+done <"$list"
+if [ "$n_extras" -lt "$min_extras" ]; then
+  fail "only $n_extras extras ran, expected at least $min_extras"
 fi
 
 # 3. examples/upstream/ and its goldens.
@@ -203,7 +242,7 @@ while IFS= read -r f; do
   fi
 done <"$list"
 
-printf 'upstream check: %s examples, %s identical; %s goldens, %s match; %s files, %s match; %s fail\n' \
-  "$n_examples" "$n_examples_ok" "$n_goldens" "$n_goldens_ok" \
-  "$n_files" "$n_files_ok" "$n_fail"
+printf 'upstream check: %s examples, %s identical; extras: %s, %s identical; %s goldens, %s match; %s files, %s match; %s fail\n' \
+  "$n_examples" "$n_examples_ok" "$n_extras" "$n_extras_ok" \
+  "$n_goldens" "$n_goldens_ok" "$n_files" "$n_files_ok" "$n_fail"
 [ "$n_fail" = 0 ]
