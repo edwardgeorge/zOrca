@@ -188,16 +188,38 @@ jobs:
 
       # The shared crash rule's failure path (tests/lib.sh). A fake cli runs
       # the release cli for every file but tests/patches/pitch_bend.orca and
-      # examples/basics/_midi.orca. For those, by MODE, it prints a UBSan
-      # "runtime error:" line and exits 0 (san); sleeps 5 s under a timeout
-      # shim on PATH that runs the real timeout with 1 s, so the command -v
-      # timeout path is the one tested (slow); or exits 3 after the real
-      # output (exit3). tests/run.sh and tests/check-examples.sh must each
-      # exit 1 with the exact FAIL line for san and slow (and, for san, the
-      # report excerpt and summary line). For exit3, check-examples.sh must
-      # fail the file, and run.sh, under a throwaway pitch_bend.xfail
-      # holding B2, must report XFAIL and exit 0: only check-examples.sh
-      # fails a plain non-zero exit. The tree must end clean.
+      # examples/basics/_midi.orca. For those, by MODE, it:
+      #   san     prints a UBSan "runtime error:" line after the real output
+      #           and exits 0;
+      #   asan, lsan, ubsan
+      #           prints "==1==ERROR: AddressSanitizer: planted" (or
+      #           LeakSanitizer, or UndefinedBehaviorSanitizer) on stderr
+      #           after the real output and exits 0, one pass for each of
+      #           lib.sh's sanitizer alternatives;
+      #   slow    sleeps 5 s under a timeout shim on PATH that runs the real
+      #           timeout with 1 s, so the command -v timeout path is the one
+      #           tested;
+      #   sigsan  prints the AddressSanitizer line, then kills itself with
+      #           SIGSEGV;
+      #   exit3   exits 3 after the real output;
+      #   opts    prints the UBSAN_OPTIONS it was given (unset when none)
+      #           and exits 3.
+      # tests/run.sh and tests/check-examples.sh must each exit 1 with the
+      # exact FAIL line for san, asan, lsan, ubsan (each with the report
+      # excerpt; san also with run.sh's summary line), slow and sigsan, whose
+      # exit status wins over its report (cli exited 139). For opts, run
+      # with UBSAN_OPTIONS removed from the environment and then set to
+      # report_error_type=1, each must exit 1 and print lib.sh's exported
+      # value, halt_on_error=1:print_stacktrace=1 with the caller's value
+      # appended after a colon when there is one. With MODE unset and PATH a
+      # directory of links to every tool the two scripts and the fake use
+      # but timeout (the step first checks that it finds no timeout there),
+      # run.sh must pass pitch_bend and check-examples.sh must report 0 fail,
+      # each exiting 0, so the command -v guard is tested. For exit3,
+      # check-examples.sh must fail the file, and run.sh, under a throwaway
+      # pitch_bend.xfail holding B2, must report XFAIL and exit 0: only
+      # check-examples.sh fails a plain non-zero exit. No core file is
+      # written (ulimit -c 0), and the tree must end clean.
       - name: Golden and examples checks catch a planted crash (canary)
         run: |
           fake="$RUNNER_TEMP/cli-planted"
@@ -211,13 +233,19 @@ jobs:
             'case "$*" in *basics/_midi.orca*|*pitch_bend.orca*)' \
             '  case $MODE in' \
             '    san) "$REAL_CLI" "$@"; echo "x.c:1:2: runtime error: planted" >&2; exit 0 ;;' \
+            '    asan) "$REAL_CLI" "$@"; echo "==1==ERROR: AddressSanitizer: planted" >&2; exit 0 ;;' \
+            '    lsan) "$REAL_CLI" "$@"; echo "==1==ERROR: LeakSanitizer: planted" >&2; exit 0 ;;' \
+            '    ubsan) "$REAL_CLI" "$@"; echo "==1==ERROR: UndefinedBehaviorSanitizer: planted" >&2; exit 0 ;;' \
             '    slow) sleep 5 ;;' \
+            '    sigsan) echo "==1==ERROR: AddressSanitizer: planted" >&2; kill -SEGV $$ ;;' \
             '    exit3) "$REAL_CLI" "$@"; exit 3 ;;' \
+            '    opts) echo "UBSAN_OPTIONS=${UBSAN_OPTIONS-unset}"; exit 3 ;;' \
             '  esac ;;' \
             'esac' \
             'exec "$REAL_CLI" "$@"' >"$fake"
           chmod +x "$shim/timeout" "$fake"
           export REAL_CLI="$PWD/build/cli"
+          ulimit -c 0
           # run_check <MODE> <PATH> <want status> <script> <args...>
           run_check() {
             mode=$1 path=$2 want=$3
@@ -238,6 +266,19 @@ jobs:
                 exit 1
               fi
             done
+          }
+          # run_env <label> <want status> <command...>: like run_check, for a
+          # command that sets its own environment with env.
+          run_env() {
+            mode=$1 want=$2
+            shift 2
+            status=0
+            "$@" >"$log" 2>&1 || status=$?
+            cat "$log"
+            if [ "$status" != "$want" ]; then
+              echo "$mode: expected exit $want from $*, got $status"
+              exit 1
+            fi
           }
           run_check san "$PATH" 1 tests/run.sh "$fake" pitch_bend
           need 'FAIL  tests/patches/pitch_bend.orca (sanitizer report)' \
@@ -261,6 +302,47 @@ jobs:
           run_check exit3 "$PATH" 0 tests/run.sh "$fake" pitch_bend
           need 'XFAIL tests/patches/pitch_bend.orca (waiting for B2)'
           rm "$marker"
+          for name in AddressSanitizer LeakSanitizer UndefinedBehaviorSanitizer; do
+            case $name in
+              Address*) m=asan ;;
+              Leak*) m=lsan ;;
+              *) m=ubsan ;;
+            esac
+            run_check "$m" "$PATH" 1 tests/run.sh "$fake" pitch_bend
+            need 'FAIL  tests/patches/pitch_bend.orca (sanitizer report)' \
+              "      ==1==ERROR: $name: planted"
+            run_check "$m" "$PATH" 1 tests/check-examples.sh "$fake"
+            need 'FAIL   examples/basics/_midi.orca (cli -t 0: sanitizer report)' \
+              "       ==1==ERROR: $name: planted"
+          done
+          run_check sigsan "$PATH" 1 tests/run.sh "$fake" pitch_bend
+          need 'FAIL  tests/patches/pitch_bend.orca (cli exited 139 (signal or timeout))'
+          run_check sigsan "$PATH" 1 tests/check-examples.sh "$fake"
+          need 'FAIL   examples/basics/_midi.orca (cli -t 0: cli exited 139 (signal or timeout))'
+          run_env opts-unset 1 env -u UBSAN_OPTIONS MODE=opts tests/run.sh "$fake" pitch_bend
+          need '      UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1'
+          run_env opts-unset 1 env -u UBSAN_OPTIONS MODE=opts tests/check-examples.sh "$fake"
+          need '       UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1'
+          run_env opts-set 1 env MODE=opts UBSAN_OPTIONS=report_error_type=1 tests/run.sh "$fake" pitch_bend
+          need '      UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1:report_error_type=1'
+          run_env opts-set 1 env MODE=opts UBSAN_OPTIONS=report_error_type=1 tests/check-examples.sh "$fake"
+          need '       UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1:report_error_type=1'
+          bare="$RUNNER_TEMP/no-timeout"
+          mkdir -p "$bare"
+          for t in awk cat cmp cp diff dirname find grep head mkdir mktemp rm sed sleep sort; do
+            ln -s "$(command -v "$t")" "$bare/$t"
+          done
+          if PATH="$bare" command -v timeout >/dev/null 2>&1; then
+            echo "notimeout: $bare holds a timeout, so the pass would not test the guard"
+            exit 1
+          fi
+          run_env notimeout 0 env -u UBSAN_OPTIONS -u MODE PATH="$bare" tests/run.sh "$fake" pitch_bend
+          need 'PASS  tests/patches/pitch_bend.orca'
+          run_env notimeout 0 env -u UBSAN_OPTIONS -u MODE PATH="$bare" tests/check-examples.sh "$fake"
+          if ! grep -Eqx 'examples check: [0-9]+ files, [0-9]+ pass, [0-9]+ exceptions, 0 fail' "$log"; then
+            echo "notimeout: expected the examples summary with 0 fail"
+            exit 1
+          fi
           test -z "$(git status --porcelain)"
 
       # The upstream dialect against Orca-c 9df9786 itself (CAP-13, spine
@@ -317,6 +399,60 @@ jobs:
           fi
           test -z "$(git status --porcelain)"
 
+      # compare.sh's own crash rule (its run(), which checks for a report
+      # in both the stdout and the stderr file before the status, then a
+      # signal or timeout, then any other non-zero exit), through planted
+      # crashes: a fake cli runs the release cli for every file, and for
+      # examples/basics/_midi.orca, by MODE, after the real output, prints
+      # "==1==ERROR: AddressSanitizer: planted" on stderr and exits 0
+      # (asan, as in the planted-crash step above), prints it on stdout and
+      # exits 0 (asan-stdout), or exits 3 (exit3). For each, compare.sh must
+      # exit 1 with its exact FAIL line for the file ("bOrca cli sanitizer
+      # report" twice, the first with the report excerpt; "bOrca cli exited
+      # 3"), and a summary with 42 of the 43 examples identical and 1 fail.
+      - name: Upstream comparison catches a planted crash (canary)
+        run: |
+          fake="$RUNNER_TEMP/cli-planted-upstream"
+          log="$RUNNER_TEMP/upstream_planted.log"
+          printf '%s\n' '#!/bin/sh' \
+            'case "$*" in *basics/_midi.orca*)' \
+            '  case $MODE in' \
+            '    asan) "$REAL_CLI" "$@"; echo "==1==ERROR: AddressSanitizer: planted" >&2; exit 0 ;;' \
+            '    asan-stdout) "$REAL_CLI" "$@"; echo "==1==ERROR: AddressSanitizer: planted"; exit 0 ;;' \
+            '    exit3) "$REAL_CLI" "$@"; exit 3 ;;' \
+            '  esac ;;' \
+            'esac' \
+            'exec "$REAL_CLI" "$@"' >"$fake"
+          chmod +x "$fake"
+          export REAL_CLI="$PWD/build/cli"
+          # plant <MODE> <line>...: compare.sh on the fake must exit 1 with
+          # each line, exactly, and the summary with 1 fail.
+          plant() {
+            mode=$1
+            shift
+            status=0
+            env -u UBSAN_OPTIONS MODE="$mode" tests/upstream/compare.sh "$fake" >"$log" 2>&1 || status=$?
+            cat "$log"
+            if [ "$status" != 1 ]; then
+              echo "$mode: expected exit 1 from tests/upstream/compare.sh, got $status"
+              exit 1
+            fi
+            for line in "$@"; do
+              if ! grep -qxF -- "$line" "$log"; then
+                echo "$mode: expected the line '$line'"
+                exit 1
+              fi
+            done
+            if ! grep -Eqx 'upstream check: 43 examples, 42 identical; .*; 1 fail' "$log"; then
+              echo "$mode: expected the summary with 43 examples, 42 identical and 1 fail"
+              exit 1
+            fi
+          }
+          plant asan 'FAIL  examples/basics/_midi.orca (bOrca cli sanitizer report)' \
+            '      ==1==ERROR: AddressSanitizer: planted'
+          plant asan-stdout 'FAIL  examples/basics/_midi.orca (bOrca cli sanitizer report)'
+          plant exit3 'FAIL  examples/basics/_midi.orca (bOrca cli exited 3)'
+
       # The README's scale and chord tables, between its tables:begin and
       # tables:end markers, must be exactly what readme-gen prints from
       # music.h (spine AD-19).
@@ -370,6 +506,30 @@ jobs:
 
       - name: Core no-writable-globals check (nm, with canary)
         run: tests/check-nm.sh
+
+      # Which keys a save writes is decided once, by tui_prefs_saves_key
+      # (P4-2): tui_save_prefs in tui_main.c, which no test target compiles,
+      # must call it exactly once, as tui_prefs_saves_key(&t->prefs, ...),
+      # and hold no save test of its own on the touched bits or the PortMidi
+      # output key (TOUCHFLAG(i), prefs.touched, i == / !=
+      # Confopt_portmidi_output_device). The function's body runs from its
+      # definition line to the next line that is a lone closing brace.
+      - name: tui_save_prefs writes the keys tui_prefs_saves_key names (grep)
+        run: |
+          body="$RUNNER_TEMP/tui_save_prefs.c"
+          awk '/^staticni void tui_save_prefs\(Tui \*t\) \{$/ { on = 1 }
+            on { print }
+            on && /^}$/ { exit }' tui_main.c >"$body"
+          cat "$body"
+          calls=$(grep -c 'tui_prefs_saves_key(&t->prefs' "$body" || true)
+          if [ "$calls" != 1 ]; then
+            echo "tui_save_prefs calls tui_prefs_saves_key(&t->prefs, ...) $calls times, not once"
+            exit 1
+          fi
+          if grep -nE 'TOUCHFLAG\(i\)|prefs\.touched|i [!=]= Confopt_portmidi_output_device' "$body"; then
+            echo "tui_save_prefs holds a save test of its own (above)"
+            exit 1
+          fi
 
       # The unit-test runner, in debug (ASan + UBSan). The runner makes UBSan
       # halt at its first report, and the run steps also set halt_on_error,
@@ -601,6 +761,16 @@ jobs:
             exit 1
           fi
 
+      # The ALSA name-guard device check (tests/alsa-guard/devcheck.sh)
+      # needs a sequencer, which the runners lack, so CI shellchecks it and
+      # compiles its LD_PRELOAD shim here, as the check does, with warnings
+      # as errors: a libasound change that breaks the shim fails CI, not the
+      # next device run.
+      - name: The ALSA name-guard shim compiles
+        run: |
+          gcc -shared -fPIC -Wall -Werror -o "$RUNNER_TEMP/guard-shim.so" \
+            tests/alsa-guard/shim.c -ldl -lasound
+
       # The uConsole appliance build: --alsa --harden --pie. make passes
       # CFLAGS_EXTRA to tool through the environment. Ubuntu's gcc predefines
       # _FORTIFY_SOURCE, so this step also checks that --harden undefines it
@@ -734,6 +904,7 @@ jobs:
           tests/check-examples.sh tests/lib.sh tests/upstream/build-cli.sh
           tests/upstream/compare.sh tests/wakeups/ab.sh
           tests/realloc-shim/check.sh
+          tests/alsa-guard/devcheck.sh
 
   # The debug cli and the unit runner under clang's UBSan, whose
   # pointer-overflow check reports NULL + 0 where gcc's does not, so the

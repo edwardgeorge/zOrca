@@ -3331,15 +3331,12 @@ staticni void tui_save_prefs(Tui *t) {
   }
 #endif
   }
-  // Add all conf items touched by user that we want to write to config file.
-  // "Touched" items include conf items that were present on disk when we first
-  // loaded the config file, plus the items that the user has modified by
-  // interacting with the menus.
+  // Add each key a save writes from the prefs (tui_prefs_saves_key: touched,
+  // that is read from the file with a value taken or changed by a menu, and
+  // not portmidi_output_device). The PortMidi output line is added by the
+  // switch above.
   for (int i = 0; i < Confoptslen; i++) {
-    if (i == Confopt_portmidi_output_device)
-      // This has its own special logic
-      continue;
-    if (t->prefs.touched & TOUCHFLAG(i))
+    if (tui_prefs_saves_key(&t->prefs, (Confopt)i))
       ezconf_w_addopt(&ez, confopts[i], i);
   }
   char number[Tui_prefs_number_cap]; // tui_prefs_saved_value's margins

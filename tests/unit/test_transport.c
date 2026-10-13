@@ -5,7 +5,8 @@
 // query, the parser, and the re-arm, clock-out (Clock_out) and HUD helpers
 // of midi_in.h. Stamps are U64 us, as the shell's now_us(); a pulse is
 // 20 833 us, one F8 at 120 BPM.
-// The sink and the model are this file's own (test_tick.c's are static).
+// The model is this file's own; the recording sink and the two-note
+// fixture are recorder.h's, shared with test_tick.c.
 #include "../../ccout.h"
 #include "../../gbuffer.h"
 #include "../../midi_in.h"
@@ -13,96 +14,10 @@
 #include "../../tick.h"
 #include "../../transport.h"
 #include "../../vmio.h"
-#include "tests.h"
+#include "recorder.h"
 
 enum { Pulse_us = 20833, Lost_us = Transport_lost_us };
-enum { Rec_capacity = 64, Bodies_capacity = 64, Hist_capacity = 128 };
-enum { Log_capacity = 128 };
-
-typedef struct {
-  int status, d1, d2;
-} Triple;
-
-// One call to the sink, in the combined log: a midi3 with its triple, a
-// midi1 with its byte in status, an osc, or a control with its address. A
-// midi1 also carries a copy of the watched Clock_out as it was at the call,
-// when the recording watches one.
-typedef enum { Log_midi3, Log_midi1, Log_osc, Log_control } Log_kind;
-
-typedef struct {
-  Log_kind kind;
-  int status, d1, d2;
-  char const *address;
-  bool has_snap;
-  Clock_out snap;
-} Log_entry;
-
-// A sink that records every MIDI triple in order and counts the rest. The
-// combined log holds every call of every kind in call order, so the order
-// across MIDI and OSC control messages is visible; it has its own overflow
-// flag.
-typedef struct {
-  Triple midi3[Rec_capacity];
-  Usz midi3_count, midi1_count, osc_count, control_count;
-  bool overflow;
-  Log_entry log[Log_capacity];
-  Usz log_count;
-  bool log_overflow;
-  Clock_out const *watch; // snapshotted at each midi1 when set
-} Recording;
-
-static void rec_log(Recording *r, Log_entry e) {
-  if (r->log_count == Log_capacity) {
-    r->log_overflow = true;
-    return;
-  }
-  r->log[r->log_count++] = e;
-}
-
-static void rec_midi3(void *u, int status, int d1, int d2) {
-  Recording *r = u;
-  rec_log(r, (Log_entry){.kind = Log_midi3, .status = status, .d1 = d1,
-                         .d2 = d2});
-  if (r->midi3_count == Rec_capacity) {
-    r->overflow = true;
-    return;
-  }
-  r->midi3[r->midi3_count++] = (Triple){status, d1, d2};
-}
-
-static void rec_midi1(void *u, int byte) {
-  Recording *r = u;
-  Log_entry e = {.kind = Log_midi1, .status = byte};
-  if (r->watch) {
-    e.has_snap = true;
-    e.snap = *r->watch;
-  }
-  rec_log(r, e);
-  ++r->midi1_count;
-}
-
-static void rec_osc(void *u, Oevent const *e) {
-  Recording *r = u;
-  (void)e;
-  rec_log(r, (Log_entry){.kind = Log_osc});
-  ++r->osc_count;
-}
-
-static void rec_control(void *u, char const *osc_address) {
-  Recording *r = u;
-  rec_log(r, (Log_entry){.kind = Log_control, .address = osc_address});
-  ++r->control_count;
-}
-
-// Empties r and returns a sink that records into it, watching nothing.
-static Tick_sink rec_sink(Recording *r) {
-  memset(r, 0, sizeof *r);
-  return (Tick_sink){.u = r,
-                     .midi3 = rec_midi3,
-                     .midi1 = rec_midi1,
-                     .osc = rec_osc,
-                     .control = rec_control};
-}
+enum { Bodies_capacity = 64, Hist_capacity = 128 };
 
 static bool triple_is(Triple t, int status, int d1, int d2) {
   return t.status == status && t.d1 == d1 && t.d2 == d2;
@@ -862,18 +777,6 @@ static bool log_one_midi1(Recording const *r, int byte) {
          r->log[0].has_snap;
 }
 
-// The stop fixture: two sustained notes (ch 0 note 36, ch 9 note 127).
-static void co_seed_notes(Susnote_list *susnotes) {
-  susnote_list_init(susnotes);
-  Susnote const seeded[] = {
-      {.remaining = 3, .chan_note = 0 << 8 | 36},
-      {.remaining = 20, .chan_note = 9 << 8 | 127},
-  };
-  Usz start_removed, end_removed;
-  CHECK(susnote_list_add_notes(susnotes, seeded, ORCA_ARRAY_COUNTOF(seeded),
-                               &start_removed, &end_removed));
-}
-
 // The log's entries from `from` are the fixture's two note-offs then
 // /orca/stopped, then FC when fc is set, and nothing else.
 static bool log_tail_is_stop(Recording const *r, Usz from, bool fc) {
@@ -972,7 +875,7 @@ void test_clock_out_internal_wire(void) {
     CHECK(co.clock == 1000 && co.accum_secs == accum); // deadlines leave them
 
     Susnote_list susnotes;
-    co_seed_notes(&susnotes);
+    seed_notes(&susnotes);
     Ccout_engine ccout;
     ccout_init(&ccout);
     Usz before = rec.log_count;

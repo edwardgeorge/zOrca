@@ -268,10 +268,13 @@ the check that compares bOrca's upstream dialect with it (spine AD-21):
 
   It exits 0 only when every check passes, 1 otherwise, and 2 on usage or
   when the Orca-c build is missing. CI runs it in both `build` legs, on the
-  debug and the release `cli`, and proves it can fail with two canaries: the
-  release `cli` with `--dialect borca` appended, and an upstream golden with
-  a byte appended. To remake a golden, write the Orca-c `cli`'s
-  output over it (`build/upstream/cli --events -t 96 --seed 0
+  debug and the release `cli`, and proves it can fail with three canaries:
+  the release `cli` with `--dialect borca` appended, an upstream golden with
+  a byte appended, and a fake `cli` that, for `examples/basics/_midi.orca`,
+  prints an AddressSanitizer report on stderr or on stdout
+  (`bOrca cli sanitizer report`) or exits 3 (`bOrca cli exited 3`). To
+  remake a golden, write the Orca-c `cli`'s output over it
+  (`build/upstream/cli --events -t 96 --seed 0
   examples/upstream/<rel>.orca >tests/expected/examples/upstream/<rel>.events`).
 
 ```text
@@ -394,7 +397,9 @@ opstate.c ccout.c music.c transport.c tick.c tooltips.c tui_prefs.c`).
 rules, the testable shell (spine AD-1, AD-2, AD-21): `tick.c` is the tick
 body, the sustained-note list and the shell's pause, stop and patch-forget
 sequences (`tick_pause`, `tick_stop`, `tick_forget_patch`; AD-14), which the
-unit tests drive through a recording sink that logs every call in order,
+unit tests drive through a recording sink that logs every call in order
+(`tests/unit/recorder.h`, shared by `test_tick.c` and `test_transport.c`
+with its two-note fixture `seed_notes`),
 `tooltips.c` the tooltip text and placement (I5), which reads the
 label buffer the VM fills (`portlabel.h`) and formats its integers itself,
 with no `<stdio.h>`, and `tui_prefs.c` the `orca.conf` settings (P3-4b,
@@ -408,7 +413,8 @@ the checks below and the CI `armhf` job read the same lists.
 `midi_in.h`'s static inlines are shell code under test too, outside the
 CORE list: `test_transport.c` covers `rearm_compute` and the HUD text, and
 also `Clock_out` (the clock-out gate, span, start, F8 gate and re-arms;
-AD-16) on a recording sink that snapshots the state at each byte.
+AD-16) on that recording sink, which snapshots the `Clock_out` it watches at
+each byte.
 `tests/unit/test_tui_prefs.c` covers `tui_prefs.c` on settings built on the
 stack, one row per key's parse and saved text, the key order, the flags
 over the conf and the setters' no-op; what it cannot reach,
@@ -525,7 +531,9 @@ and the field unchanged.
 1. Write `void test_<name>(void)` in a top-level `tests/unit/*.c` file that
    includes `tests.h`; `tool` picks up every such file, but not files in
    subdirectories. Include core headers by relative path (`"../../sim.h"`),
-   so no build needs `-I.`.
+   so no build needs `-I.`. A test that drives a `Tick_sink` includes
+   `recorder.h` (which includes `tests.h`) and records through its
+   `rec_sink`, so a new sink callback is recorded in one place.
 2. Check with `CHECK(expr)`, which records the failure and lets the test
    continue. Never use `assert`: release builds define `NDEBUG`, which
    removes it.
@@ -570,20 +578,28 @@ canary is detected and every result is PASS or XFAIL.
   includes `music.h`, naming `music.h`, while the shell tier's files pass. A
   testable-shell module adds its `.c` to `shell_files` and its header to
   `shell_headers`, never to `core_headers`, where any core file could
-  include it (P3-4b's `tui_prefs.c` and `tui_prefs.h` were the latest). It also reports each of AD-1's banned names,
-  `rand`, `srand`, `srandom`, `drand48`, `lrand48` and `getenv`, found as a
-  whole word in code, each as its own pattern; `random` is not banned, and
-  the whole-word grep never matches it. `base.h` is shared foundation,
+  include it (P3-4b's `tui_prefs.c` and `tui_prefs.h` were the latest). It also reports each of AD-1's eleven banned names,
+  `rand`, `srand`, `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`,
+  `mrand48`, `lcong48`, `getenv` and `secure_getenv`, the calls that use a
+  hidden global PRNG state or read the environment, found as a whole word
+  in code, each as its own pattern; `random` is not banned, and the
+  whole-word grep never matches it. `erand48`, `nrand48`, `jrand48` and
+  `rand_r` take their state from the caller and are not banned.
+  `base.h` is shared foundation,
   allowed whole and not scanned. Comments do not count. Known edges: a
   banned name in a string literal or an `#if 0` block is reported;
   `base.h` includes `<unistd.h>`, so `read()`, `write()`, `usleep()` and
-  the rest of it reach every core file and pass the check. The canary
-  `tests/includes/canary.c` includes `<stdio.h>`, calls each of the six
+  the rest of it reach every core file and pass the check; `random`,
+  `initstate` and `setstate` (libc's other hidden-state PRNG calls) and the
+  `environ` global are not checked, since `random` is the `R` operator's
+  token and `initstate` as a word would hit `prng.h`'s parameter name (a
+  call-pattern check is a `deferred-work.md` entry). The canary
+  `tests/includes/canary.c` includes `<stdio.h>`, calls each of the eleven
   names once and includes `"tick.h"`; the canary is not in `shell_files`,
   so `"tick.h"` is never allowed for it and is reported, never queued. It
-  is scanned first, the same way as a CORE file, and all eight patterns
+  is scanned first, the same way as a CORE file, and all thirteen patterns
   must be reported, or the check is blind to the missing one and the run
-  fails. The list of eight is spelled out in the script, so a name dropped
+  fails. The list of thirteen is spelled out in the script, so a name dropped
   from its banned list is caught too, and a name in the banned list that
   the canary's list lacks fails the canary, so a new name gets a canary.
 - `tests/check-nm.sh` (spine AD-1) compiles each CORE file on its own with
@@ -618,7 +634,7 @@ Today they print, on the uConsole's gcc 12.2:
 
 ```text
 $ tests/check-includes.sh
-PASS  canary (detected: <stdio.h>, rand, srand, srandom, drand48, lrand48, getenv, "tick.h")
+PASS  canary (detected: <stdio.h>, rand, srand, srandom, drand48, lrand48, srand48, seed48, mrand48, lcong48, getenv, secure_getenv, "tick.h")
 PASS  gbuffer.c
 PASS  vmio.c
 PASS  sim.c
@@ -656,7 +672,7 @@ count results, so one file can add several.
 
 | Marker file | Line format | Today |
 | --- | --- | --- |
-| `tests/xfail/include-check` | `<file> <pattern> <item...>`, where the pattern is a banned name (`rand`, `srand`, `srandom`, `drand48`, `lrand48`, `getenv`), `<name.h>` or `"name.h"` (a shell header's `"tick.h"` or `"tooltips.h"` among them) | none (B1 deleted `sim.c rand B1`) |
+| `tests/xfail/include-check` | `<file> <pattern> <item...>`, where the pattern is a banned name (`rand`, `srand`, `srandom`, `drand48`, `lrand48`, `srand48`, `seed48`, `mrand48`, `lcong48`, `getenv`, `secure_getenv`), `<name.h>` or `"name.h"` (a shell header's `"tick.h"` or `"tooltips.h"` among them) | none (B1 deleted `sim.c rand B1`) |
 | `tests/xfail/nm-check` | `<file> <symbol\|glob> <item>`, where the pattern is a symbol name, or a literal prefix of at least 3 characters followed by one trailing `*` (`chord_*`); a line spans both passes | none (B1 deleted its three lines and B3 its four) |
 
 - The items are the spec items the fix waits for, each matching
@@ -796,6 +812,69 @@ with limit 30000 keep running with `1000x25` and an advancing frame counter
 and exit 0. Each `orca` run has a scratch `XDG_CONFIG_HOME`. CI runs the
 `cli` case in the `build` job.
 
+## ALSA name-guard check
+
+`tests/alsa-guard/devcheck.sh` (P3-5, spine AD-17) is a development check
+of the ALSA client-name guard in a real `--alsa` `orca`; CI shellchecks it
+and compiles its shim but cannot run it, since the runners have no
+sequencer. The unit row
+`alsa_name_scan` covers only the pure scan helper in `midi_in.h`; this
+check proves what it cannot see: that `alsa_ctx_open` scans the sequencer a
+second time after it takes the name and before it creates any port, and
+that the adapter, `alsa_name_next_client`, passes a scan error through
+rather than ending the list as a free name. Run it on a release `--alsa`
+`orca` (a debug build links ASan, which refuses `LD_PRELOAD`, so the script
+exits 2 naming ASan; a build without `--alsa` exits 2 naming `libasound`):
+
+```sh
+CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --alsa orca
+nice -n 19 taskset -c 0-2 tests/alsa-guard/devcheck.sh build/orca
+```
+
+It builds `tests/alsa-guard/shim.c` into an `LD_PRELOAD` library in a
+scratch directory and runs the `orca` on a scratch three-line patch, with
+`TERM=xterm`, under util-linux `script` (with `SHELL=/bin/sh`) and
+`timeout --foreground -k 1 3` (6 s for D1's first instance), so a run that
+gets past the guard exits 124.
+The shim's mode, in `BORCA_GUARD_SHIM`, makes a lost race deterministic
+(`hold`: a second client of the same process takes the name just before
+`orca`'s rename) or fails the scans (`eio`: every scan; `eio2`: only the one
+after the rename), and it prints `pid <n> ports created <k>` on exit. One
+PASS or FAIL line per check:
+
+- **D1**, no shim: once a first instance holds the name (polled every
+  0.1 s for up to 3 s), a second instance under the same name exits 1 with
+  `Cannot start: an ALSA client named '<name>' is already running (set
+  BORCA_ALSA_CLIENT_NAME to run another instance)`, one client has the name
+  before and after it, and the first runs until the timeout.
+- **D2**, `hold`: exit 1 with the same message, `ports created 0`, and no
+  client of the name 1 s into the run. Without the second scan the run gets
+  past the guard (two clients of the name, rc 124); with the scan moved
+  after the ports it exits 1 with `ports created 2`.
+- **D4**, `eio`: exit 1 with `Cannot start: the scan for an ALSA client
+  named '<name>' failed: Input/output error` and `ports created 0`.
+- **D5**, `eio2`: the same for the second scan, and no client of the name
+  1 s into the run. An adapter that maps an error to the end of the list
+  fails D4 and D5 (rc 124, ports created), while the unit runner passes.
+- **Live**: the live `bOrca` client's lines in `/proc/asound/seq/clients`
+  (its `Client` line, its `Port` lines and their `Connecting` lines, but not
+  its pool counters, which move while it plays) are the same before and
+  after, and no guard client is left.
+
+It prints `alsa guard check: <n> checks, <f> failed` and exits 0 when none
+failed, 1 when one did, and 2 on usage, a missing tool (`script`, `timeout`,
+`gcc`, `readelf`, `taskset`), an unreadable `/proc/asound/seq/clients`, a
+binary that is not a release `--alsa` build, a `guard-<pid>-` client already
+present, a shim that does not build or a scratch directory that cannot be
+made. It takes about 10 s, and an interrupt stops its runs in the background
+before it exits. Every client name is `guard-<pid>-<check>`, never `bOrca`,
+and every run gets a fresh scratch `XDG_CONFIG_HOME`; it never touches the
+live `bOrca` client or `borca-tty.service` (it only reads
+`/proc/asound/seq/clients`, and calls no `systemctl` or `aconnect`), and it
+runs every `gcc` and `orca` under `nice -n 19 taskset -c 0-2`. P3-5's twenty
+racing pairs (its D3) are not part of it: `hold` makes the race
+deterministic, and the pairs stay P3-5's evidence.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes and pull requests to
@@ -810,15 +889,18 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   both and `tests/realloc-shim/check.sh` on the release `cli`. It runs `tests/check-examples.sh` on the debug `cli`, builds
   `readme-gen` with `-Werror` and runs `tests/check-doc-sync.sh` on it. It
   then runs `tests/check-includes.sh` and `tests/check-nm.sh`,
-  which need no build, builds and runs the debug unit tests without and
-  with `--portmidi` and with `--alsa` (ASan, UBSan with `halt_on_error=1`;
-  the plain run fails unless it prints `ok tick_note_alloc_fail` and
-  `ok realloc_hook_builtin_null`, the `--portmidi` run unless it prints
-  both `ok portmidi_error_text_and_filters` and `ok portmidi_in_decode`,
-  the `--alsa` run unless it prints
-  `ok alsa_version_and_open_modes`), and runs
+  which need no build, and a grep that fails unless `tui_save_prefs` in
+  `tui_main.c` calls `tui_prefs_saves_key(&t->prefs, …)` exactly once and
+  holds no save test of its own (`TOUCHFLAG(i)`, `prefs.touched`, a
+  comparison with `Confopt_portmidi_output_device`), builds and runs the
+  debug unit tests without and with `--portmidi` and with `--alsa` (ASan,
+  UBSan with `halt_on_error=1`; the plain run fails unless it prints
+  `ok tick_note_alloc_fail` and `ok realloc_hook_builtin_null`, the
+  `--portmidi` run unless it prints both
+  `ok portmidi_error_text_and_filters` and `ok portmidi_in_decode`, the
+  `--alsa` run unless it prints `ok alsa_version_and_open_modes`), and runs
   `tests/check-debug-build.sh` on each runner with its log before the next
-  build replaces it. Six steps prove the checks' failure paths on every
+  build replaces it. Seven steps prove the checks' failure paths on every
   run: `tests/run.sh` must fail a throwaway `pitch_bend.xfail` holding
   `TODO`, then `B2 B5`, as a bad marker, and `--update` must leave an
   edited `pitch_bend.events` alone, after which the tree must be clean;
@@ -829,14 +911,37 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `examples/basics/_midi.orca`, must make `tests/run.sh <fake> pitch_bend`
   and `tests/check-examples.sh <fake>` each exit 1 with its exact FAIL
   line, once when it prints a `runtime error:` line and exits 0 for those
-  two (`sanitizer report`, with the report excerpt and summary line) and
-  once when it sleeps 5 s under a `timeout` shim on `PATH` that runs the
-  real `timeout` with 1 s (`cli exited 124 (signal or timeout)`), proving
-  `tests/lib.sh`'s shared crash rule in both scripts; when it exits 3
+  two (`sanitizer report`, with the report excerpt and summary line), once
+  each when it prints `==1==ERROR: AddressSanitizer: planted` (then
+  `LeakSanitizer`, then `UndefinedBehaviorSanitizer`) on stderr after the
+  real output and exits 0 (`sanitizer report`, with the excerpt), once
+  when it sleeps 5 s under a `timeout` shim on `PATH` that runs the real
+  `timeout` with 1 s (`cli exited 124 (signal or timeout)`), and once when
+  it prints the AddressSanitizer line and kills itself with SIGSEGV
+  (`cli exited 139 (signal or timeout)`: the status wins over the report),
+  proving `tests/lib.sh`'s shared crash rule and each of its sanitizer
+  alternatives in both scripts; when it prints the `UBSAN_OPTIONS` it was
+  given and exits 3, both must print
+  `UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1` with `UBSAN_OPTIONS`
+  removed from the environment, and the same with `:report_error_type=1`
+  appended when the caller sets that, proving `tests/lib.sh`'s export and
+  prepend; with `MODE` unset and `PATH` a directory of links to every tool
+  the scripts and the fake use but `timeout` (the step first checks that
+  `command -v timeout` finds nothing there), `tests/run.sh` must pass the
+  file and `tests/check-examples.sh` must report `0 fail`, each exiting
+  0, proving the `command -v timeout` guard; when it exits 3
   after the real output, `tests/check-examples.sh` must fail the file
   (`cli exited 3`) and `tests/run.sh`, under a throwaway
   `pitch_bend.xfail` holding `B2`, must report XFAIL and exit 0, after
   which the tree must be clean;
+  `tests/upstream/compare.sh` must exit 1 on a fake `cli` that, for
+  `examples/basics/_midi.orca`, after the real output prints the
+  AddressSanitizer line on stderr and exits 0, then prints it on stdout
+  and exits 0, then exits 3, with `FAIL  examples/basics/_midi.orca (bOrca
+  cli sanitizer report)` (with the excerpt the first time) or
+  `FAIL  examples/basics/_midi.orca (bOrca cli exited 3)` and
+  `upstream check: 43 examples, 42 identical; …; 1 fail`, proving
+  compare.sh's own crash rule (its `run()`);
   `tests/check-doc-sync.sh` must exit 1 on a README copy under
   `$RUNNER_TEMP` whose `k/K` row has one cell changed, printing that row,
   and on one with its end marker deleted, as bad markers;
@@ -856,7 +961,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   ALSA build and `make appliance` it must find neither, which proves that
   the counters stay out of the shipped builds; the positive greps are the
   canary for the negative ones. The plain ALSA and appliance
-  binaries must list `libasound.so.2` as `NEEDED` in `readelf -d`; the
+  binaries must list `libasound.so.2` as `NEEDED` in `readelf -d`, and
+  `tests/alsa-guard/shim.c` must compile with `-Wall -Werror`; the
   appliance binary must also be of type `DYN` in `readelf -h` (PIE) and
   import `__stack_chk_fail` in `nm -D --undefined-only` (hardened). Both
   runners install `libasound2-dev` for the ALSA builds.
@@ -872,10 +978,10 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/check-includes.sh`, `tests/check-nm.sh`,
   `tests/check-debug-build.sh`, `tests/check-doc-sync.sh`,
   `tests/check-examples.sh`, `tests/lib.sh`, `tests/upstream/build-cli.sh`,
-  `tests/upstream/compare.sh`, `tests/wakeups/ab.sh` and
-  `tests/realloc-shim/check.sh`. `tests/lib.sh` must
-  be in that list: without `-x`, shellcheck follows a sourced file only when
-  it is given too.
+  `tests/upstream/compare.sh`, `tests/wakeups/ab.sh`,
+  `tests/realloc-shim/check.sh` and `tests/alsa-guard/devcheck.sh`.
+  `tests/lib.sh` must be in that list: without `-x`, shellcheck follows a
+  sourced file only when it is given too.
 - **clang** (`ubuntu-24.04`, P3-2, deferred-work #19): builds the debug
   `cli` and the debug unit runner with `CC=clang` and
   `CFLAGS_EXTRA="-fsanitize=undefined,pointer-overflow

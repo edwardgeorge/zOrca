@@ -347,3 +347,9 @@ char const *tui_prefs_saved_value(Tui_prefs const *p, Confopt key, char *buf) {
     return "";
   }
 }
+
+bool tui_prefs_saves_key(Tui_prefs const *p, Confopt key) {
+  return (unsigned)key < (unsigned)Confoptslen &&
+         key != Confopt_portmidi_output_device &&
+         (p->touched & TOUCHFLAG(key)) != 0;
+}

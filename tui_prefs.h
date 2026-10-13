@@ -17,14 +17,14 @@
 // (ged_set_dialect's clear, cancel and re-mark among them, AD-6).
 //
 // The touched bits. A key's bit is set when its line was read from the file
-// with a value taken, or when a setter changed its value; tui_save_prefs
-// writes the touched keys, and ezconf writes every other key line back with
-// its value unchanged (as `key = value`: ezconf normalises the spacing, as it
-// always has) and every comment line as it was (but for an unterminated last
-// line, whose last byte ezconf drops). An override clears its key's bit,
-// whether or not the override took effect (External without a reader; an input
-// name that does not fit), so a flag lasts for the session and the stored line
-// is kept until a menu change touches the key again (AD-20).
+// with a value taken, or when a setter changed its value; tui_save_prefs writes
+// the keys tui_prefs_saves_key names, and ezconf writes every other key line
+// back with its value unchanged (as `key = value`: ezconf normalises the
+// spacing, as it always has) and every comment line as it was (but for an
+// unterminated last line, whose last byte ezconf drops). An override clears its
+// key's bit, whether or not the override took effect (External without a
+// reader; an input name that does not fit), so a flag lasts for the session and
+// the stored line is kept until a menu change touches the key again (AD-20).
 // portmidi_output_device and the input key are never touched by a read.
 
 // The keys, in the order ezconf appends missing keys (TUI_PREFS_KEYS order
@@ -161,6 +161,11 @@ bool tui_prefs_set_midi_bclock(Tui_prefs *p, bool enabled);
 bool tui_prefs_set_margins(Tui_prefs *p, int x, int y);
 bool tui_prefs_set_osc_output_address(Tui_prefs *p, char const *address);
 bool tui_prefs_set_osc_output_port(Tui_prefs *p, char const *port);
+
+// True when a save writes key's line from the prefs: the key is in the
+// table, is touched and is not portmidi_output_device, whose save is the
+// shell's own (the PortMidi device's name). False for any other value.
+bool tui_prefs_saves_key(Tui_prefs const *p, Confopt key);
 
 // The text written after `<key> = ` for key: the strings as held (empty
 // writes nothing), 1 or 0, plain or fancy, the dialect, glide_hz and clock

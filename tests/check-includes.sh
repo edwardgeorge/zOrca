@@ -10,9 +10,11 @@
 # and expands no macros. The script then reports:
 #   - every #include that is not allowed for the file, as the pattern
 #     <name.h> or "name.h", spelled as in the source;
-#   - each banned name (rand, srand, srandom, drand48, lrand48, getenv) found
-#     as a whole word in code, as the pattern of that name. Comments do not
-#     count, and random is not banned: the whole-word grep never matches it.
+#   - each banned name (rand, srand, srandom, drand48, lrand48, srand48,
+#     seed48, mrand48, lcong48, getenv, secure_getenv) found as a whole word
+#     in code, as the pattern of that name. Comments do not count, and random
+#     is not banned: the whole-word grep never matches it. erand48, nrand48,
+#     jrand48 and rand_r take their state from the caller and are not banned.
 #
 # Two tiers. core_headers is allowed in every CORE file. shell_headers (the
 # testable shell's: tick.h, tooltips.h, tui_prefs.h) is allowed only when
@@ -29,10 +31,14 @@
 # Known edges: a banned name inside a string literal or an #if 0 block is
 # reported. base.h includes <unistd.h>, so every core file sees read(),
 # write(), usleep() and the rest of it, and calling them passes this check.
+# random, initstate and setstate (libc's other hidden-state PRNG calls) and
+# the environ global are not checked: random is the R operator's token, and
+# initstate as a word would hit prng.h's parameter name (a call-pattern
+# check is a deferred-work.md entry).
 #
 # The canary, tests/includes/canary.c, includes <stdio.h>, calls each of the
-# six banned names and includes "tick.h" from outside the shell tier. It is
-# scanned first, the same way as a CORE file, and all eight patterns must be
+# eleven banned names and includes "tick.h" from outside the shell tier. It is
+# scanned first, the same way as a CORE file, and all thirteen patterns must be
 # reported for it on every run; if one is not, the check is blind to it and
 # the run fails. The canary is not in shell_files, so "tick.h" is never
 # allowed for it: it is reported, never queued. A name in banned_names that
@@ -68,7 +74,7 @@ core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h
 shell_headers='tick.h tooltips.h tui_prefs.h'
 shell_files='tick.c tooltips.c tui_prefs.c'
 # AD-1's banned names, each a pattern of its own.
-banned_names='rand srand srandom drand48 lrand48 getenv'
+banned_names='rand srand srandom drand48 lrand48 srand48 seed48 mrand48 lcong48 getenv secure_getenv'
 
 if ! command -v gcc >/dev/null 2>&1; then
   echo "error: gcc not found (the comment stripping needs gcc)" >&2
@@ -207,14 +213,14 @@ scan() {
 }
 
 # The canary must be reported for every one of its planted violations: the
-# eight patterns, one per line in $tmp/canary_patterns. The list is spelled
+# thirteen patterns, one per line in $tmp/canary_patterns. The list is spelled
 # out, not built from banned_names, so a name dropped from that list is
 # missed in the canary and fails the run; and a name in banned_names that
 # the list lacks fails the canary too, so a name added there has a canary.
 canary_ok=0
 canary_missing=
-printf '%s\n' '<stdio.h>' rand srand srandom drand48 lrand48 getenv '"tick.h"' \
-  >"$tmp/canary_patterns"
+printf '%s\n' '<stdio.h>' rand srand srandom drand48 lrand48 srand48 seed48 \
+  mrand48 lcong48 getenv secure_getenv '"tick.h"' >"$tmp/canary_patterns"
 canary_unlisted=
 for canary_name in $banned_names; do
   if ! grep -Fqx "$canary_name" "$tmp/canary_patterns"; then

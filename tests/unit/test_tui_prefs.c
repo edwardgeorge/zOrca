@@ -631,13 +631,47 @@ void test_prefs_menu_noop(void) {
   }
 }
 
-// The text after `key = ` for every key, then the save loop simulated: the
-// touched keys in TUI_PREFS_KEYS order, which is the order ezconf appends
-// keys in.
+// The save loop simulated: the `key = value` lines of the keys
+// tui_prefs_saves_key names, in TUI_PREFS_KEYS order, which is the order
+// ezconf appends keys in, as tui_save_prefs' loop adds them (its PortMidi
+// output line is the shell's own and is not written here). False when text
+// (cap bytes) is too small.
+static bool saved_text(Tui_prefs const *p, char *text, Usz cap) {
+  char buf[Tui_prefs_number_cap];
+  Usz at = 0;
+  for (int i = 0; i < Confoptslen; ++i) {
+    if (!tui_prefs_saves_key(p, (Confopt)i))
+      continue;
+    char const *parts[] = {confopts[i], " = ",
+                           tui_prefs_saved_value(p, (Confopt)i, buf), "\n"};
+    for (Usz j = 0; j < ORCA_ARRAY_COUNTOF(parts); ++j) {
+      Usz n = strlen(parts[j]);
+      if (at + n >= cap) {
+        text[at] = '\0';
+        return false;
+      }
+      memcpy(text + at, parts[j], n);
+      at += n;
+    }
+  }
+  text[at] = '\0';
+  return true;
+}
+
+// The text after `key = ` for every key, which keys a save writes
+// (tui_prefs_saves_key), then the save loop simulated.
 void test_prefs_saved_value(void) {
   char buf[Tui_prefs_number_cap];
   Tui_prefs p;
   init_alsa(&p);
+  // Nothing touched: a save writes no key from the prefs.
+  for (int i = 0; i < Confoptslen; ++i)
+    CHECK(!tui_prefs_saves_key(&p, (Confopt)i));
+  // Only glide_hz touched: it alone is written.
+  p.touched = TOUCHFLAG(Confopt_glide_hz);
+  CHECK(tui_prefs_saves_key(&p, Confopt_glide_hz));
+  CHECK(!tui_prefs_saves_key(&p, Confopt_dialect));
+  p.touched = 0;
   CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_osc_output_address, buf),
                "") == 0);
   CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_osc_output_port, buf),
@@ -679,30 +713,23 @@ void test_prefs_saved_value(void) {
   CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_portmidi_input_device, buf),
                "MidiHub:MidiHub MIDI 1") == 0);
 
-  // Every key touched, written as tui_save_prefs' loop does (its PortMidi
-  // output line is the shell's own and is skipped here, as there).
+  // Every key touched: every key but portmidi_output_device is written (its
+  // line is the shell's own), as tui_save_prefs' loop does.
   p.touched = (1u << Confoptslen) - 1u;
-  char text[1024];
-  Usz at = 0;
-  bool room = true;
-  for (int i = 0; i < Confoptslen; ++i) {
-    if (i == Confopt_portmidi_output_device ||
-        !(p.touched & TOUCHFLAG(i)))
-      continue;
-    char const *parts[] = {confopts[i], " = ",
-                           tui_prefs_saved_value(&p, (Confopt)i, buf), "\n"};
-    for (Usz j = 0; j < ORCA_ARRAY_COUNTOF(parts); ++j) {
-      Usz n = strlen(parts[j]);
-      if (at + n >= sizeof text) {
-        room = false;
-        break;
-      }
-      memcpy(text + at, parts[j], n);
-      at += n;
-    }
+  for (int i = 0; i < Confoptslen; ++i)
+    CHECK(tui_prefs_saves_key(&p, (Confopt)i) ==
+          (i != Confopt_portmidi_output_device));
+  // A value outside the table is never saved, whatever the bits say (and
+  // is never shifted into TOUCHFLAG).
+  {
+    U32 const touched = p.touched;
+    p.touched = ~0u;
+    CHECK(!tui_prefs_saves_key(&p, Confoptslen));
+    CHECK(!tui_prefs_saves_key(&p, (Confopt)40));
+    p.touched = touched;
   }
-  text[at] = '\0';
-  CHECK(room);
+  char text[1024];
+  CHECK(saved_text(&p, text, sizeof text));
   CHECK(strcmp(text, "osc_output_address = 10.0.0.2\n"
                      "osc_output_port = 7000\n"
                      "osc_output_enabled = 1\n"
@@ -715,6 +742,10 @@ void test_prefs_saved_value(void) {
                      "clock_source = external\n"
                      "portmidi_input_device = MidiHub:MidiHub MIDI 1\n"
                      "alsa_input_device = MidiHub:MidiHub MIDI 1\n") == 0);
+  // Only margins and dialect touched: only their lines, in table order.
+  p.touched = TOUCHFLAG(Confopt_margins) | TOUCHFLAG(Confopt_dialect);
+  CHECK(saved_text(&p, text, sizeof text));
+  CHECK(strcmp(text, "margins = 10x3\ndialect = upstream\n") == 0);
 
   // The formatter: big and negative ints (which no read or setter stores)
   // still format whole within Tui_prefs_number_cap.

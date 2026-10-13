@@ -11,9 +11,7 @@
 #include "../../opstate.h"
 #include "../../tick.h"
 #include "../../vmio.h"
-#include "tests.h"
-
-enum { Rec_capacity = 64, Log_capacity = 128 };
+#include "recorder.h"
 
 static U64 const tick_us = 125000; // one tick at 120 BPM
 
@@ -21,91 +19,6 @@ static U64 const tick_us = 125000; // one tick at 120 BPM
 static bool engine_idle(Ccout_engine const *ccout) {
   U64 t;
   return !ccout_next_deadline(ccout, 0, &t) && ccout->active_count == 0;
-}
-
-typedef struct {
-  int status, d1, d2;
-} Triple;
-
-// One call to the sink, in the combined log: a midi3 with its triple, a
-// midi1 with its byte in status, an osc, or a control with its address.
-typedef enum { Log_midi3, Log_midi1, Log_osc, Log_control } Log_kind;
-
-typedef struct {
-  Log_kind kind;
-  int status, d1, d2;
-  char const *address;
-} Log_entry;
-
-// A sink that records every call, in order. Each MIDI triple is stamped with
-// body, which the test sets before each tick body, and with the number of
-// midi1 calls (the F8s, in the note-length tests) made before it. The
-// combined log holds every call of every kind in call order, so the order
-// across MIDI and OSC control messages is visible; it has its own overflow
-// flag.
-typedef struct {
-  Triple midi3[Rec_capacity];
-  Usz midi3_body[Rec_capacity];
-  Usz midi3_pulses[Rec_capacity];
-  Usz midi3_count;
-  Usz midi1_count;
-  Usz osc_count;
-  Usz control_count;
-  Usz body;
-  bool overflow;
-  Log_entry log[Log_capacity];
-  Usz log_count;
-  bool log_overflow;
-} Recording;
-
-static void rec_log(Recording *r, Log_entry e) {
-  if (r->log_count == Log_capacity) {
-    r->log_overflow = true;
-    return;
-  }
-  r->log[r->log_count++] = e;
-}
-
-static void rec_midi3(void *u, int status, int d1, int d2) {
-  Recording *r = u;
-  rec_log(r, (Log_entry){.kind = Log_midi3, .status = status, .d1 = d1,
-                         .d2 = d2});
-  if (r->midi3_count == Rec_capacity) {
-    r->overflow = true;
-    return;
-  }
-  r->midi3_body[r->midi3_count] = r->body;
-  r->midi3_pulses[r->midi3_count] = r->midi1_count;
-  r->midi3[r->midi3_count++] = (Triple){status, d1, d2};
-}
-
-static void rec_midi1(void *u, int byte) {
-  Recording *r = u;
-  rec_log(r, (Log_entry){.kind = Log_midi1, .status = byte});
-  ++r->midi1_count;
-}
-
-static void rec_osc(void *u, Oevent const *e) {
-  Recording *r = u;
-  (void)e;
-  rec_log(r, (Log_entry){.kind = Log_osc});
-  ++r->osc_count;
-}
-
-static void rec_control(void *u, char const *osc_address) {
-  Recording *r = u;
-  rec_log(r, (Log_entry){.kind = Log_control, .address = osc_address});
-  ++r->control_count;
-}
-
-// Empties r and returns a sink that records into it.
-static Tick_sink rec_sink(Recording *r) {
-  memset(r, 0, sizeof *r);
-  return (Tick_sink){.u = r,
-                     .midi3 = rec_midi3,
-                     .midi1 = rec_midi1,
-                     .osc = rec_osc,
-                     .control = rec_control};
 }
 
 // The combined log holds exactly these calls, in this order. A control
@@ -725,23 +638,12 @@ void test_tick_release_all(void) {
   susnote_list_deinit(&susnotes);
 }
 
-// The shell's pause, stop and patch-forget fixture: two sustained notes (ch 0
-// note 36, then ch 9 note 127, in list order) and a glide on ch 0, CC 74,
-// from 0 to 64 at rate w (index 32, four ticks), with its first step, 16,
-// already sent at one tick. The engine's output goes to out, not to a sink.
+// The shell's pause, stop and patch-forget fixture: the two sustained notes
+// of recorder.h's seed_notes (ch 0 note 36, then ch 9 note 127, in list
+// order) and a glide on ch 0, CC 74, from 0 to 64 at rate w (index 32, four
+// ticks), with its first step, 16, already sent at one tick. The engine's
+// output goes to out, not to a sink.
 enum { Glide_ch = 0, Glide_cc = 74, Glide_rate_w = 32 };
-
-static void seed_notes(Susnote_list *susnotes) {
-  susnote_list_init(susnotes);
-  Susnote const seeded[] = {
-      {.remaining = 3, .chan_note = 0 << 8 | 36},
-      {.remaining = 20, .chan_note = 9 << 8 | 127},
-  };
-  Usz start_removed, end_removed;
-  CHECK(susnote_list_add_notes(susnotes, seeded, ORCA_ARRAY_COUNTOF(seeded),
-                               &start_removed, &end_removed));
-  CHECK(susnotes->count == 2);
-}
 
 // The engine's output in out is exactly one CC on the fixture's controller,
 // with this value.
