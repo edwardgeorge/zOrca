@@ -826,6 +826,14 @@ jobs:
               -o "$RUNNER_TEMP/clock-$prog" "tests/alsa-clock/$prog.c" -lasound
           done
 
+      # The ALSA held-note-off device check (tests/alsa-noteoff/devcheck.sh)
+      # needs a sequencer, so CI shellchecks it and compiles its receiver
+      # here, as the check does, with warnings as errors.
+      - name: The ALSA held-note-off check's receiver compiles
+        run: |
+          gcc -std=c99 -O2 -Wall -Wextra -Werror \
+            -o "$RUNNER_TEMP/noteoff-recv" tests/alsa-noteoff/recv.c -lasound
+
       # The uConsole appliance build: --alsa --harden --pie. make passes
       # CFLAGS_EXTRA to tool through the environment. Ubuntu's gcc predefines
       # _FORTIFY_SOURCE, so this step also checks that --harden undefines it
@@ -968,6 +976,7 @@ jobs:
           tests/alsa-guard/devcheck.sh
           tests/alsa-contract/devcheck.sh
           tests/alsa-clock/devcheck.sh
+          tests/alsa-noteoff/devcheck.sh
 
   # The debug cli and the unit runner under clang's UBSan, whose
   # pointer-overflow check reports NULL + 0 where gcc's does not, so the

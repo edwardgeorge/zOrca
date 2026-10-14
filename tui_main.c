@@ -982,6 +982,10 @@ typedef struct {
   // Sends that did not go out, dropped or failed; saturating. Nonzero shows
   // the sticky "MIDI err" field on the HUD.
   Usz send_failures;
+  // Note-offs the sequencer refused, kept to be sent again (midi_in.h); its
+  // held, resent and lost totals are printed to stderr after endwin in a
+  // counters build.
+  Pending_offs pending_offs;
 #ifdef BORCA_DEBUG_COUNTERS
   // Of those, the sends dropped on -EAGAIN or -EINTR. Printed to stderr after
   // endwin.
@@ -1058,6 +1062,7 @@ enum { Alsa_input_pool = 500 };
 // could not be allocated), so the caller can say so.
 staticni int alsa_ctx_open(Alsa_ctx *ctx, bool *scan_failed) {
   *ctx = (Alsa_ctx){.seq = NULL, .port = -1, .in_port = -1};
+  pending_offs_init(&ctx->pending_offs);
   *scan_failed = false;
   char const *client_name = alsa_client_name();
   // A longer name would be stored cut short, and the scans below compare the
@@ -1236,7 +1241,9 @@ static void alsa_silent_error_handler(char const *file, int line,
   (void)fmt;
 }
 
-// Counts a send that did not go out. Never sleeps, retries or prints.
+// Counts a send that did not go out. Never sleeps or prints, and sends
+// nothing again itself: a refused note-off is kept by send_midi_3bytes in
+// pending_offs, and the main loop tries it again (ged_retry_note_offs).
 static void alsa_ctx_count_send_failure(Alsa_ctx *ctx, int err) {
 #ifdef BORCA_DEBUG_COUNTERS
   if (err == -EAGAIN || err == -EINTR)
@@ -1630,35 +1637,56 @@ static bool ged_is_draw_dirty(Ged *a) {
   return a->is_draw_dirty || a->needs_remarking;
 }
 
+#ifdef FEAT_ALSA
+// What the ALSA Midi_write needs: the client and the Ged's encoder.
+typedef struct {
+  Alsa_ctx *ctx;
+  snd_midi_event_t *encoder;
+} Alsa_write;
+
+// One three-byte message to the subscribers (the Midi_write of midi_in.h):
+// >= 0 when it went out, -errno when the sequencer refused it. It counts
+// nothing and sends nothing again; held_send keeps a refused note-off and the
+// main loop sends it again. No subscribers is normal; direct nonblocking
+// output survives hotplug. A full output (-EAGAIN) or an interrupted write
+// (-EINTR) refuses the message, with no sleep, like any other failure; the HUD
+// shows it. Nothing prints here: curses owns the terminal.
+static int alsa_write_message(void *u, int status, int d1, int d2) {
+  Alsa_write *aw = u;
+  unsigned char bytes[3] = {(unsigned char)status, (unsigned char)d1,
+                            (unsigned char)d2};
+  long length = status >= 0xf8 ? 1 : ((status & 0xe0) == 0xc0 ? 2 : 3);
+  snd_seq_event_t event;
+  snd_seq_ev_clear(&event);
+  snd_midi_event_reset_encode(aw->encoder);
+  if (snd_midi_event_encode(aw->encoder, bytes, length, &event) <= 0 ||
+      event.type == SND_SEQ_EVENT_NONE)
+    return -EINVAL; // the encoder failed or made no event: dropped too
+  snd_seq_ev_set_source(&event, (unsigned char)aw->ctx->port);
+  snd_seq_ev_set_subs(&event);
+  snd_seq_ev_set_direct(&event);
+  return snd_seq_event_output_direct(aw->ctx->seq, &event);
+}
+
+static U64 alsa_write_now(void *u) {
+  (void)u;
+  return now_us();
+}
+#endif
+
 staticni void send_midi_3bytes(Oosc_dev *oosc_dev, Midi_mode const *midi_mode,
                                int status, int byte1, int byte2) {
   switch (midi_mode->any.type) {
 #ifdef FEAT_ALSA
   case Midi_mode_type_alsa: {
     Alsa_ctx *ctx = midi_mode->alsa.ctx;
-    snd_midi_event_t *encoder = midi_mode->alsa.encoder;
-    unsigned char bytes[3] = {(unsigned char)status, (unsigned char)byte1,
-                              (unsigned char)byte2};
-    long length = status >= 0xf8 ? 1 : ((status & 0xe0) == 0xc0 ? 2 : 3);
-    snd_seq_event_t event;
-    snd_seq_ev_clear(&event);
-    snd_midi_event_reset_encode(encoder);
-    if (snd_midi_event_encode(encoder, bytes, length, &event) > 0 &&
-        event.type != SND_SEQ_EVENT_NONE) {
-      snd_seq_ev_set_source(&event, (unsigned char)ctx->port);
-      snd_seq_ev_set_subs(&event);
-      snd_seq_ev_set_direct(&event);
-      // No subscribers is normal; direct nonblocking output survives hotplug.
-      // A full output (-EAGAIN) or an interrupted write (-EINTR) drops the
-      // message, with no sleep or retry, like any other failure; the HUD
-      // shows it. Nothing prints here: curses owns the terminal.
-      int err = snd_seq_event_output_direct(ctx->seq, &event);
-      if (err < 0)
-        alsa_ctx_count_send_failure(ctx, err);
-    } else {
-      // The encoder failed or made no event: the message is dropped too.
-      alsa_ctx_count_send_failure(ctx, -EINVAL);
-    }
+    Alsa_write aw = {ctx, midi_mode->alsa.encoder};
+    Midi_write w = {&aw, alsa_write_message, alsa_write_now};
+    // A refused note-off would leave the note hanging on the synth, so
+    // held_send keeps it (midi_in.h); a refused note-on is a missed note.
+    int err = held_send(&ctx->pending_offs, &w, status, byte1, byte2);
+    if (err < 0)
+      alsa_ctx_count_send_failure(ctx, err);
     break;
   }
 #endif
@@ -1692,6 +1720,56 @@ staticni void send_midi_3bytes(Oosc_dev *oosc_dev, Midi_mode const *midi_mode,
 #endif
   }
 }
+
+#ifdef FEAT_ALSA
+// The ALSA client, while ALSA is the MIDI output, else NULL.
+static Alsa_ctx *ged_alsa_ctx(Ged *a) {
+  return a->midi_mode.any.type == Midi_mode_type_alsa ? a->midi_mode.alsa.ctx
+                                                      : NULL;
+}
+
+// True while a refused note-off is held; then *wait_us is how long until the
+// next try is due (0: now), so the main loop wakes for it instead of waiting
+// out its idle ceiling. The clock is read only while one is held.
+static bool ged_note_off_wait_us(Ged *a, U64 *wait_us) {
+  Alsa_ctx *ctx = ged_alsa_ctx(a);
+  return ctx && ctx->pending_offs.count != 0 &&
+         pending_offs_wait_us(&ctx->pending_offs, now_us(), wait_us);
+}
+
+// One pass over the held note-offs, from the main loop after the tick: sent
+// again oldest first, when their time is due, at most 16 a pass, until one is
+// refused again or its 3 s are up (midi_in.h). Nothing is held in the usual
+// case, and then this is a load and a compare.
+static void ged_retry_note_offs(Ged *a) {
+  Alsa_ctx *ctx = ged_alsa_ctx(a);
+  if (!ctx || ctx->pending_offs.count == 0)
+    return;
+  Alsa_write aw = {ctx, a->midi_mode.alsa.encoder};
+  Midi_write w = {&aw, alsa_write_message, alsa_write_now};
+  (void)pending_offs_retry(&ctx->pending_offs, now_us(), &w);
+}
+
+// At quit, after the stop's note-offs: the last chance for the held ones,
+// whatever the schedule said. Tries for at most limit_us, 1 ms apart. The
+// engine is stopped by now, so the wait costs no timing; poll() is the sleep.
+static void ged_flush_note_offs(Ged *a, U64 limit_us) {
+  Alsa_ctx *ctx = ged_alsa_ctx(a);
+  if (!ctx)
+    return;
+  Alsa_write aw = {ctx, a->midi_mode.alsa.encoder};
+  Midi_write w = {&aw, alsa_write_message, alsa_write_now};
+  U64 start = now_us();
+  while (ctx->pending_offs.count != 0) {
+    U64 now = now_us();
+    ctx->pending_offs.next_us = 0;
+    if (pending_offs_retry(&ctx->pending_offs, now, &w) == 0 ||
+        now - start >= limit_us)
+      break;
+    (void)poll(NULL, 0, 1);
+  }
+}
+#endif
 
 // The send sink over the backend dispatch above. tick.c sends every
 // event through it, and midi_in.h's clock-out inlines send the shell's F8,
@@ -4905,6 +4983,10 @@ event_loop:;
     }
 #endif
     ged_do_stuff(&t.ged);
+#ifdef FEAT_ALSA
+    // After the tick, so a recovery burst never goes ahead of one that is due.
+    ged_retry_note_offs(&t.ged);
+#endif
     bool drew_any = false;
     if (ged_is_draw_dirty(&t.ged) || qnav_stack.occlusion_dirty) {
       werase(cont_window);
@@ -4957,6 +5039,22 @@ event_loop:;
       else new_timeout = 50;
     } // clang-format on
 #undef DEADTIME
+#ifdef FEAT_ALSA
+    // A refused note-off is held: wake when its next try is due (2 ms after
+    // the refusal, then at growing intervals up to 100 ms), not at the idle
+    // ceiling, and never with a zero timeout. Only while one is held; the
+    // usual path is unchanged.
+    {
+      U64 wait_us;
+      if (ged_note_off_wait_us(&t.ged, &wait_us)) {
+        U64 wait_ms = wait_us / 1000 + (wait_us % 1000 != 0); // rounded up
+        if (wait_ms < 1)
+          wait_ms = 1;
+        if (wait_ms < (U64)new_timeout)
+          new_timeout = (int)wait_ms;
+      }
+    }
+#endif
     // The CC engine's deadline, only while a glide runs, so
     // with none this is 4f349cd's path: no clock read, no call. It never
     // goes through the table above: when it has passed, the sub-tick poll
@@ -5383,6 +5481,9 @@ quit:
   // Stop playback: note-offs, OSC /orca/stopped when OSC output is set, and
   // MIDI stop (FC) when clock-out is active.
   ged_stop(&t.ged);
+#ifdef FEAT_ALSA
+  ged_flush_note_offs(&t.ged, 50000); // the stop's refused note-offs, 50 ms
+#endif
 #ifdef BORCA_HAS_MIDI_IN
   tui_input_close(&t); // the PortMidi input before Pm_Terminate
 #endif
@@ -5400,8 +5501,11 @@ quit:
 #if defined(FEAT_ALSA) && defined(BORCA_DEBUG_COUNTERS)
   fprintf(stderr,
           "bOrca ALSA: %zu MIDI sends dropped on EAGAIN/EINTR, %zu not sent "
-          "in all\n",
-          alsa_ctx.send_drops, alsa_ctx.send_failures);
+          "in all; %zu note-offs held for a retry, %zu sent again, %zu "
+          "given up\n",
+          alsa_ctx.send_drops, alsa_ctx.send_failures,
+          alsa_ctx.pending_offs.held, alsa_ctx.pending_offs.resent,
+          alsa_ctx.pending_offs.lost);
 #endif
 #if defined(BORCA_DEBUG_COUNTERS) && defined(BORCA_HAS_MIDI_IN)
   fprintf(stderr, "bOrca MIDI in: %zu overflows, %zu read errors\n",

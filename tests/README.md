@@ -1437,6 +1437,71 @@ receiver under `nice -n 19 taskset -c 0-2`, and on exit or a signal it
 resumes and ends them, kills its tmux server and removes the scratch
 directory, ignoring a second signal meanwhile.
 
+## ALSA held-note-off check
+
+`tests/alsa-noteoff/devcheck.sh` is a development check of the held
+note-offs (v4.0.2). When the sequencer refuses a MIDI write, because the
+destination's input pool is full (`-EAGAIN`; a probe with two scratch
+clients and a pool of 3 showed it), the send is gone: a lost note-on is a
+missed note, but a lost note-off leaves the note sounding on the synth
+until that channel and note is played again. The unit runner pins the held
+list and its sending rules (`held_send_*`, `pending_offs_*` and
+`midi_send_error_is_transient`, in `midi_in.h`, driven by a fake write that
+refuses on cue; six mutants of the logic each fail one of them);
+no test links `tui_main.c`, so this check covers the wiring (the send path,
+the main loop's retry and its wake, the quit flush) on a real binary and a real
+sequencer. CI shellchecks it and compiles its receiver, but cannot run it,
+since hosted runners have no `/dev/snd/seq`.
+
+```sh
+CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
+nice -n 19 taskset -c 0-2 tests/alsa-noteoff/devcheck.sh build/orca [baseline-orca]
+```
+
+The first argument is the build under test (any `--alsa` build: release,
+`-d` or `make appliance`; with `-DBORCA_DEBUG_COUNTERS` the check also reads
+the held and sent-again counts the `orca` prints on exit). The optional
+second is the negative control: a build without the held list (6788188 or
+50be43f), which must hang the note, or the check proves nothing. A build
+without `--alsa` exits 2 naming `libasound`.
+
+It builds `tests/alsa-noteoff/recv.c` into a scratch directory with
+`cc -lasound` and writes `noteoff.orca`, a 7x3 grid whose `D8` bangs `:03C`
+every 8th tick: one note a second at 120 BPM, off 125 ms after on. Each run
+starts `<orca> noteoff.orca` in a 100 x 30 pane of its own tmux server
+(`tmux -L dev-noteoff-<pid> -f /dev/null`, `SHELL=/bin/sh`) as the client
+`dev-noteoff-<pid>`, with a scratch `XDG_CONFIG_HOME`; then two receivers
+subscribed to `dev-noteoff-<pid>:0`: `-recv`, with an input pool of 6, and
+`-recv2`, a healthy one (pool of 500) that always reads. On the first note-on
+`-recv` fills its own pool with controller events sent to itself and stops
+reading for 600 ms, so the note-off meets a full pool and the write is
+refused although `-recv2` got it (a probe with a full and a healthy receiver:
+the sender sees `-EAGAIN`, the healthy one gets every event). Both read on for
+5 s in all, logging each note with its `CLOCK_MONOTONIC` time, and Ctrl+Q
+ends the `orca`. One PASS or FAIL line per check:
+
+- **fixed**: the first note's off arrives 450 ms to 1.5 s after its on and
+  within 250 ms of `-recv` reading again (the retry, once the pool drained),
+  no on follows an on of the same channel and note without an off, every on
+  has its off, the healthy `-recv2` sees that first note-off at most 25 times
+  (the backoff: a retry repeats it to every subscriber; a build that retried
+  on every 2 ms wake showed 495), and the `orca` exits with 0 (a sanitized
+  build fails here on a memory or undefined-behavior report); with a counters
+  build the exit line says N note-offs held and N sent again, N >= 1.
+  Typical: 657 ms after the on, 55 ms after the receiver read again, seen 12
+  times by `-recv2`, 1 held, 1 sent again.
+- **baseline** (only when given): the first note hangs, the receiver sees its
+  on, then the next on, and no off in between, and `-recv2` sees that
+  note-off once. This is the control; on 6788188 and 50be43f it shows 5
+  note-ons and 4 note-offs.
+- **live**: the live `bOrca` client's lines in `/proc/asound/seq/clients` are
+  the same before and after, and no `dev-noteoff-<pid>` client is left.
+
+It uses no `aconnect`, `systemctl` or `sudo`, runs everything under
+`nice -n 19 taskset -c 0-2`, signals only the processes it started, kills
+only its own tmux server, and removes the scratch directory on exit. It
+takes about 15 s a binary.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes and pull requests to
@@ -1530,8 +1595,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   canary for the negative ones. The plain ALSA and appliance binaries must
   list `libasound.so.2` as `NEEDED` in `readelf -d`,
   `tests/alsa-guard/shim.c` must compile with `-Wall -Werror`, and
-  `tests/alsa-clock/master.c` and `tests/alsa-clock/recv.c` with
-  `-Wall -Wextra -Werror`; the appliance binary must also be of type `DYN`
+  `tests/alsa-clock/master.c`, `tests/alsa-clock/recv.c` and
+  `tests/alsa-noteoff/recv.c` with `-Wall -Wextra -Werror`; the appliance binary must also be of type `DYN`
   in `readelf -h` (PIE) and import `__stack_chk_fail` in
   `nm -D --undefined-only` (hardened). Both runners install
   `libasound2-dev` for the ALSA builds.
@@ -1550,8 +1615,8 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/upstream/compare.sh`, `tests/wakeups/ab.sh`,
   `tests/realloc-shim/check.sh`, `tests/check-version.sh`,
   `tests/form-prefill/check.sh`, `tests/alsa-guard/devcheck.sh`,
-  `tests/alsa-contract/devcheck.sh` and
-  `tests/alsa-clock/devcheck.sh`.
+  `tests/alsa-contract/devcheck.sh`, `tests/alsa-clock/devcheck.sh` and
+  `tests/alsa-noteoff/devcheck.sh`.
   `tests/lib.sh` must be in that list: without `-x`, shellcheck follows a
   sourced file only when it is given too.
 - **clang** (`ubuntu-24.04`, since v3.0.0): builds the debug

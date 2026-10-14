@@ -260,7 +260,18 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(prefs_saved_value)                                                         \
   X(conf_read_line_tail)                                                       \
   X(events_dropped_format)                                                     \
-  X(path_is_dir)
+  X(path_is_dir)                                                               \
+  X(held_send_passes_a_message_through)                                        \
+  X(held_send_holds_a_refused_note_off)                                        \
+  X(held_send_holds_nothing_else)                                              \
+  X(held_send_note_on_sends_the_held_off_first)                                \
+  X(held_send_drops_a_held_off_it_cannot_send)                                 \
+  X(held_send_other_messages_keep_the_held_off)                                \
+  X(pending_offs_retry_backs_off)                                              \
+  X(pending_offs_retry_pass_cap)                                               \
+  X(pending_offs_retry_expires)                                                \
+  X(pending_offs_duplicates_and_cap)                                           \
+  X(midi_send_error_is_transient)
 
 // The full list for the realloc hook, for each adapter FEAT_ flag, and for
 // the runner's failure canary, whatever the flags.

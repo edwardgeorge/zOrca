@@ -4,6 +4,15 @@ bOrca's versions follow [semantic versioning](https://semver.org). A change is B
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 
+## v4.0.2 (2026-10-13)
+
+### Fixed
+
+- **A refused note-off no longer hangs the note.** In an `--alsa` build, when the sequencer refuses a MIDI write because a subscriber's input pool is full, the write returns `-EAGAIN` and bOrca never retries or waits. A lost note-on is a missed note; a lost note-off left the note sounding on the synth until that channel and note was played again, because pause, stop and quit release only the notes still on bOrca's own list. A refused note-off is now kept (up to 256 of them, each for up to 3 seconds) and sent again: the first try 2 ms after the refusal, then at doubling intervals up to 100 ms, at most 16 a pass and after the tick, so a stalled subscriber costs about a dozen failed writes a second and a recovery burst cannot hold up a tick. A later note-on for the same channel and note first sends its held note-off once more, so the pair arrives in order, and drops it if that is refused too; quit makes a last 50 ms try after the stop's note-offs. The sends never sleep. With several subscribers a refusal by one says nothing about the others, so a retry repeats the note-off to the healthy ones as well: harmless to a synth, and the backoff keeps it to about a dozen a second (a healthy second receiver saw 12 copies during a 0.6 s stall, where a retry on every 2 ms wake would have sent about 500). `MIDI err` still shows after the first refusal and stays until you quit, as before. It can happen when a destination is slow to read, such as a Bluetooth MIDI link during a long burst after a hang; the chord-burst test on the Bluetooth chain on 2026-10-13 saw no refused send, so this closes a hole that was found by reading and reproduced with a full pool, not a fault seen in play. It does not change what a patch sends.
+- **The Controls box lists what the README lists.** `?` and the main menu's Controls... now show Ctrl+O (Open File), Ctrl+E (Show or Hide the Last Tick's Events), Ctrl+G (Operator Guide) and the `;` `$` `&` glyphs beside the Orca-c ones. The box is 25 rows, which fits the instrument's 100x30 window.
+
+Tests: eleven unit rows (`held_send_*`, `pending_offs_*`, `midi_send_error_is_transient`), driven by a fake write that refuses on cue, each of six mutants of the logic (no cancel, holding note-ons, no backoff, no pass cap, no expiry, no schedule) failing at least one; `tests/alsa-noteoff/devcheck.sh`, a device check on a real sequencer with a receiver whose input pool is full when the note-off goes out and a healthy second receiver, with a negative control: the same run on 50be43f hangs the note (5 note-ons, 4 note-offs), and on this build the off arrives 55 ms after the receiver reads again (5 and 5, 1 held, 1 sent again, 12 copies seen by the healthy receiver; a mutant with no backoff sent 495). CI shellchecks the check and compiles its receiver.
+
 ## v4.0.1 (2026-10-13)
 
 ### Fixed

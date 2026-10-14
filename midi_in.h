@@ -2,6 +2,7 @@
 #include "base.h"
 #include "tick.h"
 #include "transport.h"
+#include <errno.h>
 #include <stdio.h>
 
 // The MIDI input side of the shell: the pure parts, shared by tui_main.c and
@@ -203,6 +204,188 @@ static inline bool alsa_in_split(char const *name, Usz *client_len,
     return false;
   *client_len = (Usz)(colon - name);
   *port = colon + 1;
+  return true;
+}
+
+// Note-offs the sequencer refused. A MIDI send never sleeps or waits, so when
+// a subscriber's input pool is full the write returns -EAGAIN (found with
+// two scratch clients, a pool of 3 and a receiver that does not read) and the
+// message is gone. A lost note-on is a missed note; a lost note-off is a note
+// that hangs on the synth until the same channel and note is played again,
+// because pause, stop and quit only release the notes still in the sustained
+// list. So a refused note-off is kept here and sent again, and a note-on for
+// the same channel and note drops the held one, since sending it afterwards
+// would cut the new note short.
+// Bounded on purpose. At most Pending_offs_cap entries, each kept at most
+// Pending_offs_hold_us. A pass sends at most Pending_offs_pass_max, so a
+// recovery burst cannot hold up a tick. The first retry follows the refusal
+// by Pending_offs_first_us and every further refusal doubles the wait, up to
+// Pending_offs_backoff_max_us, so a stalled subscriber costs about a dozen
+// failed writes a second. With several subscribers a refusal by one says
+// nothing about the others (a probe with a full and a healthy receiver: the
+// sender saw -EAGAIN and the healthy one got every event), so a retry repeats
+// the note-off to the healthy ones too; a note-off for a note that is already
+// off is ignored by a synth, and the backoff keeps the repeats to that dozen.
+// The list reads no clock and does no I/O: the caller passes the time, and
+// every write goes through the Midi_write callbacks, so the unit tests drive
+// it with a fake that refuses on cue.
+enum { Pending_offs_cap = 256 };
+enum { Pending_offs_hold_us = 3000000 };
+enum { Pending_offs_first_us = 2000 };
+enum { Pending_offs_backoff_max_us = 100000 };
+enum { Pending_offs_pass_max = 16 };
+
+// How the shell writes one three-byte message to its subscribers. write
+// returns >= 0 when the message went out and -errno when it was refused; it
+// counts nothing and sends nothing again. now returns the time in us, and is
+// called only after a refusal.
+typedef struct {
+  void *u;
+  int (*write)(void *u, int status, int d1, int d2);
+  U64 (*now)(void *u);
+} Midi_write;
+
+typedef struct {
+  U64 since_us;
+  U8 chan;
+  U8 note;
+} Pending_off;
+
+typedef struct {
+  Pending_off entries[Pending_offs_cap]; // oldest first
+  Usz count;
+  U64 next_us;           // the next pass is due at this time
+  U64 backoff_us;        // the wait after the next refusal
+  Usz held, resent, lost; // totals: kept, sent again, given up
+} Pending_offs;
+
+static inline void pending_offs_init(Pending_offs *p) {
+  *p = (Pending_offs){.backoff_us = Pending_offs_first_us};
+}
+
+// The errors worth another try: the pool was full (-EAGAIN, -ENOMEM) or the
+// write was interrupted (-EINTR). Any other error will not pass by itself.
+static inline bool midi_send_error_is_transient(int err) {
+  return err == -EAGAIN || err == -EINTR || err == -ENOMEM;
+}
+
+static inline Usz pending_offs_find(Pending_offs const *p, int chan, int note) {
+  for (Usz i = 0; i < p->count; ++i)
+    if (p->entries[i].chan == chan && p->entries[i].note == note)
+      return i;
+  return p->count;
+}
+
+static inline void pending_offs_remove_at(Pending_offs *p, Usz index) {
+  for (Usz i = index + 1; i < p->count; ++i)
+    p->entries[i - 1] = p->entries[i];
+  --p->count;
+}
+
+// Keeps a refused note-off. An entry for the same channel and note is kept
+// as it is, with its first time. False when the list is full: that note-off
+// is lost, as it was before this list. The first entry of an empty list sets
+// the schedule: its first retry is due Pending_offs_first_us from now.
+static inline bool pending_offs_add(Pending_offs *p, int chan, int note,
+                                    U64 now_us) {
+  if (pending_offs_find(p, chan, note) != p->count)
+    return true;
+  if (p->count == Pending_offs_cap) {
+    ++p->lost;
+    return false;
+  }
+  if (p->count == 0) {
+    p->next_us = now_us + Pending_offs_first_us;
+    p->backoff_us = Pending_offs_first_us;
+  }
+  p->entries[p->count++] =
+      (Pending_off){.since_us = now_us, .chan = (U8)chan, .note = (U8)note};
+  ++p->held;
+  return true;
+}
+
+// Called before a three-byte message is sent. A note-on (velocity above 0)
+// for a channel and note whose note-off is held drops that note-off: sent
+// afterwards it would end the new note. True when one was dropped.
+static inline bool pending_offs_before_send(Pending_offs *p, int status,
+                                            int d1, int d2) {
+  if (p->count == 0 || (status & 0xf0) != 0x90 || d2 <= 0)
+    return false;
+  Usz index = pending_offs_find(p, status & 0x0f, d1);
+  if (index == p->count)
+    return false;
+  pending_offs_remove_at(p, index);
+  return true;
+}
+
+// Called after a send was refused with err (negative). A note-off that the
+// sequencer may take later is kept; a note-on or anything else is not.
+static inline bool pending_offs_after_refusal(Pending_offs *p, int status,
+                                              int d1, int err, U64 now_us) {
+  if ((status & 0xf0) != 0x80 || !midi_send_error_is_transient(err))
+    return false;
+  return pending_offs_add(p, status & 0x0f, d1, now_us);
+}
+
+// Sends one three-byte message through w and keeps a refused note-off. A held
+// note-off for the note of a note-on goes out once more first, so the pair
+// arrives in order when the subscriber has room again; if that is refused too
+// it is dropped. Returns what the message's own write returned.
+static inline int held_send(Pending_offs *p, Midi_write const *w, int status,
+                            int d1, int d2) {
+  if (pending_offs_before_send(p, status, d1, d2)) {
+    if (w->write(w->u, 0x80 | (status & 0x0f), d1, 0) >= 0)
+      ++p->resent;
+    else
+      ++p->lost;
+  }
+  int err = w->write(w->u, status, d1, d2);
+  if (err < 0)
+    (void)pending_offs_after_refusal(p, status, d1, err, w->now(w->u));
+  return err;
+}
+
+// One pass. Nothing happens before the schedule's time. Entries older than
+// Pending_offs_hold_us are given up without a try. The rest are tried oldest
+// first; one that goes out is removed and resets the wait, the first refusal
+// ends the pass and doubles the wait, because the subscriber is still full
+// for the ones behind it. At most Pending_offs_pass_max go out in a pass; the
+// next pass then follows at once. Returns how many entries are still held.
+static inline Usz pending_offs_retry(Pending_offs *p, U64 now_us,
+                                     Midi_write const *w) {
+  if (p->count == 0 || now_us < p->next_us)
+    return p->count;
+  Usz sent = 0;
+  while (p->count != 0 && sent < Pending_offs_pass_max) {
+    Pending_off const first = p->entries[0];
+    if (now_us - first.since_us >= (U64)Pending_offs_hold_us) {
+      pending_offs_remove_at(p, 0);
+      ++p->lost;
+      continue;
+    }
+    if (w->write(w->u, 0x80 | first.chan, first.note, 0) < 0) {
+      p->next_us = now_us + p->backoff_us;
+      p->backoff_us = p->backoff_us * 2 < Pending_offs_backoff_max_us
+                          ? p->backoff_us * 2
+                          : Pending_offs_backoff_max_us;
+      return p->count;
+    }
+    pending_offs_remove_at(p, 0);
+    ++p->resent;
+    ++sent;
+    p->backoff_us = Pending_offs_first_us;
+  }
+  p->next_us = now_us;
+  return p->count;
+}
+
+// True while anything is held; then *wait_us is how long until the next pass
+// is due, 0 when it is due now. The main loop shortens its wait to that.
+static inline bool pending_offs_wait_us(Pending_offs const *p, U64 now_us,
+                                        U64 *wait_us) {
+  if (p->count == 0)
+    return false;
+  *wait_us = p->next_us > now_us ? p->next_us - now_us : 0;
   return true;
 }
 
