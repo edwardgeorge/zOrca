@@ -1449,8 +1449,11 @@ list and its sending rules (`held_send_*`, `pending_offs_*` and
 `midi_send_error_is_transient`, in `midi_in.h`, driven by a fake write that
 refuses on cue; six mutants of the logic each fail one of them);
 no test links `tui_main.c`, so this check covers the wiring (the send path,
-the main loop's retry and its wake, the quit flush) on a real binary and a real
-sequencer. CI shellchecks it and compiles its receiver, but cannot run it,
+the main loop's retry, and with it the backoff that keeps the repeats to
+healthy subscribers small) on a real binary and a real sequencer. The wake
+time and the quit flush are read in review, not run by this check: the
+receivers have exited before Ctrl+Q, and without the wake the loop still ends
+its wait at the idle ceiling, so the check's limits cannot tell the two apart. CI shellchecks it and compiles its receiver, but cannot run it,
 since hosted runners have no `/dev/snd/seq`.
 
 ```sh

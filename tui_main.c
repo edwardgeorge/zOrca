@@ -1760,13 +1760,21 @@ static void ged_flush_note_offs(Ged *a, U64 limit_us) {
   Alsa_write aw = {ctx, a->midi_mode.alsa.encoder};
   Midi_write w = {&aw, alsa_write_message, alsa_write_now};
   U64 start = now_us();
+  ctx->pending_offs.next_us = 0; // the first try at once, whatever was due
   while (ctx->pending_offs.count != 0) {
     U64 now = now_us();
-    ctx->pending_offs.next_us = 0;
     if (pending_offs_retry(&ctx->pending_offs, now, &w) == 0 ||
         now - start >= limit_us)
       break;
-    (void)poll(NULL, 0, 1);
+    // Then on the list's own schedule, not every millisecond: a subscriber
+    // that is still full repeats each try to the healthy ones too.
+    U64 later = now_us();
+    U64 wait_us = 0;
+    (void)pending_offs_wait_us(&ctx->pending_offs, later, &wait_us);
+    U64 left_us = later - start >= limit_us ? 0 : limit_us - (later - start);
+    if (wait_us > left_us)
+      wait_us = left_us;
+    (void)poll(NULL, 0, (int)(wait_us / 1000 + 1)); // rounded up, at least 1 ms
   }
 }
 #endif
@@ -1892,8 +1900,10 @@ static bool ged_set_osc_udp(Ged *a, char const *dest_addr,
 
 static ORCA_FORCEINLINE double ms_to_sec(double ms) { return ms / 1000.0; }
 
-// Seconds to the next tick or beat-clock deadline, and no other: note-offs
-// only ever go out in a tick body, so they need no deadline of their own.
+// Seconds to the next tick or beat-clock deadline, and no other: the tick
+// body sends its note-offs itself, so they need no deadline of their own. A
+// refused note-off that is held for a retry has one, which the wait point
+// adds on its own (ged_note_off_wait_us), as it does for the CC engine's.
 // Under External, as when stopped, there is none: the transport machine runs
 // the ticks, so the internal tick deadline drops out of the wait.
 static double ged_secs_to_deadline(Ged const *a) {
