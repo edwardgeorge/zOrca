@@ -6,9 +6,9 @@ Orca-c's paths below this directory. They are written for upstream's
 operators, so play them in zOrca's upstream operator dialect (see Dialects in
 the [README](../../README.md#dialects)): pick Upstream under Operator
 Dialect... in the main menu (Ctrl+D), or start `orca --dialect upstream`, or
-run them headless with `cli --dialect upstream`. In bOrca's own dialect, the
-default, the same glyphs are other operators, so there they play nothing or
-the wrong thing:
+run them headless with `cli --dialect upstream`. In bOrca's own dialect, and
+in zorca, the default, which runs bOrca's operators, the same glyphs are
+other operators, so there they play nothing or the wrong thing:
 
 | Patch | Upstream operators it uses | What bOrca's dialect plays instead |
 | --- | --- | --- |

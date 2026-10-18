@@ -4,6 +4,18 @@ zOrca's versions follow [semantic versioning](https://semver.org). A change is B
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 
+## Unreleased
+
+### Added
+
+- **The zorca dialect, zOrca's own.** A third operator dialect beside `borca` (boorch's operators) and `upstream` (Orca-c's), where zOrca's own operators will land, one at a time. It runs bOrca's whole operator list and has no operator of its own yet, so it plays exactly as `borca` does: the same grid, events, colours and port names, and the operator guide lists the same operators. Pick it with `--dialect zorca` (in `orca` and `cli`), `dialect = zorca` in `orca.conf`, or zOrca in the Operator Dialect menu, which now lists bOrca, Upstream and zOrca; the operator guide (Ctrl+G) is titled zOrca Operators. The name is exact: `zOrca`, `Zorca` and other spellings are refused (`Must be borca, upstream or zorca.` from `orca`, `Expected borca, upstream or zorca.` from `cli`) or, in `orca.conf`, ignored. Each later zOrca operator that takes a glyph bOrca's dialect leaves inert changes what a patch plays under zorca, and is listed as Breaking.
+
+### Changed
+
+- **The default dialect is zorca.** `orca` with no `--dialect` and no `dialect` line in `orca.conf`, and `cli` with no `--dialect`, run zorca where they ran borca; since zorca plays as borca, every patch plays as before. An explicit `dialect = borca` or `--dialect borca` still picks borca, and a bad `dialect` value now leaves zorca. The library default does not change: `Orca_dialect_borca` is still 0, so a program that calls `orca_run` with a context that names no dialect still runs bOrca's operators. The messages for a bad `--dialect` name all three dialects.
+
+Tests: the dialect names round-trip for all three, and `zOrca`, `foo` and their kin are refused; `dialect_zorca_is_borca` runs every glyph, and a grid that tells bOrca from upstream, in borca and in zorca and requires the same grid, marks, labels, events and store on every tick; the `rules_*` rows and the label fixtures run in all three dialects, zorca against bOrca's output; the prefs tests take the defaults as zorca and check that a menu change saves `dialect = zorca`. A golden, `tests/patches/io_zorca.orca`, runs `io_borca.orca` under `--dialect zorca` and must print `io_borca`'s events; the golden suite keeps its pinned `--dialect borca`, so every other golden plays borca. CI checks that `cli` takes the three names, names zorca as its default and refuses `foo` and `zOrca`, and that `orca`'s refusal names all three.
+
 ## v6.0.0 (2026-10-18)
 
 ### Breaking

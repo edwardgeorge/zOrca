@@ -15,7 +15,9 @@ On the uConsole prefix both with `nice -n 19 taskset -c 0-2`, so the live
 engine on core 3 is left alone. The optional second argument runs only the
 cases whose path contains it (`tests/run.sh build/cli midichord`).
 
-Default flags are `-t 64 --seed 0 --dialect borca`. The line formats are the
+Default flags are `-t 64 --seed 0 --dialect borca`: the pinned
+`--dialect borca` keeps every golden in bOrca's dialect, though `cli`'s own
+default is zorca. The line formats are the
 ones `cli --events` prints (`t<tick> NOTE ch<c> note<n> vel<v> len<l>
 mono<m>`, `CC`, `CCI`, `PB`, `OSC`, `UDP`, then `t<tick> GRID` and the grid
 rows); see `events_print.c` and `cli -h`. The script exits 0 only when every
@@ -208,7 +210,8 @@ dialect (`--dialect upstream`). Each has two files under
 They pass: bOrca's upstream dialect prints exactly what Orca-c does. Each
 golden holds event lines, which is the proof that every patch under
 `examples/upstream/` does something in the upstream dialect
-(`tests/check-examples.sh` covers the rest of `examples/` in bOrca's).
+(`tests/check-examples.sh` covers the rest of `examples/` in zorca, which
+plays as bOrca's).
 Until the dialects arrived (v2.0.0), `cli` rejected `--dialect upstream`
 and each case carried a marker that waited for them; the change that added
 the dialects deleted the markers.
@@ -220,6 +223,12 @@ the patch, whose `tests/expected/patches/io_borca.events` is the golden
 Length input (v2.0.0) it reads x+3, which
 the K rewrites every tick, as Length on each banged tick, so the `;` output
 cell changed on those ticks while every event line stayed as it was.
+`tests/patches/io_zorca.orca` is a copy of `io_borca.orca` that runs in the
+zorca dialect (its `io_zorca.args` is `--dialect zorca`, which wins over the
+default `--dialect borca`), and its golden `io_zorca.events` is a copy of
+`io_borca.events`: zorca plays as bOrca's dialect does, event for event and
+grid for grid. When zOrca's own operators land, a change to that golden is
+the sign that one of them took a glyph the patch uses.
 
 The unit tests `dialect_*` in `tests/unit/test_dialect.c` check the rest of
 the dialect on small grids: a context that names no dialect runs bOrca's
@@ -229,7 +238,13 @@ locks and sends at most 16 glyphs up to a `.`; upstream `=` sends its path
 and values; both stop at the grid's east edge; upstream `$` and `&` write,
 mark and keep nothing; the tick body runs `Tick_ctx`'s dialect, so upstream
 `;` and `=` reach the sink's `osc` and upstream `!` goes out as a plain CC;
-and only `borca` and `upstream` are dialect names.
+only `borca`, `upstream` and `zorca` are dialect names, and each reads
+back as itself (`zOrca`, `foo` and the rest are refused, leaving the
+output alone). `dialect_zorca_is_borca` runs every glyph Orca knows,
+banged between values, letters and empty cells, for 24 ticks at seeds 0
+and 7, and then `dialect_default_is_borca`'s grid for 16, in bOrca's
+dialect and in zorca: on every tick the grid, marks, labels, events and
+store match, so zorca runs bOrca's whole operator set.
 
 The unit tests `rules_*` in `tests/unit/test_rules.c` check the seven
 operators whose rules differ between the dialects, Orca's 2025 rules in
@@ -238,12 +253,13 @@ bOrca's and Orca-c's in upstream. `rules_lesser`, `rules_increment`,
 rows, such as `.L5`, `2D.`, or `.C.` over an output cell that holds `5`, on
 row 1 of a 5×3 grid for ticks 0-15 at seed 0, in both dialects, and compare
 the 16 glyphs of the output cell below the operator with what each dialect
-must give; at tick 0 they also check that the two dialects mark the same
-ports. `rules_random_range` checks `R`'s range in both dialects by the set
+must give; at tick 0 they also check that the dialects mark the same
+ports. Each row runs in zorca too, which must give bOrca's output. `rules_random_range` checks `R`'s range in each dialect by the set
 of values it outputs over 400 ticks at seeds 0 and 7: `1R4` gives 1 to 4 in
 bOrca's dialect and 1 to 3 upstream, `.R.` always `0` in bOrca's and 0 to z
-upstream, and `aRA` gives `A` in bOrca's and `a` upstream; and `4R1` outputs
-what `1R4` does on every tick. `rules_random_hash` checks that both dialects
+upstream, and `aRA` gives `A` in bOrca's and `a` upstream, zorca giving
+bOrca's set on every row; `4R1` outputs what `1R4` does on every tick; and
+zorca's `1R4` and `.R.` output bOrca's on every tick. `rules_random_hash` checks that both dialects
 draw from one hash: bOrca's `xRy` outputs what the upstream `xR(y+1)` does
 on every tick, and bOrca's `0Rz` what the upstream `.R.` does. The `R` tests
 compare value sets and the two dialects, never a sequence, so they hold
@@ -263,7 +279,7 @@ beats an output, the later port of the same kind wins, `I`'s and `Z`'s
 read-write cell counts as an output); the moved ports of `G`, `K`, `O`,
 `P`, `Q`, `T` and `X`; a `J` 256 rows from its output; one fixture per
 operator body in its dialect, with the buffer holding exactly its ports;
-every fixture in both dialects, with a record exactly where the mark has
+every fixture in all three dialects, with a record exactly where the mark has
 an input or an output and the marks, grid and events identical with and
 without a buffer; the upstream labels of `!` (Value × 127 / 35), `;`, `=`,
 `$` and `&`; the selector, value and rate enhancements, "instant" for rates
@@ -441,7 +457,7 @@ tests/check-doc-sync.sh build/readme-gen
 
 `tests/check-examples.sh <cli>` runs every `examples/**/*.orca` outside
 `examples/upstream/` through `cli --events -t 64 --seed 0`, and requires each
-to do something in bOrca's dialect:
+to do something in `cli`'s default dialect, zorca, which plays as bOrca's:
 
 - a file that contains an event operator glyph (`!`, `%`, `:`, `=` or `?`,
   anywhere in the file) passes on at least one event line;
@@ -551,8 +567,10 @@ which only the debug runner's ASan sees; and an unterminated last line one
 byte short of the buffer is still too long for it, where one two bytes
 short reads whole.
 `tests/unit/test_tui_prefs.c` covers `tui_prefs.c` on settings built on the
-stack, one row per key's parse and saved text, the key order, the flags
-over the conf and the setters' no-op; what it cannot reach,
+stack, one row per key's parse and saved text (the default dialect, which
+an `orca.conf` with no `dialect` line or a bad one leaves, is zorca, and a
+menu change saves `dialect = zorca` or `dialect = borca`), the key order,
+the flags over the conf and the setters' no-op; what it cannot reach,
 `ged_set_dialect`'s clear, cancel and re-mark and the file itself, a smoke
 run of the TUI under tmux checked when the module was split out (v3.0.0).
 
@@ -1515,7 +1533,10 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
 - **build** (pinned `ubuntu-24.04` and `ubuntu-24.04-arm`, never `-latest`):
   first checks that `CFLAGS_EXTRA` reaches the compiler, then builds the
   debug and release `cli` with `CFLAGS_EXTRA=-Werror`, checks the debug
-  `cli` with `tests/check-debug-build.sh`, and runs the golden suite on
+  `cli` with `tests/check-debug-build.sh`, checks that the release `cli`
+  takes `--dialect borca`, `upstream` and `zorca`, names zorca as its
+  default in `cli -h` and refuses `foo` and `zOrca` with exit 1 and
+  `Expected borca, upstream or zorca.`, and runs the golden suite on
   both and `tests/realloc-shim/check.sh` on the release `cli` and on the
   release `orca` without mouse support. It runs
   `tests/check-examples.sh` on the debug `cli`, builds
