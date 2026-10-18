@@ -1,8 +1,24 @@
 # Changelog
 
-bOrca's versions follow [semantic versioning](https://semver.org). A change is Breaking when an existing patch plays or sends differently in normal use, or when the public `orca_run` API breaks, and a Breaking change takes a new major version; a fix to a failure path, or a new message at start, stop or quit, is listed under Changed or Fixed. Each version is an annotated git tag, listed on the [tags page](https://github.com/ianhundere/zOrca/tags), and the newest comes first here.
+zOrca's versions follow [semantic versioning](https://semver.org). A change is Breaking when an existing patch plays or sends differently in normal use, or when the public `orca_run` API breaks, and a Breaking change takes a new major version; a fix to a failure path, or a new message at start, stop or quit, is listed under Changed or Fixed. Each version is an annotated git tag, listed on the [tags page](https://github.com/ianhundere/zOrca/tags), and the newest comes first here.
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
+
+## v5.0.0 (2026-10-17)
+
+### Breaking
+
+The project is now zOrca, and an `--alsa` build's sequencer client is named `zOrca` where it was `bOrca`. Patches play as before; what changes is the name other programs use to find it.
+
+- **The ALSA client is `zOrca`, not `bOrca`.** `aconnect -l` lists `zOrca`, and `aconnect zOrca:0 <synth client>:<port>` connects its `MIDI out` port. A script, a MIDI router or a saved patchbay that connects `bOrca:0`, or finds the client by the name `bOrca`, finds nothing now: change the name to `zOrca`. PortMidi builds name no client and are not affected.
+- **`ZORCA_ALSA_CLIENT_NAME` replaces `BORCA_ALSA_CLIENT_NAME`.** It sets the client's name for one run, which a second instance needs. `BORCA_ALSA_CLIENT_NAME` still works through v5.x when `ZORCA_ALSA_CLIENT_NAME` is unset or empty; when both are set, `ZORCA_ALSA_CLIENT_NAME` wins. The messages for a name that is taken or longer than 63 bytes, and `orca -h`, name `ZORCA_ALSA_CLIENT_NAME`.
+
+### Changed
+
+- **The name.** The repository is `ianhundere/zOrca`. `orca --version` and `cli --version` print `zOrca <version>`; the out-of-memory message, the ALSA start and shutdown messages and the debug counter lines (`zOrca wakeups:`, `zOrca events:`, `zOrca ALSA:`, `zOrca ALSA input pool:`, `zOrca MIDI in:`) begin with zOrca; the README and the test docs say zOrca. The program is still `orca`.
+- **The dialect keeps its name.** The operator dialect is still called bOrca, because those are boorch's operators: `dialect = borca` in `orca.conf` and `--dialect borca` select it as before, and the menu and the operator guide still say bOrca.
+
+Tests: a unit row, `alsa_client_name_pick`, covers the choice of name (the new variable alone, the old alone, both, the new one empty, neither); CI refuses a 200-byte name through each variable and with both set; the device checks (`tests/alsa-*/devcheck.sh`) use `ZORCA_ALSA_CLIENT_NAME`, and their guard that the live client is untouched accepts the live client as `zOrca` or, before this release, `bOrca`.
 
 ## v4.0.2 (2026-10-13)
 
