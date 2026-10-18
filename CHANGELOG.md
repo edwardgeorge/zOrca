@@ -4,6 +4,14 @@ zOrca's versions follow [semantic versioning](https://semver.org). A change is B
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 
+## v5.0.1 (2026-10-18)
+
+### Changed
+
+- **The working branch is `dev`.** It was `spec/borca-fixes`. The README, the test docs and the CI triggers name `dev`: changes land on `dev` first, and `main` moves only at a release. No code changed, so a build of v5.0.1 differs from v5.0.0 only in the version `orca --version` and `cli --version` print.
+
+Tests: none added; the unit, golden and device checks are untouched.
+
 ## v5.0.0 (2026-10-17)
 
 ### Breaking
