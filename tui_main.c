@@ -129,8 +129,9 @@ fprintf(stderr,
 fprintf(stderr,
 "\n"
 "ALSA MIDI (this build):\n"
-"    MIDI goes out through an ALSA sequencer client named bOrca, or\n"
-"    $BORCA_ALSA_CLIENT_NAME when that is set and non-empty, with one\n"
+"    MIDI goes out through an ALSA sequencer client named zOrca, or\n"
+"    $ZORCA_ALSA_CLIENT_NAME when that is set and non-empty (else\n"
+"    $BORCA_ALSA_CLIENT_NAME, its name before v5.0.0), with one\n"
 "    port named MIDI out, and comes in through its port MIDI in, which\n"
 "    orca itself subscribes to the MIDI input while the clock source is\n"
 "    external. The client opens at startup even with --osc-midi-bidule,\n"
@@ -138,7 +139,7 @@ fprintf(stderr,
 "    or another client already has the name (checked at startup, before\n"
 "    and after taking the name), or the sequencer cannot list its\n"
 "    clients, or the name is over 63 bytes (ALSA keeps 63; set a shorter\n"
-"    BORCA_ALSA_CLIENT_NAME), orca exits with status 1. SIGTERM, SIGHUP\n"
+"    ZORCA_ALSA_CLIENT_NAME), orca exits with status 1. SIGTERM, SIGHUP\n"
 "    and SIGINT quit cleanly, stopping playback first, unless the signal\n"
 "    was already ignored when orca started.\n"
 );
@@ -997,11 +998,11 @@ typedef struct {
 #endif
 } Alsa_ctx;
 
-// The client name: bOrca, or $BORCA_ALSA_CLIENT_NAME when it is set and
-// non-empty.
+// The client name: zOrca, or $ZORCA_ALSA_CLIENT_NAME when it is set and
+// non-empty, or else $BORCA_ALSA_CLIENT_NAME (the name before v5.0.0).
 static char const *alsa_client_name(void) {
-  char const *name = getenv("BORCA_ALSA_CLIENT_NAME");
-  return name && *name ? name : "bOrca";
+  return alsa_client_name_pick(getenv("ZORCA_ALSA_CLIENT_NAME"),
+                               getenv("BORCA_ALSA_CLIENT_NAME"));
 }
 
 // One step of the name scan over the sequencer (midi_in.h alsa_name_scan):
@@ -4727,7 +4728,7 @@ int main(int argc, char **argv) {
     if (err == -ENAMETOOLONG) {
       fprintf(stderr,
               "Cannot start: the ALSA client name '%s' is %zu bytes; ALSA "
-              "keeps at most %d (set a shorter BORCA_ALSA_CLIENT_NAME)\n",
+              "keeps at most %d (set a shorter ZORCA_ALSA_CLIENT_NAME)\n",
               name, strlen(name), Alsa_client_name_max);
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
@@ -4745,7 +4746,7 @@ int main(int argc, char **argv) {
     if (err == -EEXIST) {
       fprintf(stderr,
               "Cannot start: an ALSA client named '%s' is already running "
-              "(set BORCA_ALSA_CLIENT_NAME to run another instance)\n",
+              "(set ZORCA_ALSA_CLIENT_NAME to run another instance)\n",
               name);
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);

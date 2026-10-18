@@ -44,12 +44,12 @@ Environment:
                    Example: CFLAGS_EXTRA=-Werror ./tool build cli
 Optional Features:
     --alsa         Enable or disable native ALSA sequencer MIDI output
-    --no-alsa      (Linux only): an ALSA client named bOrca, or
-                   \$BORCA_ALSA_CLIENT_NAME when set and non-empty, with one
-                   port named MIDI out. Cannot be combined with --portmidi
-                   or --static. Needs libasound (Debian and Ubuntu:
-                   libasound2-dev). For the test target, also builds the
-                   ALSA adapter tests.
+    --no-alsa      (Linux only): an ALSA client named zOrca, or
+                   \$ZORCA_ALSA_CLIENT_NAME when set and non-empty (else
+                   \$BORCA_ALSA_CLIENT_NAME), with one port named MIDI out.
+                   Cannot be combined with --portmidi or --static. Needs
+                   libasound (Debian and Ubuntu: libasound2-dev). For the
+                   test target, also builds the ALSA adapter tests.
                    Default: disabled.
     --portmidi     Enable or disable hardware MIDI output support with
     --no-portmidi  PortMidi. Note: PortMidi has memory leaks and bugs.

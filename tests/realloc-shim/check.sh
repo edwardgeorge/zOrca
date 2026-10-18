@@ -13,7 +13,7 @@
 # both orcas without --alsa or --portmidi, so they open no MIDI device: the
 # check refuses (exit 2, before any run) an <orca> or <debug-orca> whose
 # `readelf -d` lists libasound or libportmidi, and every orca run also has
-# BORCA_ALSA_CLIENT_NAME=borca-realloc-shim-<pid>. It unsets the caller's
+# ZORCA_ALSA_CLIENT_NAME=borca-realloc-shim-<pid>. It unsets the caller's
 # SHIM_MALLOC_MAX and SHIM_REALLOC_MAX, so each case sets only the limits it
 # names. The check compiles shim.c, beside this script, with $CC (default
 # cc) into a scratch directory: an LD_PRELOAD library that fails every
@@ -139,7 +139,7 @@ fi
 if [ -n "$orca" ]; then
   status=0
   SHELL=/bin/sh TERM=xterm-256color timeout 10 script -qec \
-    "env LD_PRELOAD='$so' SHIM_REALLOC_MAX=30000 XDG_CONFIG_HOME='$tmp/cfg' BORCA_ALSA_CLIENT_NAME='$alsa_name' '$orca' --initial-size 200x200" \
+    "env LD_PRELOAD='$so' SHIM_REALLOC_MAX=30000 XDG_CONFIG_HOME='$tmp/cfg' ZORCA_ALSA_CLIENT_NAME='$alsa_name' '$orca' --initial-size 200x200" \
     /dev/null </dev/null >"$tmp/startup.out" 2>&1 || status=$?
   # The message follows endwin's escape sequences on its line.
   if [ "$status" = 1 ] && tr -d '\r' <"$tmp/startup.out" |
@@ -151,7 +151,7 @@ if [ -n "$orca" ]; then
 
   status=0
   SHELL=/bin/sh TERM=xterm-256color timeout 10 script -qec \
-    "env LD_PRELOAD='$so' SHIM_MALLOC_MAX=30000 XDG_CONFIG_HOME='$tmp/cfg' BORCA_ALSA_CLIENT_NAME='$alsa_name' '$orca' --initial-size 200x200" \
+    "env LD_PRELOAD='$so' SHIM_MALLOC_MAX=30000 XDG_CONFIG_HOME='$tmp/cfg' ZORCA_ALSA_CLIENT_NAME='$alsa_name' '$orca' --initial-size 200x200" \
     /dev/null </dev/null >"$tmp/fill.out" 2>&1 || status=$?
   echo "orca, 200x200, malloc limit 30000: exit $status"
   if [ "$status" = 1 ] && tr -d '\r' <"$tmp/fill.out" |
@@ -172,7 +172,7 @@ if [ -n "$orca" ]; then
 #!/bin/sh
 TERM=xterm-256color timeout --foreground 10 env LD_PRELOAD='$so' \
   SHIM_REALLOC_MAX='$1' XDG_CONFIG_HOME='$tmp/cfg' \
-  BORCA_ALSA_CLIENT_NAME='$alsa_name' '$orca' \
+  ZORCA_ALSA_CLIENT_NAME='$alsa_name' '$orca' \
   --initial-size 1000x25 2>'$tmp/resize.err'
 echo \$? >'$tmp/resize.rc.new' && mv '$tmp/resize.rc.new' '$tmp/resize.rc'
 sleep 30
@@ -227,7 +227,7 @@ if [ -n "$dorca" ]; then
     cat >"$tmp/leak.sh" <<RUN
 #!/bin/sh
 TERM=xterm-256color timeout --foreground 15 env ASAN_OPTIONS=detect_leaks=1 \
-  LSAN_OPTIONS= XDG_CONFIG_HOME='$tmp/cfg' BORCA_ALSA_CLIENT_NAME='$alsa_name' \
+  LSAN_OPTIONS= XDG_CONFIG_HOME='$tmp/cfg' ZORCA_ALSA_CLIENT_NAME='$alsa_name' \
   '$dorca' '$tmp/short.orca' 2>'$tmp/leak.err'
 echo \$? >'$tmp/leak.rc.new' && mv '$tmp/leak.rc.new' '$tmp/leak.rc'
 sleep 30

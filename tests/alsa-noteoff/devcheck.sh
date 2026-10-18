@@ -22,7 +22,7 @@
 # tick: one note a second at the default 120 BPM, off a tick (125 ms) after on.
 # Each run starts `<orca> noteoff.orca` in a 100 x 30 pane of its own tmux
 # server (`tmux -L dev-noteoff-<pid> -f /dev/null`, SHELL=/bin/sh) as the client
-# dev-noteoff-<pid> (BORCA_ALSA_CLIENT_NAME). Once the client is up it starts
+# dev-noteoff-<pid> (ZORCA_ALSA_CLIENT_NAME). Once the client is up it starts
 # the receiver, dev-noteoff-<pid>-recv, subscribed to dev-noteoff-<pid>:0 with
 # an input pool of 6 events, and a healthy one, dev-noteoff-<pid>-recv2, with
 # a pool of 500 that always reads. On the first note-on the first receiver
@@ -166,7 +166,7 @@ up() {
 # live: the live bOrca client's Client line, Port lines and their
 # "Connecting To:" and "Connected From:" lines.
 live() {
-  awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "bOrca" /) }
+  awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "(bOrca|zOrca)" /) }
     in_live && (/^Client / || /^  Port / || /Connect(ing To|ed From):/) { print }' "$clients"
 }
 # gone: waits up to 15 s for our clients to leave the sequencer.
@@ -246,7 +246,7 @@ one_run() {
   : >"$run/recv2.log"
   started=1
   tm new-session -d -s note -x 100 -y 30 \
-    "env XDG_CONFIG_HOME='$tmp/xdg' BORCA_ALSA_CLIENT_NAME=$name nice -n 19 taskset -c 0-2 '$2' '$tmp/noteoff.orca' 2>'$run/err'; echo \$? >'$run/rc'" ||
+    "env XDG_CONFIG_HOME='$tmp/xdg' ZORCA_ALSA_CLIENT_NAME=$name nice -n 19 taskset -c 0-2 '$2' '$tmp/noteoff.orca' 2>'$run/err'; echo \$? >'$run/rc'" ||
     die "tmux could not start the pane"
   t0=$(cs)
   while ! up; do

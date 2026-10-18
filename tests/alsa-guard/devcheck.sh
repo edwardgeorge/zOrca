@@ -134,7 +134,7 @@ xdg() {
 # of seconds (default 3); writes its output to the log with each \r
 # removed, and prints its exit status.
 run() {
-  r_env="TERM=xterm XDG_CONFIG_HOME='$4' BORCA_ALSA_CLIENT_NAME=$base-$1"
+  r_env="TERM=xterm XDG_CONFIG_HOME='$4' ZORCA_ALSA_CLIENT_NAME=$base-$1"
   if [ "$2" != - ]; then
     r_env="$r_env LD_PRELOAD='$tmp/shim.so' BORCA_GUARD_SHIM=$2"
   fi
@@ -154,7 +154,7 @@ count() {
 # live: the live bOrca client's Client line, Port lines and their
 # "Connecting To:" and "Connected From:" lines.
 live() {
-  awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "bOrca" /) }
+  awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "(bOrca|zOrca)" /) }
     in_live && (/^Client / || /^  Port / || /Connect(ing To|ed From):/) { print }' "$clients"
 }
 
@@ -185,7 +185,7 @@ ports() {
 live_before=$(live)
 
 taken() {
-  echo "Cannot start: an ALSA client named '$base-$1' is already running (set BORCA_ALSA_CLIENT_NAME to run another instance)"
+  echo "Cannot start: an ALSA client named '$base-$1' is already running (set ZORCA_ALSA_CLIENT_NAME to run another instance)"
 }
 scan_failed() {
   echo "Cannot start: the scan for an ALSA client named '$base-$1' failed: Input/output error"

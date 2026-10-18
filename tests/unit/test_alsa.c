@@ -217,10 +217,10 @@ void test_alsa_name_scan(void) {
 // with literal lengths, never from Alsa_client_name_max. The limit is in
 // bytes: with a two-byte UTF-8 character at the end, 63 bytes fit and 64 do
 // not. The empty string fits, though the shell never asks: alsa_client_name
-// falls back to bOrca.
+// falls back to zOrca.
 void test_alsa_client_name_fits(void) {
   char name[201];
-  CHECK(alsa_client_name_fits("bOrca"));
+  CHECK(alsa_client_name_fits("zOrca"));
   memset(name, 'x', 63);
   name[63] = '\0';
   CHECK(alsa_client_name_fits(name));
@@ -237,5 +237,19 @@ void test_alsa_client_name_fits(void) {
   memcpy(name + 61, "\xc3\xa9", 3);
   CHECK(alsa_client_name_fits(name));
   CHECK(alsa_client_name_fits(""));
+}
+
+// The client name's choice: ZORCA_ALSA_CLIENT_NAME when it is set and
+// non-empty, else BORCA_ALSA_CLIENT_NAME (the name before v5.0.0, honoured
+// through v5.x), else zOrca. An empty value counts as unset, and a NULL is an
+// unset variable.
+void test_alsa_client_name_pick(void) {
+  CHECK(strcmp(alsa_client_name_pick(NULL, NULL), "zOrca") == 0);
+  CHECK(strcmp(alsa_client_name_pick("", ""), "zOrca") == 0);
+  CHECK(strcmp(alsa_client_name_pick("new", NULL), "new") == 0);
+  CHECK(strcmp(alsa_client_name_pick(NULL, "old"), "old") == 0);
+  CHECK(strcmp(alsa_client_name_pick("new", "old"), "new") == 0);
+  CHECK(strcmp(alsa_client_name_pick("", "old"), "old") == 0);
+  CHECK(strcmp(alsa_client_name_pick("new", ""), "new") == 0);
 }
 #endif

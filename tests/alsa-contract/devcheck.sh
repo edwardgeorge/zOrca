@@ -17,7 +17,7 @@
 # 127, twice a second at 120 BPM. The script runs `<orca> --bpm 120
 # note.orca` (it plays at start) in a 120 x 40 pane of its own tmux server
 # (`tmux -L alsa-contract-<pid> -f /dev/null`, SHELL=/bin/sh), with
-# XDG_CONFIG_HOME=<scratch>/xdg, BORCA_ALSA_CLIENT_NAME=alsa-contract-<pid>
+# XDG_CONFIG_HOME=<scratch>/xdg, ZORCA_ALSA_CLIENT_NAME=alsa-contract-<pid>
 # and tests/lib.sh's UBSAN_OPTIONS (halt_on_error=1), its stderr in
 # <scratch>/err, and reads the HUD's first line, the pane line that holds
 # 7x3, with `tmux capture-pane -e -p`. Each aseqdump subscribes with
@@ -345,7 +345,7 @@ wait_rc() {
 # live: the live bOrca client's Client line, Port lines and their
 # "Connecting To:" and "Connected From:" lines.
 live() {
-  awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "bOrca" /) }
+  awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "(bOrca|zOrca)" /) }
     in_live && (/^Client / || /^  Port / || /Connect(ing To|ed From):/) { print }' "$clients"
 }
 
@@ -369,7 +369,7 @@ SHELL=/bin/sh
 export SHELL
 started=1
 tm new-session -d -s contract -x 120 -y 40 \
-  "env XDG_CONFIG_HOME='$tmp/xdg' BORCA_ALSA_CLIENT_NAME=$name UBSAN_OPTIONS='$UBSAN_OPTIONS' nice -n 19 taskset -c 0-2 '$orca' --bpm 120 '$tmp/note.orca' 2>'$tmp/err'; echo \$? >'$tmp/rc'" ||
+  "env XDG_CONFIG_HOME='$tmp/xdg' ZORCA_ALSA_CLIENT_NAME=$name UBSAN_OPTIONS='$UBSAN_OPTIONS' nice -n 19 taskset -c 0-2 '$orca' --bpm 120 '$tmp/note.orca' 2>'$tmp/err'; echo \$? >'$tmp/rc'" ||
   die "tmux could not start the pane"
 
 # C1: the client and its ports. The ports follow the client's rename (after

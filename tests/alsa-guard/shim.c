@@ -21,7 +21,7 @@
 // Build: gcc -shared -fPIC -o shim.so shim.c -ldl -lasound
 // Run (the shim loaded by orca only, never by timeout, script or the shell):
 //   script -qec "timeout --foreground -k 1 3 env XDG_CONFIG_HOME=<scratch>
-//                BORCA_ALSA_CLIENT_NAME=guard-<pid>-<check>
+//                ZORCA_ALSA_CLIENT_NAME=guard-<pid>-<check>
 //                LD_PRELOAD=shim.so BORCA_GUARD_SHIM=hold orca <patch>"
 //                /dev/null
 #define _GNU_SOURCE

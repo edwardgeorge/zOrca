@@ -516,6 +516,19 @@ static inline bool alsa_client_name_fits(char const *name) {
   return strlen(name) <= Alsa_client_name_max;
 }
 
+// The client name orca opens, from the environment: the value of
+// ZORCA_ALSA_CLIENT_NAME when it is set and non-empty, else the value of
+// BORCA_ALSA_CLIENT_NAME (the variable's name before v5.0.0, still honoured
+// through v5.x), else zOrca. Either argument is NULL for an unset variable.
+static inline char const *alsa_client_name_pick(char const *zorca,
+                                                char const *borca) {
+  if (zorca && *zorca)
+    return zorca;
+  if (borca && *borca)
+    return borca;
+  return "zOrca";
+}
+
 // The client-name scan that alsa_ctx_open runs before and after taking its
 // name. next(arg, &client, &name) yields one client per call: >= 0
 // with both filled in, -ENOENT at the end of the list, or another negative

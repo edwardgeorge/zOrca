@@ -689,20 +689,29 @@ jobs:
         run: |
           err="$RUNNER_TEMP/orca_long_name.err"
           name=$(printf 'x%.0s' $(seq 1 200))
-          status=0
-          ASAN_OPTIONS=detect_leaks=0 ALSA_CONFIG_PATH=/nonexistent \
-            BORCA_ALSA_CLIENT_NAME="$name" \
-            build/debug/orca </dev/null >/dev/null 2>"$err" || status=$?
-          cat "$err"
-          if [ "$status" != 1 ]; then
-            echo "expected exit 1 from orca with a 200-byte name, got $status"
-            exit 1
-          fi
-          if ! grep -qF 'is 200 bytes; ALSA keeps at most 63' "$err" ||
-            grep -q 'Cannot initialize' "$err"; then
-            echo "orca did not refuse the 200-byte name before opening ALSA"
-            exit 1
-          fi
+          # refuse <label> <ZORCA value> <BORCA value>: an unset variable is
+          # passed as the empty string, which orca counts as unset. The
+          # 200-byte name must win in every case: the new variable over the
+          # old one, and the old one when the new one is empty.
+          refuse() {
+            status=0
+            ASAN_OPTIONS=detect_leaks=0 ALSA_CONFIG_PATH=/nonexistent \
+              ZORCA_ALSA_CLIENT_NAME="$2" BORCA_ALSA_CLIENT_NAME="$3" \
+              build/debug/orca </dev/null >/dev/null 2>"$err" || status=$?
+            cat "$err"
+            if [ "$status" != 1 ]; then
+              echo "$1: expected exit 1 from orca with a 200-byte name, got $status"
+              exit 1
+            fi
+            if ! grep -qF 'is 200 bytes; ALSA keeps at most 63' "$err" ||
+              grep -q 'Cannot initialize' "$err"; then
+              echo "$1: orca did not refuse the 200-byte name before opening ALSA"
+              exit 1
+            fi
+          }
+          refuse "ZORCA_ALSA_CLIENT_NAME" "$name" ""
+          refuse "BORCA_ALSA_CLIENT_NAME as the fallback" "" "$name"
+          refuse "ZORCA_ALSA_CLIENT_NAME over BORCA_ALSA_CLIENT_NAME" "$name" "short"
 
       # Release builds link with -flto, and gcc may print "lto-wrapper:
       # warning: using serial compilation of N LTRANS jobs". That line is a

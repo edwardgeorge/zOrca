@@ -20,7 +20,7 @@
 # :03C every tick, one note per tick. Each stall run starts `<orca>
 # clock.orca` in a 100 x 30 pane of its own tmux server (`tmux -L
 # dev-clock-<pid> -f /dev/null`, SHELL=/bin/sh) as the client
-# dev-clock-<pid> (BORCA_ALSA_CLIENT_NAME), with XDG_CONFIG_HOME=<scratch>/xdg
+# dev-clock-<pid> (ZORCA_ALSA_CLIENT_NAME), with XDG_CONFIG_HOME=<scratch>/xdg
 # and its stderr in the scratch directory; once the client and its ports
 # are up it starts the receiver, dev-clock-<pid>-recv, subscribed to
 # dev-clock-<pid>:0 with a 2000-event pool, and the master,
@@ -258,7 +258,7 @@ pool() {
 # live: the live bOrca client's Client line, Port lines and their
 # "Connecting To:" and "Connected From:" lines.
 live() {
-  awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "bOrca" /) }
+  awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "(bOrca|zOrca)" /) }
     in_live && (/^Client / || /^  Port / || /Connect(ing To|ed From):/) { print }' "$clients"
 }
 # hud_seq <file>: the HUD readings in order, repeats collapsed, at most 8.
@@ -338,7 +338,7 @@ stall() {
   clocks=$(awk -v s="$2" 'BEGIN { printf "%d", (3 + s + 5) * 48 }')
   started=1
   tm new-session -d -s clock -x 100 -y 30 \
-    "env XDG_CONFIG_HOME='$tmp/xdg' BORCA_ALSA_CLIENT_NAME=$name nice -n 19 taskset -c 0-2 '$orca' '$tmp/clock.orca' 2>'$run/err'; echo \$? >'$run/rc'" ||
+    "env XDG_CONFIG_HOME='$tmp/xdg' ZORCA_ALSA_CLIENT_NAME=$name nice -n 19 taskset -c 0-2 '$orca' '$tmp/clock.orca' 2>'$run/err'; echo \$? >'$run/rc'" ||
     die "tmux could not start the pane"
   t0=$(cs)
   while ! up; do
