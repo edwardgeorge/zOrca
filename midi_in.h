@@ -517,15 +517,11 @@ static inline bool alsa_client_name_fits(char const *name) {
 }
 
 // The client name orca opens, from the environment: the value of
-// ZORCA_ALSA_CLIENT_NAME when it is set and non-empty, else the value of
-// BORCA_ALSA_CLIENT_NAME (the variable's name before v5.0.0, still honoured
-// through v5.x), else zOrca. Either argument is NULL for an unset variable.
-static inline char const *alsa_client_name_pick(char const *zorca,
-                                                char const *borca) {
+// ZORCA_ALSA_CLIENT_NAME when it is set and non-empty, else zOrca. The
+// argument is NULL for an unset variable.
+static inline char const *alsa_client_name_pick(char const *zorca) {
   if (zorca && *zorca)
     return zorca;
-  if (borca && *borca)
-    return borca;
   return "zOrca";
 }
 

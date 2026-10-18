@@ -240,16 +240,11 @@ void test_alsa_client_name_fits(void) {
 }
 
 // The client name's choice: ZORCA_ALSA_CLIENT_NAME when it is set and
-// non-empty, else BORCA_ALSA_CLIENT_NAME (the name before v5.0.0, honoured
-// through v5.x), else zOrca. An empty value counts as unset, and a NULL is an
-// unset variable.
+// non-empty, else zOrca. An empty value counts as unset, and a NULL is an
+// unset variable. BORCA_ALSA_CLIENT_NAME is not read since v6.0.0.
 void test_alsa_client_name_pick(void) {
-  CHECK(strcmp(alsa_client_name_pick(NULL, NULL), "zOrca") == 0);
-  CHECK(strcmp(alsa_client_name_pick("", ""), "zOrca") == 0);
-  CHECK(strcmp(alsa_client_name_pick("new", NULL), "new") == 0);
-  CHECK(strcmp(alsa_client_name_pick(NULL, "old"), "old") == 0);
-  CHECK(strcmp(alsa_client_name_pick("new", "old"), "new") == 0);
-  CHECK(strcmp(alsa_client_name_pick("", "old"), "old") == 0);
-  CHECK(strcmp(alsa_client_name_pick("new", ""), "new") == 0);
+  CHECK(strcmp(alsa_client_name_pick("new"), "new") == 0);
+  CHECK(strcmp(alsa_client_name_pick(""), "zOrca") == 0);
+  CHECK(strcmp(alsa_client_name_pick(NULL), "zOrca") == 0);
 }
 #endif

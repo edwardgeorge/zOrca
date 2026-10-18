@@ -130,8 +130,7 @@ fprintf(stderr,
 "\n"
 "ALSA MIDI (this build):\n"
 "    MIDI goes out through an ALSA sequencer client named zOrca, or\n"
-"    $ZORCA_ALSA_CLIENT_NAME when that is set and non-empty (else\n"
-"    $BORCA_ALSA_CLIENT_NAME, its name before v5.0.0), with one\n"
+"    $ZORCA_ALSA_CLIENT_NAME when that is set and non-empty, with one\n"
 "    port named MIDI out, and comes in through its port MIDI in, which\n"
 "    orca itself subscribes to the MIDI input while the clock source is\n"
 "    external. The client opens at startup even with --osc-midi-bidule,\n"
@@ -999,10 +998,9 @@ typedef struct {
 } Alsa_ctx;
 
 // The client name: zOrca, or $ZORCA_ALSA_CLIENT_NAME when it is set and
-// non-empty, or else $BORCA_ALSA_CLIENT_NAME (the name before v5.0.0).
+// non-empty.
 static char const *alsa_client_name(void) {
-  return alsa_client_name_pick(getenv("ZORCA_ALSA_CLIENT_NAME"),
-                               getenv("BORCA_ALSA_CLIENT_NAME"));
+  return alsa_client_name_pick(getenv("ZORCA_ALSA_CLIENT_NAME"));
 }
 
 // One step of the name scan over the sequencer (midi_in.h alsa_name_scan):
