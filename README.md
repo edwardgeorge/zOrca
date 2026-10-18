@@ -31,8 +31,6 @@ To hear it, connect bOrca's MIDI output to a synth:
 - In an ALSA build, `aconnect -l` lists the sequencer's clients and ports, and `aconnect bOrca:0 <synth client>:<port>` connects bOrca's `MIDI out` port to one.
 - In a PortMidi build, open the main menu with Ctrl+D, choose MIDI Output... and pick the device.
 
-The names fit together like this: the repository is `zbOrca`, the program `orca`, and its ALSA MIDI port `bOrca:0`.
-
 ## On the uConsole
 
 On a ClockworkPi uConsole, bOrca runs as an appliance:
