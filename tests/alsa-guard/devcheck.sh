@@ -42,7 +42,7 @@
 #       left.
 # Device rules: every client name is guard-<pid>-<check>, never bOrca or zOrca;
 # every run gets a fresh scratch XDG_CONFIG_HOME, and the patch is a
-# scratch file; the live engine's client and borca-tty.service are only
+# scratch file; the live engine's client and zorca-tty.service are only
 # observed (no systemctl, no aconnect). Every gcc and orca runs under
 # `nice -n 19 taskset -c 0-2`, so core 3 stays free; run the script the
 # same way on the uConsole. It takes about 10 s. An interrupt stops the

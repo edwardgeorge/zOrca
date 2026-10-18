@@ -1075,7 +1075,7 @@ staticni int alsa_ctx_open(Alsa_ctx *ctx, bool *scan_failed) {
     return err;
   // Two clients with one name make the appliance router refuse to route
   // either, so refuse a name another client holds. No wait: the kernel drops
-  // a client when its process exits, and borca-tty.service
+  // a client when its process exits, and zorca-tty.service
   // (KillMode=control-group) starts a new instance only after the old one
   // has stopped; if the name is still held, its Restart=always retries.
   // This scan refuses an ordinary duplicate before it takes the name. A

@@ -4,6 +4,19 @@ zOrca's versions follow [semantic versioning](https://semver.org). A change is B
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 
+## v6.0.0 (2026-10-18)
+
+### Breaking
+
+- **`BORCA_ALSA_CLIENT_NAME` is ignored.** v5.0.0 kept it as a fallback through v5.x; it is gone now. An `--alsa` build's client is `zOrca`, or the value of `ZORCA_ALSA_CLIENT_NAME` when that is set and non-empty. A script that set only `BORCA_ALSA_CLIENT_NAME` gets a client named `zOrca`, which a running `zOrca` makes `orca` refuse at startup: set `ZORCA_ALSA_CLIENT_NAME` instead. `orca -h` and `tool --help` no longer name the old variable. Patches play as before.
+
+### Changed
+
+- **The build macros are `ZORCA_*`.** `BORCA_DEBUG_COUNTERS`, `BORCA_HAS_MIDI_IN`, `BORCA_HAS_MIDI_OUT`, `BORCA_VERSION`, `BORCA_GUARD_SHIM` and `BORCA_PM_IN_DROP` are now `ZORCA_DEBUG_COUNTERS`, `ZORCA_HAS_MIDI_IN`, `ZORCA_HAS_MIDI_OUT`, `ZORCA_VERSION`, `ZORCA_GUARD_SHIM` and `ZORCA_PM_IN_DROP`. The debug counters build with `CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS`; the old `-DBORCA_DEBUG_COUNTERS` builds without counters and draws no error. `tool` reads the version from `$ZORCA_VERSION` when it is set, where it read `$BORCA_VERSION`. The dialect's names, `borca` in `orca.conf` and `--dialect` and the identifiers in the code, are boorch's and keep them.
+- **The uConsole's names in the docs.** The README and the test docs name the appliance's paths as the provisioning repo installs them from this release: `~/.config/zorca/orca.conf`, `/usr/local/bin/zorca` and `zorca-tty.service`.
+
+Tests: the unit row `alsa_client_name_pick` takes one variable (set, empty, unset); CI refuses a 200-byte `ZORCA_ALSA_CLIENT_NAME` before opening ALSA, and checks that a 200-byte `BORCA_ALSA_CLIENT_NAME` alone draws no refusal; the counter builds, the shell-args check and its canaries, the guard shim and `tests/wakeups/ab.sh` use the new macro names, and the scratch names in the unit tests, the realloc shim check and the A/B's build are `zorca-*`.
+
 ## v5.0.1 (2026-10-18)
 
 ### Changed

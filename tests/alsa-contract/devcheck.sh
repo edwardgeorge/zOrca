@@ -59,7 +59,7 @@
 #       tests/alsa-guard/devcheck.sh's rule.
 # Device rules: the client is alsa-contract-<pid>, never bOrca or zOrca, and the
 # config a scratch XDG_CONFIG_HOME; the live engine's client and
-# borca-tty.service are only observed (aconnect only lists; no systemctl or
+# zorca-tty.service are only observed (aconnect only lists; no systemctl or
 # sudo). orca and every aseqdump run under `nice -n 19 taskset -c 0-2`, so
 # core 3 stays free; run the script the same way on the uConsole. Only the
 # aseqdumps it started are signalled, by their PIDs, and only its own tmux

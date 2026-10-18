@@ -1190,7 +1190,7 @@ after 3 s, then every 0.5 s for up to 5 s more), then Escape and Ctrl+Q
 must quit it with exit 0 and no `LeakSanitizer` on stderr; it runs with
 `ASAN_OPTIONS=detect_leaks=1` and an empty `LSAN_OPTIONS`, over any the
 caller exported. Each `orca` run has a scratch `XDG_CONFIG_HOME` and
-`ZORCA_ALSA_CLIENT_NAME=borca-realloc-shim-<pid>`, and each tmux run a
+`ZORCA_ALSA_CLIENT_NAME=zorca-realloc-shim-<pid>`, and each tmux run a
 server of its own. CI runs the `cli` case and the release `orca` cases
 (startup, fill and resize) in the `build` job.
 
@@ -1251,7 +1251,7 @@ present, a shim that does not build or a scratch directory that cannot be
 made. It takes about 10 s, and an interrupt stops its runs in the background
 before it exits. Every client name is `guard-<pid>-<check>`, never `bOrca` or `zOrca`,
 and every run gets a fresh scratch `XDG_CONFIG_HOME`; it never touches the
-live `zOrca` client or `borca-tty.service` (it only reads
+live `zOrca` client or `zorca-tty.service` (it only reads
 `/proc/asound/seq/clients`, and calls no `systemctl` or `aconnect`), and it
 runs every `gcc` and `orca` under `nice -n 19 taskset -c 0-2`. The twenty
 racing pairs run when the guard was written (check D3, v3.0.0) are not part
@@ -1338,7 +1338,7 @@ an executable file), a missing tool (`tmux`, `aseqdump`, `aconnect`,
 scratch file or tmux server that cannot be made, and 129, 130 or 143 when
 SIGHUP, SIGINT or SIGTERM stops it. It takes about 10 s (13 s for a debug
 build, 25 s when C4 times out).
-It never touches the live `zOrca` client or `borca-tty.service`: `aconnect`
+It never touches the live `zOrca` client or `zorca-tty.service`: `aconnect`
 only lists, no `systemctl` or `sudo` runs, and it signals only the
 aseqdumps it started, by PID, and kills only its own tmux server. It runs
 `orca` and each aseqdump under `nice -n 19 taskset -c 0-2`, and on exit or
@@ -1348,7 +1348,7 @@ removes the scratch directory, ignoring a second signal meanwhile.
 After installing a zOrca binary, run it next to `verify`:
 
 ```sh
-nice -n 19 taskset -c 0-2 tests/alsa-contract/devcheck.sh /usr/local/bin/borca
+nice -n 19 taskset -c 0-2 tests/alsa-contract/devcheck.sh /usr/local/bin/zorca
 ```
 
 It runs that binary under the scratch name and config, so the live service
@@ -1428,7 +1428,7 @@ that is not an `--alsa` build, a `dev-clock-<pid>` client already present,
 a master or receiver that does not build, or a scratch directory, scratch
 file or tmux server that cannot be made, and 129, 130 or 143 when SIGHUP,
 SIGINT or SIGTERM stops it. It takes about 50 s.
-It never touches the live `zOrca` client or `borca-tty.service`: it reads
+It never touches the live `zOrca` client or `zorca-tty.service`: it reads
 `/proc/asound/seq/clients` and runs no `aconnect`, `systemctl` or `sudo`.
 It signals only the `orca` it started (the pane shell's child, running the
 named binary) and the master and receiver it started, by PID, and kills
@@ -1738,7 +1738,7 @@ not, unless it uses another client name: the appliance router refuses to
 route two `zOrca` clients. Run a test build with
 `ZORCA_ALSA_CLIENT_NAME=zOrca-test` (any name but `zOrca`, at most 63
 bytes), a scratch `XDG_CONFIG_HOME` and a copy of a patch, or stop
-`borca-tty.service` first, with the maintainer's approval.
+`zorca-tty.service` first, with the maintainer's approval.
 
 On aarch64 plain `char` is already unsigned, so the release `cli` and
 release unit-test runs above cover the `unsigned-char` job. The x86_64

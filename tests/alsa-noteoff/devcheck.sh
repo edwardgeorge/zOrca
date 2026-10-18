@@ -48,7 +48,7 @@
 #   live      the live zOrca client's lines in /proc/asound/seq/clients are the
 #             same before and after, and no dev-noteoff-<pid> client is left.
 # Device rules: every client is dev-noteoff-<pid>[-recv], never bOrca or zOrca, with a
-# scratch XDG_CONFIG_HOME; the live engine and borca-tty.service are only
+# scratch XDG_CONFIG_HOME; the live engine and zorca-tty.service are only
 # observed (no aconnect, systemctl or sudo). Everything runs under `nice -n 19
 # taskset -c 0-2`, so core 3 stays free; run the script the same way. It
 # signals only the processes it started, and kills only its own tmux server.
