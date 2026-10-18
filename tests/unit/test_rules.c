@@ -1,10 +1,11 @@
 // Unit tests for the seven operators whose rules differ between the
 // dialects: C, D, I, L, U, Z and uppercase R. bOrca's dialect follows Orca's
 // 2025 rules, in which an empty input counts as 0 and R's range includes its
-// max; the upstream dialect keeps Orca-c 9df9786's rules. Each row runs in
-// both dialects, against the output each must give, and checks that the two
-// mark the same ports. Lowercase rows check that c, d, i, l, u and z do
-// nothing unbanged and run the same body when banged.
+// max; the upstream dialect keeps Orca-c 9df9786's rules, and zorca bOrca's.
+// Each row runs in all three dialects, against the output each must give
+// (zorca's is bOrca's), and checks that the three mark the same ports.
+// Lowercase rows check that c, d, i, l, u and z do nothing unbanged and run
+// the same body when banged.
 #include "../../gbuffer.h"
 #include "../../opstate.h"
 #include "../../sim.h"
@@ -58,21 +59,25 @@ static void rules_run(Rules_setup const *su, Usz seed, Orca_dialect dialect,
   opstate_free(&store);
 }
 
-static char const *const rules_dialect_name[2] = {"borca", "upstream"};
-static Orca_dialect const rules_dialect[2] = {Orca_dialect_borca,
-                                              Orca_dialect_upstream};
+// Indexed by Orca_dialect. zorca runs bOrca's operators, so each row's
+// zorca output is its bOrca one.
+enum { Rules_dialects = 3 };
+static char const *const rules_dialect_name[Rules_dialects] = {
+    "borca", "upstream", "zorca"};
+static Orca_dialect const rules_dialect[Rules_dialects] = {
+    Orca_dialect_borca, Orca_dialect_upstream, Orca_dialect_zorca};
 
 // One row of a fixed-glyph test: the setup, over ticks 0-15 at seed 0,
-// must output borca in bOrca's dialect and upstream in the upstream one,
-// and the two dialects' marks after tick 0 must be equal. Prints each
-// mismatch, naming the row and the dialect.
+// must output borca in bOrca's dialect and in zorca, and upstream in the
+// upstream one, and the three dialects' marks after tick 0 must be equal.
+// Prints each mismatch, naming the row and the dialect.
 static bool rules_check(Rules_setup su, char const *borca,
                         char const *upstream) {
-  char const *want[2] = {borca, upstream};
-  Glyph got[2][Rules_ticks + 1];
-  Mark marks[2][Rules_h * Rules_w];
+  char const *want[Rules_dialects] = {borca, upstream, borca};
+  Glyph got[Rules_dialects][Rules_ticks + 1];
+  Mark marks[Rules_dialects][Rules_h * Rules_w];
   bool ok = true;
-  for (int d = 0; d < 2; ++d) {
+  for (int d = 0; d < Rules_dialects; ++d) {
     rules_run(&su, 0, rules_dialect[d], Rules_ticks, got[d], marks[d]);
     got[d][Rules_ticks] = '\0';
     if (strcmp(got[d], want[d]) != 0) {
@@ -83,9 +88,12 @@ static bool rules_check(Rules_setup su, char const *borca,
       ok = false;
     }
   }
-  if (memcmp(marks[0], marks[1], sizeof marks[0]) != 0) {
-    printf("  %s: the dialects mark different ports at tick 0\n", su.in);
-    ok = false;
+  for (int d = 1; d < Rules_dialects; ++d) {
+    if (memcmp(marks[0], marks[d], sizeof marks[0]) != 0) {
+      printf("  %s: %s marks different ports from borca at tick 0\n", su.in,
+             rules_dialect_name[d]);
+      ok = false;
+    }
   }
   return ok;
 }
@@ -283,6 +291,7 @@ void test_rules_random_range(void) {
       CHECK(rules_r_set(rows[i].in, seed, Orca_dialect_borca, rows[i].borca));
       CHECK(rules_r_set(rows[i].in, seed, Orca_dialect_upstream,
                         rows[i].upstream));
+      CHECK(rules_r_set(rows[i].in, seed, Orca_dialect_zorca, rows[i].borca));
     }
   }
   // Either order: 4R1 outputs what 1R4 does, on every tick, in both.
@@ -291,6 +300,11 @@ void test_rules_random_range(void) {
                        seed, Rules_r_ticks));
     CHECK(rules_r_same("4R1", Orca_dialect_upstream, "1R4",
                        Orca_dialect_upstream, seed, Rules_r_ticks));
+    // zorca's R is bOrca's, tick for tick.
+    CHECK(rules_r_same("1R4", Orca_dialect_zorca, "1R4", Orca_dialect_borca,
+                       seed, Rules_r_ticks));
+    CHECK(rules_r_same(".R.", Orca_dialect_zorca, ".R.", Orca_dialect_borca,
+                       seed, Rules_r_ticks));
   }
 }
 

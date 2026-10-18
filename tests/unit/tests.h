@@ -99,6 +99,7 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(arp_length_dot_and_zero)                                                   \
   X(dialect_names)                                                             \
   X(dialect_default_is_borca)                                                  \
+  X(dialect_zorca_is_borca)                                                    \
   X(dialect_upstream_cc)                                                       \
   X(dialect_upstream_r)                                                        \
   X(dialect_upstream_udp_osc)                                                  \

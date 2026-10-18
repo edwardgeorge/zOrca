@@ -281,6 +281,15 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
   _('U', uclid_upstream)                                                       \
   _('Z', lerp_upstream)
 
+// zOrca's own: bOrca's lists, plus zOrca's operators, which land here one at
+// a time (none yet, so zorca plays as borca). A glyph listed twice in one
+// dialect is a duplicate case in its switch and does not compile, so an
+// operator here cannot silently replace one of bOrca's. One that takes a
+// glyph bOrca leaves inert changes what an existing patch plays under the
+// default dialect: that is Breaking by the CHANGELOG's rule.
+#define ZORCA_UNIQUE_OPERATORS(_) BORCA_UNIQUE_OPERATORS(_)
+#define ZORCA_ALPHA_OPERATORS(_) BORCA_ALPHA_OPERATORS(_)
+
 BEGIN_OPERATOR(movement)
   if (glyph_is_lowercase(This_oper_char) &&
       !oper_has_neighboring_bang(gbuffer, height, width, y, x))
@@ -1644,11 +1653,23 @@ bool orca_dialect_from_name(char const *name, Orca_dialect *out) {
     *out = Orca_dialect_upstream;
     return true;
   }
+  if (strcmp(name, "zorca") == 0) {
+    *out = Orca_dialect_zorca;
+    return true;
+  }
   return false;
 }
 
 char const *orca_dialect_name(Orca_dialect d) {
-  return d == Orca_dialect_upstream ? "upstream" : "borca";
+  switch (d) {
+  case Orca_dialect_upstream:
+    return "upstream";
+  case Orca_dialect_zorca:
+    return "zorca";
+  case Orca_dialect_borca:
+    break;
+  }
+  return "borca"; // any other value runs as bOrca
 }
 
 void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
@@ -1679,7 +1700,7 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
 
 // The cell loop, over one dialect's lists: the shared ones plus the
 // dialect's own. It is instantiated once per dialect and chosen once per
-// call, so the per-cell dispatch is the same switch either way.
+// call, so the per-cell dispatch is the same switch in each.
 #define CELL_LOOP(_dialect_unique_list, _dialect_alpha_list)                   \
   for (Usz iy = 0; iy < height; ++iy) {                                        \
     Glyph const *glyph_row = gbuf + iy * width;                                \
@@ -1700,8 +1721,11 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
     }                                                                          \
   }
 
+  // bOrca is the fallback: a zeroed context, and any value not named here.
   if (ctx->dialect == Orca_dialect_upstream) {
     CELL_LOOP(UPSTREAM_UNIQUE_OPERATORS, UPSTREAM_ALPHA_OPERATORS)
+  } else if (ctx->dialect == Orca_dialect_zorca) {
+    CELL_LOOP(ZORCA_UNIQUE_OPERATORS, ZORCA_ALPHA_OPERATORS)
   } else {
     CELL_LOOP(BORCA_UNIQUE_OPERATORS, BORCA_ALPHA_OPERATORS)
   }

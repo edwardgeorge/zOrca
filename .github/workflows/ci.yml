@@ -117,6 +117,33 @@ jobs:
       - name: Check version option on cli
         run: tests/check-version.sh build/cli
 
+      # cli takes --dialect borca, upstream or zorca, and zorca is the
+      # default; any other value, zOrca among them, exits 1 with its error.
+      - name: cli takes zorca and rejects a bad --dialect value
+        run: |
+          printf '.\n' >"$RUNNER_TEMP/dot.orca"
+          for d in borca upstream zorca; do
+            build/cli --dialect "$d" "$RUNNER_TEMP/dot.orca" >/dev/null
+          done
+          if ! build/cli -h 2>&1 | grep -q 'Operator dialect: zorca (default)'; then
+            echo "cli -h does not name zorca as the default dialect"
+            exit 1
+          fi
+          for bad in foo zOrca; do
+            err="$RUNNER_TEMP/cli_bad_dialect.err"
+            status=0
+            build/cli --dialect "$bad" "$RUNNER_TEMP/dot.orca" >/dev/null 2>"$err" || status=$?
+            cat "$err"
+            if [ "$status" != 1 ]; then
+              echo "expected exit 1 from cli --dialect $bad, got $status"
+              exit 1
+            fi
+            if ! grep -qx "Unknown dialect $bad. Expected borca, upstream or zorca." "$err"; then
+              echo "cli did not report the bad --dialect value $bad"
+              exit 1
+            fi
+          done
+
       - name: Golden suite on the debug cli (ASan + UBSan)
         run: tests/run.sh build/debug/cli
 
@@ -903,9 +930,9 @@ jobs:
           fi
           exit "$status"
 
-      # orca takes --dialect borca or upstream only; any other value exits 1
-      # with its error on stderr, before curses starts and before the ALSA
-      # client opens.
+      # orca takes --dialect borca, upstream or zorca only; any other value
+      # exits 1 with its error on stderr, before curses starts and before the
+      # ALSA client opens.
       - name: orca rejects a bad --dialect value
         run: |
           err="$RUNNER_TEMP/orca_bad_dialect.err"
@@ -917,7 +944,7 @@ jobs:
             exit 1
           fi
           if ! grep -q '^Bad dialect argument: foo$' "$err" ||
-            ! grep -q '^Must be borca or upstream\.$' "$err"; then
+            ! grep -q '^Must be borca, upstream or zorca\.$' "$err"; then
             echo "orca did not report the bad --dialect value"
             exit 1
           fi

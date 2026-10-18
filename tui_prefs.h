@@ -112,7 +112,7 @@ enum {
 
 // The defaults: margins 1 (y) and 2 (x), fancy grid dots and rulers, OSC
 // output off to an empty address (loopback) on port 49162, beat clock off,
-// bOrca, glide_hz Ccout_glide_hz_default, Internal, no input and nothing
+// zorca, glide_hz Ccout_glide_hz_default, Internal, no input and nothing
 // touched. has_midi_in says the build has an input reader and midi_in_key
 // is its backend's input key (Confopt_alsa_input_device or
 // Confopt_portmidi_input_device); without a reader the key is ignored.

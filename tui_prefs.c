@@ -111,7 +111,7 @@ void tui_prefs_init(Tui_prefs *p, bool has_midi_in, Confopt midi_in_key) {
   p->midi_in[0] = '\0';
   p->softmargin_y = 1;
   p->softmargin_x = 2;
-  p->dialect = Orca_dialect_borca;
+  p->dialect = Orca_dialect_zorca;
   p->glide_hz = Ccout_glide_hz_default;
   p->clock_source = Clock_source_internal;
   p->touched = 0;

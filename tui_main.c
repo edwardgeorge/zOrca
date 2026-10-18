@@ -83,17 +83,19 @@ fprintf(stderr,
 "                           the random pattern (c) of ;.\n"
 "                           Default: 1\n"
 "    --dialect <name>       Set the operator dialect for this session:\n"
-"                           borca (bOrca's operators) or upstream\n"
-"                           (upstream Orca-c's: ! sends a plain CC, ;\n"
-"                           UDP, = OSC, r is a banged R, $ and & do\n"
-"                           nothing, and C, D, I, L, R, U and Z keep\n"
+"                           zorca (zOrca's: bOrca's operators and\n"
+"                           zOrca's own, none yet, so it plays as\n"
+"                           borca), borca (bOrca's operators) or\n"
+"                           upstream (upstream Orca-c's: ! sends a plain\n"
+"                           CC, ; UDP, = OSC, r is a banged R, $ and &\n"
+"                           do nothing, and C, D, I, L, R, U and Z keep\n"
 "                           Orca-c's rules for empty inputs and R's\n"
 "                           range). Overrides the dialect saved in\n"
 "                           orca.conf without changing it; the Operator\n"
 "                           Dialect menu changes and saves it. Picking\n"
 "                           the active dialect there saves nothing, so to\n"
-"                           save this one, pick the other, then this.\n"
-"                           Default: the saved dialect, else borca\n"
+"                           save this one, pick another, then this.\n"
+"                           Default: the saved dialect, else zorca\n"
 "    --version              Print version and exit.\n"
 "    -h or --help           Print this message and exit.\n"
 "\n"
@@ -158,7 +160,8 @@ typedef enum {
 
 // The class a glyph draws as. In the upstream dialect (sim.h) `$` and `&`
 // are no operators, so they draw as unknown glyphs (bold red), as Orca-c
-// 9df9786 draws them; bOrca's colours do not change.
+// 9df9786 draws them; bOrca's colours do not change, and zorca, which runs
+// bOrca's operators, draws as bOrca does.
 static Glyph_class glyph_class_of(Glyph glyph, Orca_dialect dialect) {
   if (glyph == '.')
     return Glyph_class_grid;
@@ -1565,7 +1568,7 @@ static void ged_init(Ged *a, Usz undo_limit, Usz init_bpm, Usz init_seed) {
   opstate_init(&a->scratch_opstate);
   // tui_apply_overrides overwrites this from the prefs; the default that
   // counts is tui_prefs_init's.
-  a->dialect = Orca_dialect_borca;
+  a->dialect = Orca_dialect_zorca;
   field_init(&a->clipboard_field);
   mbuf_reusable_init(&a->mbuf_r);
   a->labels = NULL;
@@ -2933,16 +2936,24 @@ static void push_osc_output_port_form(char const *initial) {
 enum {
   Dialect_menu_borca = 1,
   Dialect_menu_upstream,
+  Dialect_menu_zorca,
 };
 static void push_dialect_menu(Orca_dialect dialect) {
-  bool upstream = dialect == Orca_dialect_upstream;
+  // bOrca is marked for any value but upstream and zorca, as orca_run runs
+  // it.
+  int active = dialect == Orca_dialect_upstream ? Dialect_menu_upstream
+               : dialect == Orca_dialect_zorca  ? Dialect_menu_zorca
+                                                : Dialect_menu_borca;
   Qmenu *qm = qmenu_create(Dialect_menu_id);
   qmenu_set_title(qm, "Operator Dialect");
-  qmenu_add_printf(qm, Dialect_menu_borca, "(%c) bOrca", !upstream ? '*' : ' ');
+  qmenu_add_printf(qm, Dialect_menu_borca, "(%c) bOrca",
+                   active == Dialect_menu_borca ? '*' : ' ');
   qmenu_add_printf(qm, Dialect_menu_upstream, "(%c) Upstream",
-                   upstream ? '*' : ' ');
-  if (upstream)
-    qmenu_set_current_item(qm, Dialect_menu_upstream);
+                   active == Dialect_menu_upstream ? '*' : ' ');
+  qmenu_add_printf(qm, Dialect_menu_zorca, "(%c) zOrca",
+                   active == Dialect_menu_zorca ? '*' : ' ');
+  if (active != Dialect_menu_borca)
+    qmenu_set_current_item(qm, active);
   qmenu_push_to_nav(qm);
 }
 enum {
@@ -3125,7 +3136,16 @@ static void push_controls_msg(void) {
 // active dialect's operators (sim.c's lists), each description at most 42
 // characters.
 static void push_opers_guide_msg(Orca_dialect dialect) {
-  enum { Guide_borca = 1, Guide_upstream = 2, Guide_both = 3 };
+  // Which dialects list an item, one bit each. zorca runs bOrca's operators
+  // (sim.c's ZORCA_* lists), so every bOrca item is a zorca one too; an
+  // operator of zOrca's own is Guide_zorca alone.
+  enum {
+    Guide_borca = 1,
+    Guide_upstream = 2,
+    Guide_zorca = 4,
+    Guide_borca_zorca = Guide_borca | Guide_zorca,
+    Guide_all = Guide_borca | Guide_upstream | Guide_zorca,
+  };
   struct Guide_item {
     char glyph;
     U8 dialects;
@@ -3133,51 +3153,57 @@ static void push_opers_guide_msg(Orca_dialect dialect) {
     char const *desc;
   };
   static struct Guide_item const items[] = {
-      {'A', Guide_both, "add", "Outputs sum of inputs."},
-      {'B', Guide_both, "subtract", "Outputs difference of inputs."},
-      {'C', Guide_both, "clock", "Outputs modulo of frame."},
-      {'D', Guide_both, "delay", "Bangs on modulo of frame."},
-      {'E', Guide_both, "east", "Moves eastward, or bangs."},
-      {'F', Guide_both, "if", "Bangs if inputs are equal."},
-      {'G', Guide_both, "generator", "Writes operands with offset."},
-      {'H', Guide_both, "halt", "Halts southward operand."},
-      {'I', Guide_both, "increment", "Increments southward operand."},
-      {'J', Guide_both, "jumper", "Outputs northward operand."},
-      {'K', Guide_both, "konkat", "Reads multiple variables."},
-      {'L', Guide_both, "lesser", "Outputs smallest input."},
-      {'M', Guide_both, "multiply", "Outputs product of inputs."},
-      {'N', Guide_both, "north", "Moves Northward, or bangs."},
-      {'O', Guide_both, "read", "Reads operand with offset."},
-      {'P', Guide_both, "push", "Writes eastward operand."},
-      {'Q', Guide_both, "query", "Reads operands with offset."},
-      {'R', Guide_both, "random", "Outputs random value."},
-      {'r', Guide_borca, "random unique",
+      {'A', Guide_all, "add", "Outputs sum of inputs."},
+      {'B', Guide_all, "subtract", "Outputs difference of inputs."},
+      {'C', Guide_all, "clock", "Outputs modulo of frame."},
+      {'D', Guide_all, "delay", "Bangs on modulo of frame."},
+      {'E', Guide_all, "east", "Moves eastward, or bangs."},
+      {'F', Guide_all, "if", "Bangs if inputs are equal."},
+      {'G', Guide_all, "generator", "Writes operands with offset."},
+      {'H', Guide_all, "halt", "Halts southward operand."},
+      {'I', Guide_all, "increment", "Increments southward operand."},
+      {'J', Guide_all, "jumper", "Outputs northward operand."},
+      {'K', Guide_all, "konkat", "Reads multiple variables."},
+      {'L', Guide_all, "lesser", "Outputs smallest input."},
+      {'M', Guide_all, "multiply", "Outputs product of inputs."},
+      {'N', Guide_all, "north", "Moves Northward, or bangs."},
+      {'O', Guide_all, "read", "Reads operand with offset."},
+      {'P', Guide_all, "push", "Writes eastward operand."},
+      {'Q', Guide_all, "query", "Reads operands with offset."},
+      {'R', Guide_all, "random", "Outputs random value."},
+      {'r', Guide_borca_zorca, "random unique",
        "Shuffles min to max; never twice in a row."},
-      {'S', Guide_both, "south", "Moves southward, or bangs."},
-      {'T', Guide_both, "track", "Reads eastward operand."},
-      {'U', Guide_both, "uclid", "Bangs on Euclidean rhythm."},
-      {'V', Guide_both, "variable", "Reads and writes variable."},
-      {'W', Guide_both, "west", "Moves westward, or bangs."},
-      {'X', Guide_both, "write", "Writes operand with offset."},
-      {'Y', Guide_both, "jymper", "Outputs westward operand."},
-      {'Z', Guide_both, "lerp", "Transitions operand to target."},
-      {'*', Guide_both, "bang", "Bangs neighboring operands."},
-      {'#', Guide_both, "comment", "Halts line."},
-      {':', Guide_both, "midi", "Sends MIDI note."},
-      {'!', Guide_borca, "cc", "Sends MIDI CC; rates 1-y glide from last."},
+      {'S', Guide_all, "south", "Moves southward, or bangs."},
+      {'T', Guide_all, "track", "Reads eastward operand."},
+      {'U', Guide_all, "uclid", "Bangs on Euclidean rhythm."},
+      {'V', Guide_all, "variable", "Reads and writes variable."},
+      {'W', Guide_all, "west", "Moves westward, or bangs."},
+      {'X', Guide_all, "write", "Writes operand with offset."},
+      {'Y', Guide_all, "jymper", "Outputs westward operand."},
+      {'Z', Guide_all, "lerp", "Transitions operand to target."},
+      {'*', Guide_all, "bang", "Bangs neighboring operands."},
+      {'#', Guide_all, "comment", "Halts line."},
+      {':', Guide_all, "midi", "Sends MIDI note."},
+      {'!', Guide_borca_zorca, "cc",
+       "Sends MIDI CC; rates 1-y glide from last."},
       {'!', Guide_upstream, "cc", "Sends MIDI control change."},
-      {'?', Guide_both, "pb", "Sends MIDI pitch bend."},
-      {'$', Guide_borca, "scale", "Outputs note base on root, scale, degree."},
-      {'%', Guide_both, "mono", "Sends MIDI monophonic note."},
-      {'=', Guide_borca, "midichord", "Sends preset chords over MIDI."},
+      {'?', Guide_all, "pb", "Sends MIDI pitch bend."},
+      {'$', Guide_borca_zorca, "scale",
+       "Outputs note base on root, scale, degree."},
+      {'%', Guide_all, "mono", "Sends MIDI monophonic note."},
+      {'=', Guide_borca_zorca, "midichord",
+       "Sends preset chords over MIDI."},
       {'=', Guide_upstream, "osc", "Sends OSC message."},
-      {';', Guide_borca, "arpeggiator",
+      {';', Guide_borca_zorca, "arpeggiator",
        "Outputs scale degrees by length and step."},
       {';', Guide_upstream, "udp", "Sends UDP message."},
-      {'&', Guide_borca, "bouncer", "LFO; rate is its cycle in beats."},
+      {'&', Guide_borca_zorca, "bouncer",
+       "LFO; rate is its cycle in beats."},
   };
-  U8 const shown =
-      dialect == Orca_dialect_upstream ? Guide_upstream : Guide_borca;
+  // bOrca's list for any value but upstream and zorca, as orca_run runs it.
+  U8 const shown = dialect == Orca_dialect_upstream ? Guide_upstream
+                   : dialect == Orca_dialect_zorca  ? Guide_zorca
+                                                    : Guide_borca;
   int rows = 0;
   int w_desc = 0;
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(items); ++i) {
@@ -3192,6 +3218,7 @@ static void push_opers_guide_msg(Orca_dialect dialect) {
   int total_width = left_pad + 1 + mid_pad + w_desc + right_pad;
   Qmsg *qm = qmsg_push(rows, total_width);
   qmsg_set_title(qm, dialect == Orca_dialect_upstream ? "Upstream Operators"
+                     : dialect == Orca_dialect_zorca  ? "zOrca Operators"
                                                       : "bOrca Operators");
   WINDOW *w = qmsg_window(qm);
   int row = 0;
@@ -3554,9 +3581,11 @@ staticni void plainorfancy_menu_was_picked(Tui *t, int picked_id,
 }
 
 staticni void dialect_menu_was_picked(Tui *t, int picked_id) {
-  Orca_dialect dialect = picked_id == Dialect_menu_upstream
-                             ? Orca_dialect_upstream
-                             : Orca_dialect_borca;
+  Orca_dialect dialect = Orca_dialect_borca;
+  if (picked_id == Dialect_menu_upstream)
+    dialect = Orca_dialect_upstream;
+  else if (picked_id == Dialect_menu_zorca)
+    dialect = Orca_dialect_zorca;
   qnav_stack_pop();
   if (!tui_prefs_set_dialect(&t->prefs, dialect))
     return; // already the dialect: nothing changes, nothing is saved
@@ -4651,7 +4680,7 @@ int main(int argc, char **argv) {
         break;
       }
       usage(); // then the error, last, where it shows
-      OPTFAIL("Must be borca or upstream.");
+      OPTFAIL("Must be borca, upstream or zorca.");
     case Argopt_clock_source:
       // A session-only override through the pending overrides.
       if (clock_source_from_name(optarg, &t.overrides.clock_source)) {

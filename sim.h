@@ -5,7 +5,8 @@
 #include "vmio.h"
 
 // The operator list orca_run runs, one per dialect. Zero is bOrca,
-// so a zero-initialized context runs bOrca's operators.
+// so a zero-initialized context runs bOrca's operators; orca and cli
+// default to zorca, which a caller of orca_run names itself.
 //   borca:    bOrca's list: ! (CC with glides), $, ; (arpeggiator),
 //             = (midichord), & and the shuffle-bag r; C, D, I, L, R, U
 //             and Z by Orca's 2025 rules, in which an empty input counts
@@ -14,10 +15,15 @@
 //             ; (UDP), = (OSC) and r as a banged R; $ and & do nothing;
 //             C, D, I, L, R, U and Z by Orca-c's rules for empty inputs
 //             and R's range.
-// The other 19 letters, and *, #, :, % and ?, are the same in both.
+//   zorca:    zOrca's own: bOrca's whole list, to which zOrca's operators
+//             are added one at a time. It has none of its own yet, so it
+//             plays exactly as borca does.
+// The other 19 letters, and *, #, :, % and ?, are the same in all three.
+// Values are appended, so borca stays 0 and upstream 1.
 typedef enum {
   Orca_dialect_borca = 0,
   Orca_dialect_upstream = 1,
+  Orca_dialect_zorca = 2,
 } Orca_dialect;
 
 // What orca_run takes beyond its first seven arguments, in one context struct.
@@ -37,11 +43,12 @@ typedef struct {
 } Orca_run_ctx;
 
 // The dialect names that cli's and orca's --dialect and the dialect key of
-// orca.conf take: "borca" and "upstream", exactly. Returns false, leaving
-// *out alone, for any other string.
+// orca.conf take: "borca", "upstream" and "zorca", exactly. Returns false,
+// leaving *out alone, for any other string.
 bool orca_dialect_from_name(char const *name, Orca_dialect *out);
 // The name orca_dialect_from_name reads as d. Any value but
-// Orca_dialect_upstream is "borca", as orca_run runs it.
+// Orca_dialect_upstream and Orca_dialect_zorca is "borca", as orca_run runs
+// it.
 char const *orca_dialect_name(Orca_dialect d);
 
 void orca_run(Glyph *restrict gbuffer, Mark *restrict mbuffer, Usz height,

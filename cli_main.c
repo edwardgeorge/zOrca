@@ -26,11 +26,13 @@ fprintf(stderr,
 "                  t<tick>), then 't<tick> GRID' and the grid. With -q,\n"
 "                  print the event lines only.\n"
 "    --seed <n>    Seed for the random operators. Default: 0\n"
-"    --dialect <d> Operator dialect: borca (default) or upstream,\n"
-"                  upstream Orca-c's operators: ! sends a plain CC,\n"
-"                  ; UDP, = OSC, r is a banged R, $ and & do\n"
-"                  nothing, and C, D, I, L, R, U and Z keep Orca-c's\n"
-"                  rules for empty inputs and R's range.\n"
+"    --dialect <d> Operator dialect: zorca (default), borca or\n"
+"                  upstream. zorca is zOrca's: bOrca's operators\n"
+"                  plus zOrca's own (none yet, so it plays as borca);\n"
+"                  upstream is Orca-c's: ! sends a plain CC, ; UDP,\n"
+"                  = OSC, r is a banged R, $ and & do nothing, and\n"
+"                  C, D, I, L, R, U and Z keep Orca-c's rules for\n"
+"                  empty inputs and R's range.\n"
 "    --version     Print version and exit.\n"
 "    -h or --help  Print this message and exit.\n"
 );} // clang-format on
@@ -72,7 +74,7 @@ int main(int argc, char **argv) {
   bool print_output = true;
   bool print_events = false;
   Usz seed = 0;
-  Orca_dialect dialect = Orca_dialect_borca;
+  Orca_dialect dialect = Orca_dialect_zorca;
 
   for (;;) {
     int c = getopt_long(argc, argv, "t:qh", cli_options, NULL);
@@ -105,7 +107,8 @@ int main(int argc, char **argv) {
       break;
     case Argopt_dialect:
       if (!orca_dialect_from_name(optarg, &dialect)) {
-        fprintf(stderr, "Unknown dialect %s. Expected borca or upstream.\n",
+        fprintf(stderr,
+                "Unknown dialect %s. Expected borca, upstream or zorca.\n",
                 optarg);
         return 1;
       }

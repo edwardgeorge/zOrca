@@ -103,7 +103,7 @@ void test_prefs_read_line(void) {
   CHECK(strcmp(p.osc_output_port, "49162") == 0);
   CHECK(p.osc_output_address[0] == '\0');
   CHECK(!p.osc_output_enabled && !p.midi_bclock);
-  CHECK(p.dialect == Orca_dialect_borca);
+  CHECK(p.dialect == Orca_dialect_zorca); // a fresh orca.conf: zorca
   CHECK(p.glide_hz == 100 && p.glide_hz == Ccout_glide_hz_default);
   CHECK(p.clock_source == Clock_source_internal);
   CHECK(p.midi_in[0] == '\0' && p.portmidi_output_device[0] == '\0');
@@ -176,8 +176,12 @@ void test_prefs_read_line(void) {
   CHECK(tui_prefs_read_line(&p, Confopt_grid_ruler_type, "plain"));
   CHECK(!p.fancy_grid_rulers && p.touched == touched);
 
-  CHECK(tui_prefs_read_line(&p, Confopt_dialect, "upstream"));
+  CHECK(tui_prefs_read_line(&p, Confopt_dialect, "borca"));
   touched |= TOUCHFLAG(Confopt_dialect);
+  CHECK(p.dialect == Orca_dialect_borca && p.touched == touched);
+  CHECK(tui_prefs_read_line(&p, Confopt_dialect, "zorca"));
+  CHECK(p.dialect == Orca_dialect_zorca && p.touched == touched);
+  CHECK(tui_prefs_read_line(&p, Confopt_dialect, "upstream"));
   CHECK(p.dialect == Orca_dialect_upstream && p.touched == touched);
 
   CHECK(tui_prefs_read_line(&p, Confopt_glide_hz, "200"));
@@ -245,6 +249,9 @@ void test_prefs_bad_values(void) {
       {Confopt_grid_ruler_type, "Plain"},
       {Confopt_dialect, "Upstream"},
       {Confopt_dialect, "bOrca"},
+      {Confopt_dialect, "zOrca"},
+      {Confopt_dialect, "Zorca"},
+      {Confopt_dialect, "foo"},
       {Confopt_glide_hz, "150"},
       {Confopt_glide_hz, "abc"},
       {Confopt_glide_hz, ""},
@@ -523,7 +530,7 @@ static bool call_setter(Tui_prefs *p, int k, bool same, Confopt *key) {
   switch (k) {
   case 0:
     *key = Confopt_dialect;
-    return tui_prefs_set_dialect(p, same ? Orca_dialect_borca
+    return tui_prefs_set_dialect(p, same ? Orca_dialect_zorca
                                          : Orca_dialect_upstream);
   case 1:
     *key = Confopt_glide_hz;
@@ -686,7 +693,7 @@ void test_prefs_saved_value(void) {
                "fancy") == 0);
   CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_grid_ruler_type, buf),
                "fancy") == 0);
-  CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_dialect, buf), "borca") ==
+  CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_dialect, buf), "zorca") ==
         0);
   CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_glide_hz, buf), "100") == 0);
   CHECK(strcmp(tui_prefs_saved_value(&p, Confopt_clock_source, buf),
@@ -747,6 +754,14 @@ void test_prefs_saved_value(void) {
   p.touched = TOUCHFLAG(Confopt_margins) | TOUCHFLAG(Confopt_dialect);
   CHECK(saved_text(&p, text, sizeof text));
   CHECK(strcmp(text, "margins = 10x3\ndialect = upstream\n") == 0);
+  // A menu change to zorca saves `dialect = zorca`, and to borca
+  // `dialect = borca`.
+  CHECK(tui_prefs_set_dialect(&p, Orca_dialect_zorca));
+  CHECK(saved_text(&p, text, sizeof text));
+  CHECK(strcmp(text, "margins = 10x3\ndialect = zorca\n") == 0);
+  CHECK(tui_prefs_set_dialect(&p, Orca_dialect_borca));
+  CHECK(saved_text(&p, text, sizeof text));
+  CHECK(strcmp(text, "margins = 10x3\ndialect = borca\n") == 0);
 
   // The formatter: big and negative ints (which no read or setter stores)
   // still format whole within Tui_prefs_number_cap.

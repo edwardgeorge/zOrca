@@ -4,8 +4,8 @@
 #   tests/check-examples.sh <path-to-cli>
 #
 # Runs every examples/**/*.orca outside examples/upstream/ through
-# `cli --events -t 64 --seed 0` and requires each to do something in the
-# bOrca dialect:
+# `cli --events -t 64 --seed 0` and requires each to do something in cli's
+# default dialect, zorca, which plays as bOrca's:
 #
 # - a file that contains an event operator glyph (!, %, :, = or ?) passes
 #   when it prints at least one event line;

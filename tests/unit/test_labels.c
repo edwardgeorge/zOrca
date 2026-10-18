@@ -387,7 +387,7 @@ void test_labels_far_owner(void) {
   fx_free(&f);
 }
 
-// The matrix's buffer fixtures, run again in both dialects: a record sits
+// The matrix's buffer fixtures, run again in all three dialects: a record sits
 // exactly where the mark has an input or an output, with every id below the
 // count; and without a buffer (as cli runs) the marks, grid and events are
 // identical.
@@ -423,7 +423,7 @@ static Usz fixture_rows(char const *const *rows) {
 
 void test_labels_match_marks(void) {
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(matrix_fixtures); ++i) {
-    for (Usz d = 0; d < 2; ++d) {
+    for (Usz d = 0; d < 3; ++d) {
       Fx f;
       fx_load(&f, matrix_fixtures[i], fixture_rows(matrix_fixtures[i]));
       for (Usz tick = 0; tick < 4; ++tick) {
@@ -437,7 +437,7 @@ void test_labels_match_marks(void) {
 
 void test_labels_no_buffer(void) {
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(matrix_fixtures); ++i) {
-    for (Usz d = 0; d < 2; ++d) {
+    for (Usz d = 0; d < 3; ++d) {
       Fx with, without;
       fx_load(&with, matrix_fixtures[i], fixture_rows(matrix_fixtures[i]));
       fx_load(&without, matrix_fixtures[i], fixture_rows(matrix_fixtures[i]));
