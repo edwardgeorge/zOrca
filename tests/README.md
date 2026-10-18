@@ -17,11 +17,11 @@ cases whose path contains it (`tests/run.sh build/cli midichord`).
 
 Default flags are `-t 64 --seed 0 --dialect borca`: the pinned
 `--dialect borca` keeps every golden in bOrca's dialect, though `cli`'s own
-default is zorca. The line formats are the
-ones `cli --events` prints (`t<tick> NOTE ch<c> note<n> vel<v> len<l>
-mono<m>`, `CC`, `CCI`, `PB`, `OSC`, `UDP`, then `t<tick> GRID` and the grid
-rows); see `events_print.c` and `cli -h`. The script exits 0 only when every
-case is PASS or XFAIL and no expected file is orphaned.
+default is zorca. The line formats are the ones `cli --events` prints
+(`t<tick> NOTE ch<c> note<n> vel<v> len<l> mono<m>`, `CC`, `CCI`, `PB`,
+`OSC`, `UDP`, then `t<tick> GRID` and the grid rows); see `events_print.c`
+and `cli -h`. The script exits 0 only when every case is PASS or XFAIL and
+no expected file is orphaned.
 
 ### Layout
 
@@ -244,32 +244,33 @@ output alone). `dialect_zorca_is_borca` runs every glyph Orca knows,
 banged between values, letters and empty cells, for 24 ticks at seeds 0
 and 7, and then `dialect_default_is_borca`'s grid for 16, in bOrca's
 dialect and in zorca: on every tick the grid, marks, labels, events and
-store match, so zorca runs bOrca's whole operator set.
+number of store entries match, so zorca runs bOrca's whole operator set.
 
 The unit tests `rules_*` in `tests/unit/test_rules.c` check the seven
 operators whose rules differ between the dialects, Orca's 2025 rules in
 bOrca's and Orca-c's in upstream. `rules_lesser`, `rules_increment`,
 `rules_uclid`, `rules_delay`, `rules_clock` and `rules_lerp` each run their
 rows, such as `.L5`, `2D.`, or `.C.` over an output cell that holds `5`, on
-row 1 of a 5×3 grid for ticks 0-15 at seed 0, in both dialects, and compare
-the 16 glyphs of the output cell below the operator with what each dialect
-must give; at tick 0 they also check that the dialects mark the same
-ports. Each row runs in zorca too, which must give bOrca's output. `rules_random_range` checks `R`'s range in each dialect by the set
-of values it outputs over 400 ticks at seeds 0 and 7: `1R4` gives 1 to 4 in
-bOrca's dialect and 1 to 3 upstream, `.R.` always `0` in bOrca's and 0 to z
+row 1 of a 5×3 grid for ticks 0-15 at seed 0, in all three dialects, and
+compare the 16 glyphs of the output cell below the operator with what each
+dialect must give, zorca giving bOrca's; at tick 0 they also check that
+upstream and zorca mark the same ports as bOrca's dialect.
+`rules_random_range` checks `R`'s range in each dialect by the set of values
+it outputs over 400 ticks at seeds 0 and 7: `1R4` gives 1 to 4 in bOrca's
+dialect and 1 to 3 upstream, `.R.` always `0` in bOrca's and 0 to z
 upstream, and `aRA` gives `A` in bOrca's and `a` upstream, zorca giving
 bOrca's set on every row; `4R1` outputs what `1R4` does on every tick; and
-zorca's `1R4` and `.R.` output bOrca's on every tick. `rules_random_hash` checks that both dialects
-draw from one hash: bOrca's `xRy` outputs what the upstream `xR(y+1)` does
-on every tick, and bOrca's `0Rz` what the upstream `.R.` does. The `R` tests
-compare value sets and the two dialects, never a sequence, so they hold
-where `Usz` is 32-bit. Rows that start from a value, `.I9` over `5` and
-`.Z5` over `3`, check that an empty step or rate leaves it where it is; rows
-whose left input is a `*` that a `D` above writes check that bOrca's dialect
-counts it as 0 and upstream as 1; and lowercase rows check that `c`, `d`,
-`i`, `l`, `u` and `z` do nothing unbanged and run the same body when banged.
-A failing row prints its input, its dialect, and the glyphs it got and
-wanted, before its `FAIL` line.
+zorca's `1R4` and `.R.` output bOrca's on every tick. `rules_random_hash`
+checks that bOrca's dialect and upstream draw from one hash: bOrca's `xRy`
+outputs what the upstream `xR(y+1)` does on every tick, and bOrca's `0Rz`
+what the upstream `.R.` does. The `R` tests compare value sets and the
+dialects, never a sequence, so they hold where `Usz` is 32-bit. Rows that
+start from a value, `.I9` over `5` and `.Z5` over `3`, check that an empty
+step or rate leaves it where it is; rows whose left input is a `*` that a
+`D` above writes check that bOrca's dialect counts it as 0 and upstream as
+1; and lowercase rows check that `c`, `d`, `i`, `l`, `u` and `z` do nothing
+unbanged and run the same body when banged. A failing row prints its input,
+its dialect, and the glyphs it got and wanted, before its `FAIL` line.
 
 The unit tests `labels_*` and `tooltip_place` in `tests/unit/test_labels.c`
 check the port labels and the tooltips: what each `PORT`
@@ -279,8 +280,8 @@ beats an output, the later port of the same kind wins, `I`'s and `Z`'s
 read-write cell counts as an output); the moved ports of `G`, `K`, `O`,
 `P`, `Q`, `T` and `X`; a `J` 256 rows from its output; one fixture per
 operator body in its dialect, with the buffer holding exactly its ports;
-every fixture in all three dialects, with a record exactly where the mark has
-an input or an output and the marks, grid and events identical with and
+every fixture in all three dialects, with a record exactly where the mark
+has an input or an output and the marks, grid and events identical with and
 without a buffer; the upstream labels of `!` (Value × 127 / 35), `;`, `=`,
 `$` and `&`; the selector, value and rate enhancements, "instant" for rates
 `0` and `z` among them; the lookup's size check (a 10 × 20 buffer against a

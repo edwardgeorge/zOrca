@@ -164,6 +164,8 @@ static bool zorca_matches_borca(char const *const *rows, Usz h, Usz w,
   Oevent_list events[2];
   Opstate_store stores[2];
   CHECK(h * w <= Max_cells);
+  if (h * w > Max_cells)
+    return false; // the arrays are fixed: never overrun them
   for (Usz k = 0; k < 2; ++k) {
     memset(grids[k], '.', sizeof grids[k]);
     for (Usz y = 0; y < h; ++y)
@@ -221,7 +223,7 @@ void test_dialect_zorca_is_borca(void) {
     if (g == '.' || !orca_is_valid_glyph(g))
       continue;
     // The operator at (1, 3): inputs west and east, a row above for the
-    // operators that read north, and a bang below and beside it.
+    // operators that read north, and a bang below it, at (2, 3).
     char row1[W + 1];
     memcpy(row1, "2a.?3b4c", W + 1);
     row1[3] = (char)g;

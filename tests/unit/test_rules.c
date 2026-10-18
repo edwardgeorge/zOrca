@@ -208,8 +208,8 @@ void test_rules_lerp(void) {
 }
 
 // The set of glyphs an R row outputs over 400 ticks at seed, in dialect,
-// must be exactly want's glyphs; and its marks after tick 0 must equal the
-// other dialect's. Value sets, not sequences, so the rows hold whatever
+// must be exactly want's glyphs; and its marks after tick 0 must equal those
+// of bOrca's dialect, or of upstream when dialect is bOrca's. Value sets, not sequences, so the rows hold whatever
 // Usz's width (the hash differs where Usz is 32-bit).
 static bool rules_r_set(char const *in, Usz seed, Orca_dialect dialect,
                         char const *want) {
