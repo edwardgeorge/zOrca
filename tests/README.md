@@ -275,10 +275,10 @@ HUD row over widths 0-200, lengths 0-40 and every limit; and the tick path,
 ### The upstream comparison
 
 `tests/upstream/` holds an Orca-c build, which made the goldens above, and
-the check that compares bOrca's upstream dialect with it:
+the check that compares zOrca's upstream dialect with it:
 
 - `orca-c-cli.patch` adds `--events` and `--seed` to Orca-c's `cli_main.c`,
-  with the output and parsing of bOrca's `cli`, and `events_print.c` to the
+  with the output and parsing of zOrca's `cli`, and `events_print.c` to the
   `cli` sources in Orca-c's `tool`;
 - `build-cli.sh` gets Orca-c at `9df9786e2ad3c01955cdf4cdd5ae1fffad8fa5cc`
   with `git archive`: from this repository when it has the commit (as when
@@ -290,11 +290,11 @@ the check that compares bOrca's upstream dialect with it:
   `events_print.h` into it, so both `cli`s print through one file, applies
   the patch with `patch -p1`, and builds `build/upstream/cli` with Orca-c's
   own `tool`. It needs git, tar, patch and a C compiler.
-- `compare.sh <bOrca cli>` needs that build, and checks, reporting each
+- `compare.sh <zOrca cli>` needs that build, and checks, reporting each
   failure and carrying on:
   1. the tree's `events_print.c` and `events_print.h` are this repository's;
   2. every `examples/**/*.orca` of the Orca-c tree, 43 files: Orca-c's
-     `cli --events -t 96 --seed 0` and bOrca's, with `--dialect upstream`
+     `cli --events -t 96 --seed 0` and zOrca's, with `--dialect upstream`
      added, print byte-identical events and grids, and both exit 0 with no
      sanitizer report. Fewer than 43 files fails. Then the same for its
      extras, files of this repository that are not Orca-c's examples:
@@ -314,7 +314,7 @@ the check that compares bOrca's upstream dialect with it:
   the release `cli` with `--dialect borca` appended, an upstream golden with
   a byte appended, and a fake `cli` that, for `examples/basics/_midi.orca`,
   prints an AddressSanitizer report on stderr or on stdout
-  (`bOrca cli sanitizer report`) or exits 3 (`bOrca cli exited 3`). To
+  (`zOrca cli sanitizer report`) or exits 3 (`zOrca cli exited 3`). To
   remake a golden, write the Orca-c `cli`'s output over it
   (`build/upstream/cli --events -t 96 --seed 0
   examples/upstream/<rel>.orca >tests/expected/examples/upstream/<rel>.events`).
@@ -361,7 +361,7 @@ default 64 ticks at seed 0 and has no `.args` file. 64 ticks cover every
 8-tick cycle, and, by Orca-c's rules, `.I.`'s first wrap at tick 35. The
 patch sends nothing, so the golden holds grids and no event line.
 [The upstream comparison](#the-upstream-comparison) also runs it, for 96
-ticks, through Orca-c's `cli` and bOrca's `--dialect upstream`, which print
+ticks, through Orca-c's `cli` and zOrca's `--dialect upstream`, which print
 the same bytes. In bOrca's dialect its three `R` cells, `.R.`, `zRz` and
 `2R2`, have equal or empty inputs and hash nothing, so the golden holds
 whatever `Usz`'s width.
@@ -1099,7 +1099,7 @@ tree under `build/wakeups/`, and never writes `build/orca`: `4f349cd`, from
 `git archive` with `tests/wakeups/4f349cd-counter.patch` applied, and this
 working tree's tracked files with `CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS`.
 Both count the loop's waits and print
-`bOrca wakeups: <n> waits, <z> zero-timeout in <s> s` to stderr on quit:
+`<name> wakeups: <n> waits, <z> zero-timeout in <s> s` (`bOrca` for 4f349cd, `zOrca` for this build) to stderr on quit:
 `<n>` counts the waits (`wgetch` calls) entered with a timeout above 0,
 `<z>` those entered with a timeout of 0. The patch adds only that counter,
 at the same code point, unconditionally, since `4f349cd`'s `tool` has no
@@ -1113,11 +1113,11 @@ are two configurations: `strict`, with `--strict-timing` and
 `midi_beat_clock = 1`, and `off`, with neither and `midi_beat_clock = 0`.
 
 - **Idle**: an empty grid, on both builds in both configurations. It fails
-  unless bOrca's waits per second are within 0.90 to 1.10 times
+  unless zOrca's waits per second are within 0.90 to 1.10 times
   `4f349cd`'s, and its zero-timeout waits per second at most 1.5 times
   `4f349cd`'s + 5, which shows that no busy-wait was added. (`4f349cd`'s
   deadline also waits on note-offs, hence the empty grid.)
-- **Glide**, bOrca only: `examples/misc/glide_rate.orca`, whose glide never
+- **Glide**, zOrca only: `examples/misc/glide_rate.orca`, whose glide never
   ends and steps at `glide_hz`, against a control, the same file with its
   `!` replaced by `.`, in the same configuration. In `off` the glide's
   waits per second must be at least the control's + 50, which shows the
@@ -1147,7 +1147,7 @@ after its text was set kept the first 30 characters. CI runs it in the
 
 ## Realloc shim check
 
-`tests/realloc-shim/check.sh` checks, end to end, that bOrca
+`tests/realloc-shim/check.sh` checks, end to end, that zOrca
 keeps its grid and mark buffer when `realloc` or `malloc` fails, and says
 so where it cannot go on, and that a failed startup load leaks nothing. It
 takes a release `cli` and, optionally, a release `orca` and then a `-d`
@@ -1190,7 +1190,7 @@ after 3 s, then every 0.5 s for up to 5 s more), then Escape and Ctrl+Q
 must quit it with exit 0 and no `LeakSanitizer` on stderr; it runs with
 `ASAN_OPTIONS=detect_leaks=1` and an empty `LSAN_OPTIONS`, over any the
 caller exported. Each `orca` run has a scratch `XDG_CONFIG_HOME` and
-`BORCA_ALSA_CLIENT_NAME=borca-realloc-shim-<pid>`, and each tmux run a
+`ZORCA_ALSA_CLIENT_NAME=borca-realloc-shim-<pid>`, and each tmux run a
 server of its own. CI runs the `cli` case and the release `orca` cases
 (startup, fill and resize) in the `build` job.
 
@@ -1227,7 +1227,7 @@ PASS or FAIL line per check:
 - **D1**, no shim: once a first instance holds the name (polled every
   0.1 s for up to 3 s), a second instance under the same name exits 1 with
   `Cannot start: an ALSA client named '<name>' is already running (set
-  BORCA_ALSA_CLIENT_NAME to run another instance)`, one client has the name
+  ZORCA_ALSA_CLIENT_NAME to run another instance)`, one client has the name
   before and after it, and the first runs until the timeout.
 - **D2**, `hold`: exit 1 with the same message, `ports created 0`, and no
   client of the name 1 s into the run. Without the second scan the run gets
@@ -1238,7 +1238,7 @@ PASS or FAIL line per check:
 - **D5**, `eio2`: the same for the second scan, and no client of the name
   1 s into the run. An adapter that maps an error to the end of the list
   fails D4 and D5 (rc 124, ports created), while the unit runner passes.
-- **Live**: the live `bOrca` client's lines in `/proc/asound/seq/clients`
+- **Live**: the live `zOrca` client's lines (the guard accepts the live client under either name, `zOrca` or, before v5.0.0, `bOrca`) in `/proc/asound/seq/clients`
   (its `Client` line, its `Port` lines and their `Connecting To:` and
   `Connected From:` lines, but not its pool counters, which move while it
   plays) are the same before and after, and no guard client is left.
@@ -1249,9 +1249,9 @@ failed, 1 when one did, and 2 on usage, a missing tool (`script`, `timeout`,
 binary that is not a release `--alsa` build, a `guard-<pid>-` client already
 present, a shim that does not build or a scratch directory that cannot be
 made. It takes about 10 s, and an interrupt stops its runs in the background
-before it exits. Every client name is `guard-<pid>-<check>`, never `bOrca`,
+before it exits. Every client name is `guard-<pid>-<check>`, never `bOrca` or `zOrca`,
 and every run gets a fresh scratch `XDG_CONFIG_HOME`; it never touches the
-live `bOrca` client or `borca-tty.service` (it only reads
+live `zOrca` client or `borca-tty.service` (it only reads
 `/proc/asound/seq/clients`, and calls no `systemctl` or `aconnect`), and it
 runs every `gcc` and `orca` under `nice -n 19 taskset -c 0-2`. The twenty
 racing pairs run when the guard was written (check D3, v3.0.0) are not part
@@ -1279,7 +1279,7 @@ bangs `:03C` every 4 ticks: note 36 on channel 0, velocity 127, twice a
 second at 120 BPM. It runs `<orca> --bpm 120 note.orca`, which plays at
 start, in a 120 x 40 pane of its own tmux server
 (`tmux -L alsa-contract-<pid> -f /dev/null`, with `SHELL=/bin/sh`), under
-the client name `alsa-contract-<pid>` (`BORCA_ALSA_CLIENT_NAME`),
+the client name `alsa-contract-<pid>` (`ZORCA_ALSA_CLIENT_NAME`),
 `XDG_CONFIG_HOME=<scratch>/xdg` and `tests/lib.sh`'s `UBSAN_OPTIONS`
 (`halt_on_error=1`), with its stderr in the scratch directory. It reads
 the HUD's first line, the pane line that holds `7x3`, with
@@ -1317,7 +1317,7 @@ not from its start. One PASS or FAIL line per check:
   within 15 s its exit status is 0 (a debug build's LeakSanitizer pass
   takes about 4.5 s), and its stderr holds nothing that matches
   `tests/lib.sh`'s sanitizer pattern; a report is quoted.
-- **Live**: the live `bOrca` client's lines in `/proc/asound/seq/clients`
+- **Live**: the live `zOrca` client's lines in `/proc/asound/seq/clients`
   (its `Client` line, its `Port` lines and their `Connecting To:` and
   `Connected From:` lines) are the same before and after, or absent both
   times, and no `alsa-contract-<pid>` client is left: the ALSA name-guard
@@ -1338,14 +1338,14 @@ an executable file), a missing tool (`tmux`, `aseqdump`, `aconnect`,
 scratch file or tmux server that cannot be made, and 129, 130 or 143 when
 SIGHUP, SIGINT or SIGTERM stops it. It takes about 10 s (13 s for a debug
 build, 25 s when C4 times out).
-It never touches the live `bOrca` client or `borca-tty.service`: `aconnect`
+It never touches the live `zOrca` client or `borca-tty.service`: `aconnect`
 only lists, no `systemctl` or `sudo` runs, and it signals only the
 aseqdumps it started, by PID, and kills only its own tmux server. It runs
 `orca` and each aseqdump under `nice -n 19 taskset -c 0-2`, and on exit or
 a signal it resumes and ends its aseqdumps, kills its tmux server and
 removes the scratch directory, ignoring a second signal meanwhile.
 
-After installing a bOrca binary, run it next to `verify`:
+After installing a zOrca binary, run it next to `verify`:
 
 ```sh
 nice -n 19 taskset -c 0-2 tests/alsa-contract/devcheck.sh /usr/local/bin/borca
@@ -1383,7 +1383,7 @@ dev-clock-<pid>-master:clock`) and `clock.orca`, a 7x3 grid whose `D1`
 bangs `:03C` every tick, one note per tick. For each stall it runs
 `<orca> clock.orca` in a 100 x 30 pane of its own tmux server
 (`tmux -L dev-clock-<pid> -f /dev/null`, with `SHELL=/bin/sh`) as the
-client `dev-clock-<pid>` (`BORCA_ALSA_CLIENT_NAME`), with
+client `dev-clock-<pid>` (`ZORCA_ALSA_CLIENT_NAME`), with
 `XDG_CONFIG_HOME=<scratch>/xdg`; then the receiver
 (`dev-clock-<pid>-recv`, subscribed to `dev-clock-<pid>:0`) and the master
 (`dev-clock-<pid>-master`), which sends `FA` 1.5 s later and then 120 BPM
@@ -1401,7 +1401,7 @@ exit status:
   runs, exactly one burst of 70 to 85 note-ons (80 missed steps), and every
   note in the master's last 3 s (from 2 s after the resume; at least 16) at
   an offset of -1 to 1: back on the master's bar. Without the pool call it
-  follows 480 pulses behind with no burst; bOrca before v3.0.3 stops at
+  follows 480 pulses behind with no burst; zOrca before v3.0.3 stops at
   `ext lost`.
 - **S2**, an 11.1 s stall, past the pool: the input pool shows alloc
   failures (the kernel flushed it), no `ext lost` while the master runs, no
@@ -1409,7 +1409,7 @@ exit status:
   of 6 or more that is not a multiple of 6: it keeps following, behind by
   the flushed pulses (about 533). Without the `-ENOSPC` overflow event it
   stops at `ext lost`; with a pool of 2000 it lands on the bar (offset 0).
-- **Live**: the live `bOrca` client's lines in `/proc/asound/seq/clients`
+- **Live**: the live `zOrca` client's lines in `/proc/asound/seq/clients`
   (its `Client` line, its `Port` lines and their `Connecting To:` and
   `Connected From:` lines) are the same before and after, or absent both
   times, and no `dev-clock-<pid>` client is left: the ALSA name-guard
@@ -1428,7 +1428,7 @@ that is not an `--alsa` build, a `dev-clock-<pid>` client already present,
 a master or receiver that does not build, or a scratch directory, scratch
 file or tmux server that cannot be made, and 129, 130 or 143 when SIGHUP,
 SIGINT or SIGTERM stops it. It takes about 50 s.
-It never touches the live `bOrca` client or `borca-tty.service`: it reads
+It never touches the live `zOrca` client or `borca-tty.service`: it reads
 `/proc/asound/seq/clients` and runs no `aconnect`, `systemctl` or `sudo`.
 It signals only the `orca` it started (the pane shell's child, running the
 named binary) and the master and receiver it started, by PID, and kills
@@ -1497,7 +1497,7 @@ ends the `orca`. One PASS or FAIL line per check:
   on, then the next on, and no off in between, and `-recv2` sees that
   note-off once. This is the control; on 6788188 and 50be43f it shows 5
   note-ons and 4 note-offs.
-- **live**: the live `bOrca` client's lines in `/proc/asound/seq/clients` are
+- **live**: the live `zOrca` client's lines in `/proc/asound/seq/clients` are
   the same before and after, and no `dev-noteoff-<pid>` client is left.
 
 It uses no `aconnect`, `systemctl` or `sudo`, runs everything under
@@ -1508,7 +1508,7 @@ takes about 15 s a binary.
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes and pull requests to
-`spec/borca-fixes`, the working branch, and `main`, bOrca's release line
+`spec/borca-fixes`, the working branch, and `main`, zOrca's release line
 from `v1.0.0`, and on `v*` tags; start a manual run with
 `gh workflow run ci.yml --ref <branch>`.
 
@@ -1570,9 +1570,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `tests/upstream/compare.sh` must exit 1 on a fake `cli` that, for
   `examples/basics/_midi.orca`, after the real output prints the
   AddressSanitizer line on stderr and exits 0, then prints it on stdout
-  and exits 0, then exits 3, with `FAIL  examples/basics/_midi.orca (bOrca
+  and exits 0, then exits 3, with `FAIL  examples/basics/_midi.orca (zOrca
   cli sanitizer report)` (with the excerpt the first time) or
-  `FAIL  examples/basics/_midi.orca (bOrca cli exited 3)` and
+  `FAIL  examples/basics/_midi.orca (zOrca cli exited 3)` and
   `upstream check: 43 examples, 42 identical; extras: 1, 1 identical; …;
   1 fail`, proving compare.sh's own crash rule (its `run()`) and that the
   extras ran;
@@ -1590,9 +1590,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   the release `orca` with `-DBORCA_DEBUG_COUNTERS`, without and then with
   ALSA, the release `orca` with ALSA and the appliance `orca`
   (`make appliance`, which is `--alsa --harden --pie`), all with `-Werror`.
-  After the first counter build `grep -a` must find `bOrca wakeups:` and
-  `bOrca events:` in `build/orca`, after the ALSA one those two,
-  `bOrca ALSA:` and `bOrca ALSA input pool:`, and after the plain ALSA
+  After the first counter build `grep -a` must find `zOrca wakeups:` and
+  `zOrca events:` in `build/orca`, after the ALSA one those two,
+  `zOrca ALSA:` and `zOrca ALSA input pool:`, and after the plain ALSA
   build and `make appliance` none of the first three, which proves that the
   counters stay out of the shipped builds; the positive greps are the
   canary for the negative ones. The plain ALSA and appliance binaries must
@@ -1701,42 +1701,42 @@ CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --no-mouse orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d --alsa orca
 CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build orca
-grep -aq 'bOrca wakeups:' build/orca && grep -aq 'bOrca events:' build/orca  # must succeed
+grep -aq 'zOrca wakeups:' build/orca && grep -aq 'zOrca events:' build/orca  # must succeed
 CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
-grep -aq 'bOrca wakeups:' build/orca && grep -aq 'bOrca ALSA:' build/orca &&
-  grep -aq 'bOrca events:' build/orca                                  # must succeed
+grep -aq 'zOrca wakeups:' build/orca && grep -aq 'zOrca ALSA:' build/orca &&
+  grep -aq 'zOrca events:' build/orca                                  # must succeed
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --alsa orca
-! grep -aq 'bOrca wakeups:' build/orca && ! grep -aq 'bOrca ALSA:' build/orca &&
-  ! grep -aq 'bOrca events:' build/orca                                # none of the three
+! grep -aq 'zOrca wakeups:' build/orca && ! grep -aq 'zOrca ALSA:' build/orca &&
+  ! grep -aq 'zOrca events:' build/orca                                # none of the three
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 make appliance
-! grep -aq 'bOrca wakeups:' build/orca && ! grep -aq 'bOrca ALSA:' build/orca &&
-  ! grep -aq 'bOrca events:' build/orca                                # none of the three
+! grep -aq 'zOrca wakeups:' build/orca && ! grep -aq 'zOrca ALSA:' build/orca &&
+  ! grep -aq 'zOrca events:' build/orca                                # none of the three
 ```
 
 `-DBORCA_DEBUG_COUNTERS`, passed through `CFLAGS_EXTRA`, is a development
 switch for `orca`, with or without `--alsa`. The event loop counts its waits
 and, on quit, after the screen closes, prints
-`bOrca wakeups: <n> waits, <z> zero-timeout in <s> s` to stderr, which the
+`zOrca wakeups: <n> waits, <z> zero-timeout in <s> s` to stderr, which the
 wakeup check above compares with `4f349cd`. In an `--alsa` build the ALSA
 output also counts the messages it drops on `EAGAIN` or `EINTR`, and prints
-`bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`
+`zOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`
 before it (`<m>` counts every message that did not go out). In every
 build each event list counts the events it drops into its discard slot
 when it cannot grow, which only memory exhaustion reaches, and the
 switch prints the counts just before the wakeup line as
-`bOrca events: <n> dropped (tick <t>, preview <p>, engine <e>)`, where
+`zOrca events: <n> dropped (tick <t>, preview <p>, engine <e>)`, where
 `<n>` is the total and the others are the tick's, the preview's and the
 engine's lists. The switch is never part of a release or appliance build,
 and since v3.0.0 CI proves that on every run: the four
 grep checks above are its four check steps, and the positive ones show that
 `grep -a` finds the literals in an `-flto -s` binary. The MIDI-in counter
 line is not grepped: the same define gates all four lines, so a leak shows
-in `bOrca wakeups:` and `bOrca events:`.
+in `zOrca wakeups:` and `zOrca events:`.
 
 Building an `--alsa` `orca` is safe while the appliance runs; running one is
 not, unless it uses another client name: the appliance router refuses to
-route two `bOrca` clients. Run a test build with
-`BORCA_ALSA_CLIENT_NAME=bOrca-test` (any name but `bOrca`, at most 63
+route two `zOrca` clients. Run a test build with
+`ZORCA_ALSA_CLIENT_NAME=zOrca-test` (any name but `zOrca`, at most 63
 bytes), a scratch `XDG_CONFIG_HOME` and a copy of a patch, or stop
 `borca-tty.service` first, with the maintainer's approval.
 
