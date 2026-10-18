@@ -1,5 +1,5 @@
 #!/bin/sh
-# Non-empty check for the bOrca examples.
+# Non-empty check for the zOrca examples.
 #
 #   tests/check-examples.sh <path-to-cli>
 #

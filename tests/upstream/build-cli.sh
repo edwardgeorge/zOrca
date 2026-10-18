@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds upstream Orca-c's cli at 9df9786, with bOrca's --events and --seed,
+# Builds upstream Orca-c's cli at 9df9786, with zOrca's --events and --seed,
 # into build/upstream/cli. Its output is what the
 # goldens under tests/expected/examples/upstream/ hold, and what
 # tests/upstream/compare.sh compares `cli --dialect upstream` with.

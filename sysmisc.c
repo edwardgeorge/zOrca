@@ -627,7 +627,7 @@ int events_dropped_format(char *buf, size_t size, Usz tick, Usz preview,
   Usz total = tick + preview + engine;
   return snprintf(
       buf, size,
-      "bOrca events: %zu dropped (tick %zu, preview %zu, engine %zu)\n", total,
+      "zOrca events: %zu dropped (tick %zu, preview %zu, engine %zu)\n", total,
       tick, preview, engine);
 }
 

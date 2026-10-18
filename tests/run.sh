@@ -1,5 +1,5 @@
 #!/bin/sh
-# Golden tests for bOrca's cli. See tests/README.md for the layout and rules.
+# Golden tests for zOrca's cli. See tests/README.md for the layout and rules.
 #
 #   tests/run.sh [--update] <path-to-cli> [name-filter]
 #

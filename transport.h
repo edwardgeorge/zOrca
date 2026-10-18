@@ -1,7 +1,7 @@
 #pragma once
 #include "base.h"
 
-// The clock-follow machine: bOrca's side of an external MIDI clock. It is core:
+// The clock-follow machine: zOrca's side of an external MIDI clock. It is core:
 // it reads no clock, does no I/O and keeps no writable globals. The shell's
 // input readers turn F8, FA, FB, FC and F2, and an overflow of their input
 // queue, into Transport_events, each stamped with the shell's now_us() at read
@@ -52,7 +52,7 @@
 //   at all, seen by transport_poll, is clock lost. So a stall of over a
 //   second whose pulses are drained before the poll resumes mid-phase with
 //   the estimate dropped and no loss. Past an ALSA reader's input pool
-//   (bOrca's client asks for 500 events, Alsa_input_pool in tui_main.c:
+//   (zOrca's client asks for 500 events, Alsa_input_pool in tui_main.c:
 //   about 10 s of F8s alone at 120 BPM, less with other input) the kernel
 //   flushes every queued event, Start, Stop and song position included; the
 //   ALSA reader then passes an overflow: input arrived and was flushed

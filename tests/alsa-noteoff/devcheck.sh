@@ -45,9 +45,9 @@
 #   baseline  (only when given) the first note hangs: the receiver sees its
 #             on, then the next on, and no off in between, and the healthy
 #             receiver sees that note-off once. This is the control.
-#   live      the live bOrca client's lines in /proc/asound/seq/clients are the
+#   live      the live zOrca client's lines in /proc/asound/seq/clients are the
 #             same before and after, and no dev-noteoff-<pid> client is left.
-# Device rules: every client is dev-noteoff-<pid>[-recv], never bOrca, with a
+# Device rules: every client is dev-noteoff-<pid>[-recv], never bOrca or zOrca, with a
 # scratch XDG_CONFIG_HOME; the live engine and borca-tty.service are only
 # observed (no aconnect, systemctl or sudo). Everything runs under `nice -n 19
 # taskset -c 0-2`, so core 3 stays free; run the script the same way. It
@@ -163,7 +163,7 @@ up() {
     in_c && /^  Port +1 / { found = 1 }
     END { exit !found }' "$clients"
 }
-# live: the live bOrca client's Client line, Port lines and their
+# live: the live zOrca client's Client line, Port lines and their
 # "Connecting To:" and "Connected From:" lines.
 live() {
   awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "(bOrca|zOrca)" /) }
@@ -337,9 +337,9 @@ fi
 
 live_after=$(live)
 if [ "$live_before" = "$live_after" ] && ! present; then
-  result 1 live "the live bOrca client's lines are the same before and after, and no $name client is left"
+  result 1 live "the live zOrca client's lines are the same before and after, and no $name client is left"
 else
-  result 0 live "the live bOrca client's lines changed, or a $name client is left"
+  result 0 live "the live zOrca client's lines changed, or a $name client is left"
 fi
 
 [ "$n_failed" = 0 ] || exit 1

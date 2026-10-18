@@ -57,7 +57,7 @@ void term_util_init_colors(void);
 
 // Ends the program when the curses shell cannot allocate what it needs:
 // leaves curses mode, so the terminal works again, prints one line,
-// "bOrca: out of memory", to stderr and exits with status 1. Sounding notes
+// "zOrca: out of memory", to stderr and exits with status 1. Sounding notes
 // get no note-off.
 void term_util_exit_out_of_memory(void) ORCA_TERM_UTIL_NORETURN;
 

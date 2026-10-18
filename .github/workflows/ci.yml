@@ -1,6 +1,6 @@
-# bOrca CI: the builds, the goldens, the unit tests and the checks.
+# zOrca CI: the builds, the goldens, the unit tests and the checks.
 #
-# Runs for spec/borca-fixes, the working branch, and for main, bOrca's
+# Runs for spec/borca-fixes, the working branch, and for main, zOrca's
 # release line from v1.0.0, which moves only at tagged releases; and for v*
 # tags. The JS Orca that main held before v1.0.0 lives on the js-orca branch.
 # Start a manual run with `gh workflow run ci.yml --ref <branch>`.
@@ -352,7 +352,7 @@ jobs:
       # Orca-c's cli with --events and --seed, fetching the commit by URL,
       # since the checkout is shallow. compare.sh checks that the two
       # events_print copies are one file, runs all 43 of Orca-c's examples
-      # through both cli for 96 ticks (bOrca's with --dialect upstream) and
+      # through both cli for 96 ticks (zOrca's with --dialect upstream) and
       # fails on any byte difference or if fewer than 43 ran, runs Orca's
       # operator self-test (tests/patches/op_selftest.orca) the same way, and
       # checks that the upstream goldens and examples and the six named
@@ -411,8 +411,8 @@ jobs:
       # "==1==ERROR: AddressSanitizer: planted" on stderr and exits 0
       # (asan, as in the planted-crash step above), prints it on stdout and
       # exits 0 (asan-stdout), or exits 3 (exit3). For each, compare.sh must
-      # exit 1 with its exact FAIL line for the file ("bOrca cli sanitizer
-      # report" twice, the first with the report excerpt; "bOrca cli exited
+      # exit 1 with its exact FAIL line for the file ("zOrca cli sanitizer
+      # report" twice, the first with the report excerpt; "zOrca cli exited
       # 3"), and a summary with 42 of the 43 examples identical, the one
       # extra (Orca's operator self-test) identical, and 1 fail, so a run
       # that skips the extras fails too.
@@ -454,10 +454,10 @@ jobs:
               exit 1
             fi
           }
-          plant asan 'FAIL  examples/basics/_midi.orca (bOrca cli sanitizer report)' \
+          plant asan 'FAIL  examples/basics/_midi.orca (zOrca cli sanitizer report)' \
             '      ==1==ERROR: AddressSanitizer: planted'
-          plant asan-stdout 'FAIL  examples/basics/_midi.orca (bOrca cli sanitizer report)'
-          plant exit3 'FAIL  examples/basics/_midi.orca (bOrca cli exited 3)'
+          plant asan-stdout 'FAIL  examples/basics/_midi.orca (zOrca cli sanitizer report)'
+          plant exit3 'FAIL  examples/basics/_midi.orca (zOrca cli exited 3)'
 
       # The README's scale and chord tables, between its tables:begin and
       # tables:end markers, must be exactly what readme-gen prints from
@@ -729,7 +729,7 @@ jobs:
       - name: One-line boxes keep long initial text (form prefill)
         run: tests/form-prefill/check.sh
 
-      # The realloc shim check: when realloc or malloc fails, bOrca refuses
+      # The realloc shim check: when realloc or malloc fails, zOrca refuses
       # to start without a grid (the startup fill case under script) or mark
       # buffer, and keeps its grid on resize failure under tmux.
       - name: Release orca refuses a grid it cannot allocate (realloc shim)
@@ -753,12 +753,12 @@ jobs:
 
       - name: Check that the counter orca holds the wakeup and events counter strings
         run: |
-          if ! grep -aq 'bOrca wakeups:' build/orca; then
-            echo "build/orca does not hold 'bOrca wakeups:': the counter build lost its counter"
+          if ! grep -aq 'zOrca wakeups:' build/orca; then
+            echo "build/orca does not hold 'zOrca wakeups:': the counter build lost its counter"
             exit 1
           fi
-          if ! grep -aq 'bOrca events:' build/orca; then
-            echo "build/orca does not hold 'bOrca events:': the counter build lost its dropped-events count"
+          if ! grep -aq 'zOrca events:' build/orca; then
+            echo "build/orca does not hold 'zOrca events:': the counter build lost its dropped-events count"
             exit 1
           fi
 
@@ -767,20 +767,20 @@ jobs:
 
       - name: Check that the ALSA counter orca holds the wakeup, ALSA, input pool and events counter strings
         run: |
-          if ! grep -aq 'bOrca wakeups:' build/orca; then
-            echo "build/orca does not hold 'bOrca wakeups:': the counter build lost its counter"
+          if ! grep -aq 'zOrca wakeups:' build/orca; then
+            echo "build/orca does not hold 'zOrca wakeups:': the counter build lost its counter"
             exit 1
           fi
-          if ! grep -aq 'bOrca ALSA:' build/orca; then
-            echo "build/orca does not hold 'bOrca ALSA:': the counter build lost its ALSA counters"
+          if ! grep -aq 'zOrca ALSA:' build/orca; then
+            echo "build/orca does not hold 'zOrca ALSA:': the counter build lost its ALSA counters"
             exit 1
           fi
-          if ! grep -aq 'bOrca ALSA input pool:' build/orca; then
-            echo "build/orca does not hold 'bOrca ALSA input pool:': the counter build lost its input pool read-back"
+          if ! grep -aq 'zOrca ALSA input pool:' build/orca; then
+            echo "build/orca does not hold 'zOrca ALSA input pool:': the counter build lost its input pool read-back"
             exit 1
           fi
-          if ! grep -aq 'bOrca events:' build/orca; then
-            echo "build/orca does not hold 'bOrca events:': the counter build lost its dropped-events count"
+          if ! grep -aq 'zOrca events:' build/orca; then
+            echo "build/orca does not hold 'zOrca events:': the counter build lost its dropped-events count"
             exit 1
           fi
 
@@ -789,16 +789,16 @@ jobs:
 
       - name: Check that the ALSA orca holds no counter string
         run: |
-          if grep -aq 'bOrca wakeups:' build/orca; then
-            echo "build/orca holds 'bOrca wakeups:': the debug counters leaked into a release build"
+          if grep -aq 'zOrca wakeups:' build/orca; then
+            echo "build/orca holds 'zOrca wakeups:': the debug counters leaked into a release build"
             exit 1
           fi
-          if grep -aq 'bOrca ALSA:' build/orca; then
-            echo "build/orca holds 'bOrca ALSA:': the debug counters leaked into a release build"
+          if grep -aq 'zOrca ALSA:' build/orca; then
+            echo "build/orca holds 'zOrca ALSA:': the debug counters leaked into a release build"
             exit 1
           fi
-          if grep -aq 'bOrca events:' build/orca; then
-            echo "build/orca holds 'bOrca events:': the debug counters leaked into a release build"
+          if grep -aq 'zOrca events:' build/orca; then
+            echo "build/orca holds 'zOrca events:': the debug counters leaked into a release build"
             exit 1
           fi
 
@@ -852,16 +852,16 @@ jobs:
 
       - name: Check that the appliance orca holds no counter string
         run: |
-          if grep -aq 'bOrca wakeups:' build/orca; then
-            echo "build/orca holds 'bOrca wakeups:': the debug counters leaked into the appliance build"
+          if grep -aq 'zOrca wakeups:' build/orca; then
+            echo "build/orca holds 'zOrca wakeups:': the debug counters leaked into the appliance build"
             exit 1
           fi
-          if grep -aq 'bOrca ALSA:' build/orca; then
-            echo "build/orca holds 'bOrca ALSA:': the debug counters leaked into the appliance build"
+          if grep -aq 'zOrca ALSA:' build/orca; then
+            echo "build/orca holds 'zOrca ALSA:': the debug counters leaked into the appliance build"
             exit 1
           fi
-          if grep -aq 'bOrca events:' build/orca; then
-            echo "build/orca holds 'bOrca events:': the debug counters leaked into the appliance build"
+          if grep -aq 'zOrca events:' build/orca; then
+            echo "build/orca holds 'zOrca events:': the debug counters leaked into the appliance build"
             exit 1
           fi
 

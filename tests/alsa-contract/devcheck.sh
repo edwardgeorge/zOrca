@@ -52,12 +52,12 @@
 #   C6  the second aseqdump gets SIGCONT and SIGTERM, Ctrl+Q quits orca,
 #       within 15 s its exit status is 0, and its stderr holds no report
 #       that matches tests/lib.sh's sanitizer pattern (quoted if it does).
-#   Live  the live bOrca client's lines in /proc/asound/seq/clients (its
+#   Live  the live zOrca client's lines in /proc/asound/seq/clients (its
 #       Client line, its Port lines and their "Connecting To:" and
 #       "Connected From:" lines) are the same before and after, or absent
 #       both times, and no alsa-contract-<pid> client is left:
 #       tests/alsa-guard/devcheck.sh's rule.
-# Device rules: the client is alsa-contract-<pid>, never bOrca, and the
+# Device rules: the client is alsa-contract-<pid>, never bOrca or zOrca, and the
 # config a scratch XDG_CONFIG_HOME; the live engine's client and
 # borca-tty.service are only observed (aconnect only lists; no systemctl or
 # sudo). orca and every aseqdump run under `nice -n 19 taskset -c 0-2`, so
@@ -342,7 +342,7 @@ wait_rc() {
   fi
 }
 
-# live: the live bOrca client's Client line, Port lines and their
+# live: the live zOrca client's Client line, Port lines and their
 # "Connecting To:" and "Connected From:" lines.
 live() {
   awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "(bOrca|zOrca)" /) }
@@ -553,7 +553,7 @@ if [ ! -s "$tmp/rc" ]; then
   gone
 fi
 
-# Live: the live bOrca client untouched, and no scratch client left.
+# Live: the live zOrca client untouched, and no scratch client left.
 live_after=$(live)
 left=$(grep -cF "\"$name\"" "$clients")
 ok=0

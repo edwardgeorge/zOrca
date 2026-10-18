@@ -1,7 +1,7 @@
 #!/bin/sh
 # The upstream dialect's byte-identity check against Orca-c 9df9786.
 #
-#   tests/upstream/compare.sh <path-to-bOrca-cli>
+#   tests/upstream/compare.sh <path-to-zOrca-cli>
 #
 # Needs the Orca-c tree and cli that tests/upstream/build-cli.sh builds
 # (build/upstream/orca-c/ and build/upstream/cli). It checks, reporting every
@@ -10,7 +10,7 @@
 # 1. events_print.c and events_print.h in the Orca-c tree are this
 #    repository's, so both cli print events through one file.
 # 2. Every examples/**/*.orca of the Orca-c tree (43 at 9df9786): Orca-c's
-#    `cli --events -t 96 --seed 0` and bOrca's, with `--dialect upstream`
+#    `cli --events -t 96 --seed 0` and zOrca's, with `--dialect upstream`
 #    added, print byte-identical event lines and grids, and both exit 0 with
 #    no sanitizer report. Fewer than 43 files fails the run. Then each of
 #    the extras below, files of this repository that are not Orca-c's
@@ -49,7 +49,7 @@ extras='tests/patches/op_selftest.orca'
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cli=${1-}
 if [ -z "$cli" ] || [ ! -x "$cli" ] || [ "$#" != 1 ]; then
-  echo "usage: $0 <path-to-bOrca-cli>" >&2
+  echo "usage: $0 <path-to-zOrca-cli>" >&2
   exit 2
 fi
 case $cli in
@@ -122,7 +122,7 @@ for f in events_print.c events_print.h; do
 done
 
 # compare <label> <path>: runs the patch at <path> through Orca-c's
-# `cli --events -t $ticks --seed 0` and bOrca's, with `--dialect upstream`
+# `cli --events -t $ticks --seed 0` and zOrca's, with `--dialect upstream`
 # added, and prints PASS or FAIL for <label>. It returns 0 when both ran
 # clean and printed byte-identical output, and 1 on every FAIL. It changes
 # no count but fail()'s, so each caller counts its own. A failed run
@@ -139,7 +139,7 @@ compare() {
   run "$bo_out" "$bo_err" "$cli" --events -t "$ticks" --seed 0 \
     --dialect upstream "$c_path"
   if [ -n "$run_error" ]; then
-    fail "$c_label (bOrca cli $run_error)"
+    fail "$c_label (zOrca cli $run_error)"
     indent "$bo_err"
     return 1
   fi
@@ -150,7 +150,7 @@ compare() {
     printf 'PASS  %s\n' "$c_label"
     return 0
   fi
-  fail "$c_label (output differs; - Orca-c, + bOrca --dialect upstream)"
+  fail "$c_label (output differs; - Orca-c, + zOrca --dialect upstream)"
   diff -u "$up_out" "$bo_out" >"$tmpd/diff"
   sed -n '3,$p' "$tmpd/diff" | head -n 12 | sed 's/^/      /'
   return 1

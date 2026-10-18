@@ -33,7 +33,7 @@
 #include <signal.h>
 
 // SIGTERM, SIGHUP and SIGINT quit gracefully in --alsa builds: the handler
-// only sets this flag, which the event loop checks. bOrca has one thread,
+// only sets this flag, which the event loop checks. zOrca has one thread,
 // and this flag is the only data that crosses a signal handler.
 static volatile sig_atomic_t alsa_shutdown_requested;
 static void alsa_request_shutdown(int signo) {
@@ -976,7 +976,7 @@ typedef struct {
   snd_seq_t *seq;
   int port;    // "MIDI out": readable and subscribable, port 0
   int in_port; // "MIDI in": write-only, the input reader's port
-  // The source bOrca has subscribed to MIDI in, while one is stored; the
+  // The source zOrca has subscribed to MIDI in, while one is stored; the
   // subscriptions exist only while the clock source is External.
   Alsa_in_addr source;
   bool announce_subscribed; // System Announce (0:1) is connected to MIDI in
@@ -3823,7 +3823,7 @@ staticni void clock_source_menu_was_picked(Tui *t, int picked_id) {
 
 #ifdef FEAT_ALSA
 // The ports a user may follow: readable and subscribable, not NO_EXPORT,
-// not System's and not bOrca's own, in client then port order, shown as
+// not System's and not zOrca's own, in client then port order, shown as
 // client:port. An item's id encodes the address, so a pick needs no list.
 enum { Alsa_in_menu_ports = 256 };
 static int alsa_in_menu_id(int client, int port) {
@@ -4617,7 +4617,7 @@ int main(int argc, char **argv) {
       usage();
       exit(0);
     case Argopt_version:
-      printf("bOrca %s\n", BORCA_VERSION);
+      printf("zOrca %s\n", BORCA_VERSION);
       exit(0);
     case '?':
       usage();
@@ -4753,7 +4753,7 @@ int main(int argc, char **argv) {
       return 1;
     }
     if (err < 0) {
-      fprintf(stderr, "Cannot initialize bOrca ALSA source: %s\n",
+      fprintf(stderr, "Cannot initialize zOrca ALSA source: %s\n",
               snd_strerror(err));
       osofree(t.file_name);
       osofree(t.osc_midi_bidule_path);
@@ -4771,7 +4771,7 @@ int main(int argc, char **argv) {
   if (osolen(t.osc_midi_bidule_path) == 0) {
     int err = midi_mode_init_alsa(&t.ged.midi_mode, &alsa_ctx);
     if (err < 0) {
-      fprintf(stderr, "Cannot initialize bOrca ALSA source: %s\n",
+      fprintf(stderr, "Cannot initialize zOrca ALSA source: %s\n",
               snd_strerror(err));
       ged_deinit(&t.ged);
       alsa_ctx_close(&alsa_ctx);
@@ -4823,7 +4823,7 @@ int main(int argc, char **argv) {
       int sig_errno = errno;
       endwin();
       snd_lib_error_set_handler(NULL);
-      fprintf(stderr, "Cannot install bOrca shutdown handlers: %s\n",
+      fprintf(stderr, "Cannot install zOrca shutdown handlers: %s\n",
               strerror(sig_errno));
       ged_deinit(&t.ged);
       alsa_ctx_close(&alsa_ctx);
@@ -5511,7 +5511,7 @@ quit:
 #endif
 #if defined(FEAT_ALSA) && defined(BORCA_DEBUG_COUNTERS)
   fprintf(stderr,
-          "bOrca ALSA: %zu MIDI sends dropped on EAGAIN/EINTR, %zu not sent "
+          "zOrca ALSA: %zu MIDI sends dropped on EAGAIN/EINTR, %zu not sent "
           "in all; %zu note-offs held for a retry, %zu sent again, %zu "
           "given up\n",
           alsa_ctx.send_drops, alsa_ctx.send_failures,
@@ -5519,11 +5519,11 @@ quit:
           alsa_ctx.pending_offs.lost);
 #endif
 #if defined(BORCA_DEBUG_COUNTERS) && defined(BORCA_HAS_MIDI_IN)
-  fprintf(stderr, "bOrca MIDI in: %zu overflows, %zu read errors\n",
+  fprintf(stderr, "zOrca MIDI in: %zu overflows, %zu read errors\n",
           t.midi_in_overflows, t.midi_in_errors);
 #endif
 #if defined(FEAT_ALSA) && defined(BORCA_DEBUG_COUNTERS)
-  fprintf(stderr, "bOrca ALSA input pool: %ld events (asked for %d)\n",
+  fprintf(stderr, "zOrca ALSA input pool: %ld events (asked for %d)\n",
           alsa_ctx.input_pool, (int)Alsa_input_pool);
 #endif
 #ifdef BORCA_DEBUG_COUNTERS
@@ -5533,7 +5533,7 @@ quit:
                         t.ged.scratch_oevent_list.dropped,
                         t.ged.engine_oevent_list.dropped);
   fputs(events_line, stderr);
-  fprintf(stderr, "bOrca wakeups: %zu waits, %zu zero-timeout in %.3f s\n",
+  fprintf(stderr, "zOrca wakeups: %zu waits, %zu zero-timeout in %.3f s\n",
           debug_waits, debug_zero_waits,
           stm_sec(stm_since(debug_waits_since)));
 #endif

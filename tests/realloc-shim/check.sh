@@ -1,5 +1,5 @@
 #!/bin/sh
-# The realloc shim check: when realloc or malloc fails, bOrca
+# The realloc shim check: when realloc or malloc fails, zOrca
 # keeps its grid and mark buffer as they were, and says so where it cannot
 # go on; and a failed startup load leaks nothing. CI runs the cli case and
 # the release orca cases; the leak case needs a debug build and is a

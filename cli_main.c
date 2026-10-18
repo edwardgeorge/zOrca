@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
       usage();
       return 0;
     case Argopt_version:
-      printf("bOrca %s\n", BORCA_VERSION);
+      printf("zOrca %s\n", BORCA_VERSION);
       return 0;
     case '?':
       usage();

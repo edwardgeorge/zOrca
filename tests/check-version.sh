@@ -1,6 +1,6 @@
 #!/bin/sh
 # Version check: cli --version (and optionally orca --version) must print
-# one line "bOrca <version>" to stdout and exit 0.
+# one line "zOrca <version>" to stdout and exit 0.
 #
 #   tests/check-version.sh <cli> [<orca>]
 #
@@ -46,7 +46,7 @@ check_binary() {
 
   line=$(cat "$out")
   case "$line" in
-    "bOrca "?*)
+    "zOrca "?*)
       echo "PASS  $bin_name --version: $line"
       ;;
     *)

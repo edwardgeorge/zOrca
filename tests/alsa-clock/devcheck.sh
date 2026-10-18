@@ -48,7 +48,7 @@
 #       following, behind by the flushed pulses (about 533). Without the
 #       -ENOSPC overflow event it stops at "ext lost"; with a pool of 2000 it
 #       lands on the bar (offset 0).
-#   Live  the live bOrca client's lines in /proc/asound/seq/clients (its
+#   Live  the live zOrca client's lines in /proc/asound/seq/clients (its
 #       Client line, its Port lines and their "Connecting To:" and
 #       "Connected From:" lines) are the same before and after, or absent
 #       both times, and no dev-clock-<pid> client is left:
@@ -58,7 +58,7 @@
 # Other traffic to the client during a stall takes pool cells too (port
 # changes of other clients, through System Announce), so a busy sequencer
 # can push the 10 s stall past the pool; S1's pool figures show it.
-# Device rules: every client is dev-clock-<pid>[-master|-recv], never bOrca,
+# Device rules: every client is dev-clock-<pid>[-master|-recv], never bOrca or zOrca,
 # and the config a scratch XDG_CONFIG_HOME; the live engine's client and
 # borca-tty.service are only observed (the script reads
 # /proc/asound/seq/clients and calls no aconnect, systemctl or sudo). cc,
@@ -255,7 +255,7 @@ pool() {
     in_p && /Alloc failures/ { fail = $NF }
     END { if (size != "") print size, peak, fail }' "$clients"
 }
-# live: the live bOrca client's Client line, Port lines and their
+# live: the live zOrca client's Client line, Port lines and their
 # "Connecting To:" and "Connected From:" lines.
 live() {
   awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "(bOrca|zOrca)" /) }
@@ -486,7 +486,7 @@ else
 fi
 run=
 
-# Live: the live bOrca client untouched, and no scratch client left.
+# Live: the live zOrca client untouched, and no scratch client left.
 live_after=$(live)
 left=$(grep -cE "^Client +[0-9]+ : \"$name(-master|-recv)?\"" "$clients")
 ok=0

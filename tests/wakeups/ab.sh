@@ -1,6 +1,6 @@
 #!/bin/sh
 # The wakeup A/B for the glides that step between ticks (v2.0.0), read from
-# the debug wakeup counter: bOrca's event loop wakes as often as
+# the debug wakeup counter: zOrca's event loop wakes as often as
 # 4f349cd's when no glide runs, and a running glide wakes it for the CC
 # engine's deadline without going through the strict-timing table. It is a
 # development check: CI only shellchecks it.
@@ -18,7 +18,8 @@
 #      tracked (`git add`) before the A/B copies it: the copy is plain
 #      `git ls-files`, since the untracked files include planning trees
 #      whose names tar cannot read.
-#    Both print `bOrca wakeups: <n> waits, <z> zero-timeout in <s> s` to
+#    Both print `<name> wakeups: <n> waits, <z> zero-timeout in <s> s` (<name> is
+#    bOrca for 4f349cd, zOrca for this build) to
 #    stderr on quit: <n> counts the loop's waits entered with a timeout
 #    above 0, <z> those entered with timeout 0, over <s> seconds.
 # 2. Runs each case for 30 s with `--bpm 120` in a pty of 40 rows by 120
@@ -28,10 +29,10 @@
 #    --strict-timing and midi_beat_clock = 1, and `off`, with neither and
 #    midi_beat_clock = 0.
 #    - Idle: an empty grid (glide_rate.orca with every cell a dot), on both
-#      builds in both configurations. bOrca's waits per second must be
+#      builds in both configurations. zOrca's waits per second must be
 #      within 0.90 to 1.10 times 4f349cd's, and its zero-timeout waits per
 #      second at most 1.5 times 4f349cd's + 5, so no busy-wait was added.
-#    - Glide, bOrca only: examples/misc/glide_rate.orca, which keeps a glide
+#    - Glide, zOrca only: examples/misc/glide_rate.orca, which keeps a glide
 #      running whose steps glide_hz limits, against a control, the same file
 #      with its ! replaced by a dot, in the same configuration. In `off` the
 #      glide's waits per second must be at least the control's + 50, so the
@@ -94,7 +95,7 @@ patch -p1 -N -s -d "$out/base" -i "$root/tests/wakeups/4f349cd-counter.patch" ||
 (cd "$out/base" && ./tool build orca) >"$out/base-build.log" 2>&1 ||
   die "the 4f349cd build failed; see $out/base-build.log"
 
-echo "bOrca: the working tree's tracked files, build"
+echo "zOrca: the working tree's tracked files, build"
 (cd "$root" && git ls-files) >"$out/files.txt"
 (cd "$root" && tar -c -f "$out/borca.tar" -T "$out/files.txt") ||
   die "copying the tracked files failed"
@@ -103,7 +104,7 @@ tar -x -f "$out/borca.tar" -C "$out/borca"
 rm "$out/borca.tar" "$out/files.txt"
 (cd "$out/borca" && CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS ./tool build orca) \
   >"$out/borca-build.log" 2>&1 ||
-  die "the bOrca build failed; see $out/borca-build.log"
+  die "the zOrca build failed; see $out/borca-build.log"
 
 # The grids: the glide patch, its control, and the empty grid.
 mkdir -p "$out/runs"
@@ -137,12 +138,12 @@ run() {
   } | timeout $((secs + 30)) env SHELL=/bin/sh script -q -e -c "$cmd" \
     /dev/null >/dev/null ||
     die "$name: orca did not run and quit cleanly; see $dir/stderr"
-  line=$(grep '^bOrca wakeups: ' "$dir/stderr") ||
+  line=$(grep -E '^[bz]Orca wakeups: ' "$dir/stderr") ||
     die "$name: no wakeup line in $dir/stderr"
   waits_s=$(echo "$line" | awk '{ printf "%.2f", $3 / $8 }')
   zero_s=$(echo "$line" | awk '{ printf "%.2f", $5 / $8 }')
   printf '%-22s %9s waits/s %9s zero-timeout/s   (%s)\n' "$name" \
-    "$waits_s" "$zero_s" "${line#bOrca wakeups: }"
+    "$waits_s" "$zero_s" "${line#*Orca wakeups: }"
 }
 
 # check <description> <awk condition on a and b> <a> <b>
@@ -156,16 +157,16 @@ check() {
   fi
 }
 
-# 2. The runs, 4f349cd and bOrca back to back in each configuration.
+# 2. The runs, 4f349cd and zOrca back to back in each configuration.
 echo "Runs of ${secs} s at 120 BPM in a ${rows}x${cols} pty:"
 for conf in strict off; do
   run "idle-$conf-4f349cd" base empty "$conf"
   base_waits=$waits_s
   base_zero=$zero_s
   run "idle-$conf-borca" borca empty "$conf"
-  check "idle $conf: bOrca $waits_s waits/s is 0.90-1.10 x 4f349cd's $base_waits" \
+  check "idle $conf: zOrca $waits_s waits/s is 0.90-1.10 x 4f349cd's $base_waits" \
     'a >= 0.90 * b && a <= 1.10 * b' "$waits_s" "$base_waits"
-  check "idle $conf: bOrca $zero_s zero-timeout/s <= 1.5 x 4f349cd's $base_zero + 5" \
+  check "idle $conf: zOrca $zero_s zero-timeout/s <= 1.5 x 4f349cd's $base_zero + 5" \
     'a <= 1.5 * b + 5' "$zero_s" "$base_zero"
 done
 ceiling=$((2 * glide_hz))

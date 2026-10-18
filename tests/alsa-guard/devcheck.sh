@@ -35,12 +35,12 @@
 #       '<name>' failed: Input/output error", no port created.
 #   D5  eio2: the same as D4 for the second scan, and no client of the name
 #       1 s into the run.
-#   Live  the live bOrca client's lines in /proc/asound/seq/clients (its
+#   Live  the live zOrca client's lines in /proc/asound/seq/clients (its
 #       Client line, its Port lines and their "Connecting To:" and
 #       "Connected From:" lines; not its pool counters, which move while
 #       it plays) are the same before and after, and no guard client is
 #       left.
-# Device rules: every client name is guard-<pid>-<check>, never bOrca;
+# Device rules: every client name is guard-<pid>-<check>, never bOrca or zOrca;
 # every run gets a fresh scratch XDG_CONFIG_HOME, and the patch is a
 # scratch file; the live engine's client and borca-tty.service are only
 # observed (no systemctl, no aconnect). Every gcc and orca runs under
@@ -151,7 +151,7 @@ count() {
   grep -cF "\"$1\"" "$clients"
 }
 
-# live: the live bOrca client's Client line, Port lines and their
+# live: the live zOrca client's Client line, Port lines and their
 # "Connecting To:" and "Connected From:" lines.
 live() {
   awk '/^Client / { in_live = ($0 ~ /^Client +[0-9]+ : "(bOrca|zOrca)" /) }
@@ -261,7 +261,7 @@ ok=0
 if [ "$live_before" = "$live_after" ] && [ "$left" = 0 ]; then
   ok=1
 fi
-result "$ok" "Live, the bOrca client untouched" \
+result "$ok" "Live, the zOrca client untouched" \
   "before: $(echo "${live_before:-none}" | tr -s ' \n' '  '); after: $(echo "${live_after:-none}" | tr -s ' \n' '  '); guard clients left $left"
 
 # On a failure, the runs' guard lines, for the log, or the last lines of a

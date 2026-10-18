@@ -83,7 +83,7 @@ static inline Rearm rearm_compute(Rearm_case c, double S, double e, U8 sixths,
   return r;
 }
 
-// Clock-out: the beat clock bOrca sends, F8, FA, FB and FC, and the
+// Clock-out: the beat clock zOrca sends, F8, FA, FB and FC, and the
 // internal deadline's state, which Ged holds by value. The shell's deadline
 // fires at stm_since(clock) + accum_secs >= the span (clock_out_span); the
 // crossing (clock = now, accum_secs = the overshoot) and its spin stay in
@@ -418,7 +418,7 @@ static inline bool pm_in_decode(PmMessage msg, U64 stamp,
 #include <alsa/asoundlib.h>
 #include <errno.h>
 
-// The source bOrca has subscribed, while one is stored. The shell is
+// The source zOrca has subscribed, while one is stored. The shell is
 // unsubscribed while has is false, and System Announce decides when it is
 // cleared or matched again.
 typedef struct {

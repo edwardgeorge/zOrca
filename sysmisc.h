@@ -135,7 +135,7 @@ void ezconf_w_start(Ezconf_w *ezcw, Ezconf_opt *optsbuffer, size_t buffercap,
 void ezconf_w_addopt(Ezconf_w *ezcw, char const *key, intptr_t id);
 bool ezconf_w_step(Ezconf_w *ezcw);
 
-// Formats the bOrca events debug counter line into buf (up to size bytes).
+// Formats the zOrca events debug counter line into buf (up to size bytes).
 // The total dropped count is the sum of tick, preview, and engine drops.
 // Returns the number of characters that would have been written (excluding '\0'),
 // as snprintf does.

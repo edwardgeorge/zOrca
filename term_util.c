@@ -30,7 +30,7 @@ void term_util_init_colors(void) {
 
 void term_util_exit_out_of_memory(void) {
   endwin();
-  fputs("bOrca: out of memory\n", stderr);
+  fputs("zOrca: out of memory\n", stderr);
   exit(1);
 }
 

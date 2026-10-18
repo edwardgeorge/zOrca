@@ -3,7 +3,7 @@
 These five patches are upstream Orca-c examples, unchanged from
 [hundredrabbits/Orca-c](https://github.com/hundredrabbits/Orca-c) and kept at
 Orca-c's paths below this directory. They are written for upstream's
-operators, so play them in bOrca's upstream operator dialect (see Dialects in
+operators, so play them in zOrca's upstream operator dialect (see Dialects in
 the [README](../../README.md#dialects)): pick Upstream under Operator
 Dialect... in the main menu (Ctrl+D), or start `orca --dialect upstream`, or
 run them headless with `cli --dialect upstream`. In bOrca's own dialect, the
@@ -20,14 +20,14 @@ the wrong thing:
 
 In the upstream dialect `=` and `;` send OSC and UDP to the address and port
 set under OSC Output in the main menu, and nothing while OSC output is off.
-bOrca's own examples are the other directories under `examples/`.
+zOrca's own examples are the other directories under `examples/`.
 
 ## Tests
 
 Their goldens under `tests/expected/examples/upstream/` are upstream Orca-c
 `9df9786`'s own output over 96 ticks, from the Orca-c `cli` that
 `tests/upstream/build-cli.sh` builds (see `tests/README.md`). Each case runs
-with `--dialect upstream`, and bOrca's output matches them byte for byte;
+with `--dialect upstream`, and zOrca's output matches them byte for byte;
 each holds event lines, so every patch here does something in the upstream
 dialect. CI also checks that these files and their goldens are still
 Orca-c's, and compares the upstream dialect with Orca-c on all 43 of its
