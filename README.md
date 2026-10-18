@@ -532,7 +532,7 @@ An `--alsa` build opens one ALSA sequencer client when it starts, named `zOrca`,
 tests/check-includes.sh && tests/check-nm.sh                        # core checks
 ```
 
-CI runs these and more on every push and pull request to `main` and `spec/borca-fixes`, and on tags: on x86_64 and arm64, with `-funsigned-char`, under clang's sanitizers, and at 32 bits (armhf, under qemu); see [CI](tests/README.md#ci). The device checks `tests/alsa-guard/devcheck.sh`, `tests/alsa-contract/devcheck.sh` and `tests/alsa-clock/devcheck.sh` need a sequencer (`/dev/snd/seq`), which CI runners lack, so they are run by hand on an `--alsa` build. CI checks the upstream dialect byte for byte against upstream Orca-c's own `cli` on all 43 of its examples and on Orca's operator self-test (see [`tests/README.md`](tests/README.md)). [`tests/README.md`](tests/README.md) describes every test and check.
+CI runs these and more on every push and pull request to `main` and `dev`, and on tags: on x86_64 and arm64, with `-funsigned-char`, under clang's sanitizers, and at 32 bits (armhf, under qemu); see [CI](tests/README.md#ci). The device checks `tests/alsa-guard/devcheck.sh`, `tests/alsa-contract/devcheck.sh` and `tests/alsa-clock/devcheck.sh` need a sequencer (`/dev/snd/seq`), which CI runners lack, so they are run by hand on an `--alsa` build. CI checks the upstream dialect byte for byte against upstream Orca-c's own `cli` on all 43 of its examples and on Orca's operator self-test (see [`tests/README.md`](tests/README.md)). [`tests/README.md`](tests/README.md) describes every test and check.
 
 ### Debug counters
 
@@ -550,7 +550,7 @@ The tables in [Scales and chords](#scales-and-chords) are generated. `build/read
 
 ### Versions and branches
 
-Each release is an annotated tag, `vX.Y.Z`, listed on the [tags page](https://github.com/ianhundere/zOrca/tags); the newest tag is the latest release. `git checkout vX.Y.Z` checks a release out to build it, and `git describe --tags` names the release a checkout is at or after; `orca --version` and `cli --version` print it. `main` is zOrca's release line from v1.0.0 and moves only at a release; changes land on `spec/borca-fixes` first. The JS Orca that `main` held before v1.0.0 is kept on the `js-orca` branch.
+Each release is an annotated tag, `vX.Y.Z`, listed on the [tags page](https://github.com/ianhundere/zOrca/tags); the newest tag is the latest release. `git checkout vX.Y.Z` checks a release out to build it, and `git describe --tags` names the release a checkout is at or after; `orca --version` and `cli --version` print it. `main` is zOrca's release line from v1.0.0 and moves only at a release; changes land on `dev` first. The JS Orca that `main` held before v1.0.0 is kept on the `js-orca` branch.
 
 ## Changelog
 

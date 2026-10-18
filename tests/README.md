@@ -1508,7 +1508,7 @@ takes about 15 s a binary.
 ## CI
 
 `.github/workflows/ci.yml` runs on pushes and pull requests to
-`spec/borca-fixes`, the working branch, and `main`, zOrca's release line
+`dev`, the working branch, and `main`, zOrca's release line
 from `v1.0.0`, and on `v*` tags; start a manual run with
 `gh workflow run ci.yml --ref <branch>`.
 

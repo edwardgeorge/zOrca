@@ -1,6 +1,6 @@
 # zOrca CI: the builds, the goldens, the unit tests and the checks.
 #
-# Runs for spec/borca-fixes, the working branch, and for main, zOrca's
+# Runs for dev, the working branch, and for main, zOrca's
 # release line from v1.0.0, which moves only at tagged releases; and for v*
 # tags. The JS Orca that main held before v1.0.0 lives on the js-orca branch.
 # Start a manual run with `gh workflow run ci.yml --ref <branch>`.
@@ -18,10 +18,10 @@ name: CI
 
 on:
   push:
-    branches: [spec/borca-fixes, main]
+    branches: [dev, main]
     tags: ['v*']
   pull_request:
-    branches: [spec/borca-fixes, main]
+    branches: [dev, main]
   workflow_dispatch:
 
 concurrency:
