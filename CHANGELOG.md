@@ -1,6 +1,6 @@
 # Changelog
 
-bOrca's versions follow [semantic versioning](https://semver.org). A change is Breaking when an existing patch plays or sends differently in normal use, or when the public `orca_run` API breaks, and a Breaking change takes a new major version; a fix to a failure path, or a new message at start, stop or quit, is listed under Changed or Fixed. Each version is an annotated git tag, listed on the [tags page](https://github.com/ianhundere/bOrca-d/tags), and the newest comes first here.
+bOrca's versions follow [semantic versioning](https://semver.org). A change is Breaking when an existing patch plays or sends differently in normal use, or when the public `orca_run` API breaks, and a Breaking change takes a new major version; a fix to a failure path, or a new message at start, stop or quit, is listed under Changed or Fixed. Each version is an annotated git tag, listed on the [tags page](https://github.com/ianhundere/zbOrca/tags), and the newest comes first here.
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 

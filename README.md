@@ -1,6 +1,6 @@
 # bOrca
 
-bOrca is a terminal [Orca](https://wiki.xxiivv.com/site/orca.html) for hardware MIDI. Orca is a livecoding language for procedural sequencers: every letter of the alphabet is an operator, lowercase operators run when banged, and uppercase ones run on every frame. bOrca adds scales and chords, chord and arpeggiator operators, an LFO, CC glides and following an external MIDI clock, and it sends MIDI notes, CC with glides, MIDI clock and OSC status messages. It runs on Linux and macOS, and as an appliance on a ClockworkPi uConsole. The program is `orca`. The code is at [github.com/ianhundere/bOrca-d](https://github.com/ianhundere/bOrca-d), each release is a [tag](https://github.com/ianhundere/bOrca-d/tags), and the release notes are in [CHANGELOG.md](CHANGELOG.md).
+bOrca is a terminal [Orca](https://wiki.xxiivv.com/site/orca.html) for hardware MIDI. Orca is a livecoding language for procedural sequencers: every letter of the alphabet is an operator, lowercase operators run when banged, and uppercase ones run on every frame. bOrca adds scales and chords, chord and arpeggiator operators, an LFO, CC glides and following an external MIDI clock, and it sends MIDI notes, CC with glides, MIDI clock and OSC status messages. It runs on Linux and macOS, and as an appliance on a ClockworkPi uConsole. The program is `orca`. The code is at [github.com/ianhundere/zbOrca](https://github.com/ianhundere/zbOrca), each release is a [tag](https://github.com/ianhundere/zbOrca/tags), and the release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 bOrca's operators are the default; patches written for Orca-c play in the upstream [dialect](#dialects). The patches in `examples/upstream/` are upstream Orca-c examples, which play in that dialect; see [`examples/upstream/README.md`](examples/upstream/README.md).
 
@@ -18,8 +18,8 @@ On macOS, install PortMidi and ncurses with Homebrew, `brew install portmidi ncu
 Then clone the repository, build `orca` with the backend you installed, and run an example:
 
 ```sh
-git clone https://github.com/ianhundere/bOrca-d.git
-cd bOrca-d
+git clone https://github.com/ianhundere/zbOrca.git
+cd zbOrca
 ./tool build --portmidi orca   # or: ./tool build --alsa orca
 build/orca examples/misc/chord.orca
 ```
@@ -31,7 +31,7 @@ To hear it, connect bOrca's MIDI output to a synth:
 - In an ALSA build, `aconnect -l` lists the sequencer's clients and ports, and `aconnect bOrca:0 <synth client>:<port>` connects bOrca's `MIDI out` port to one.
 - In a PortMidi build, open the main menu with Ctrl+D, choose MIDI Output... and pick the device.
 
-The names fit together like this: the repository is `bOrca-d`, the program `orca`, and its ALSA MIDI port `bOrca:0`.
+The names fit together like this: the repository is `zbOrca`, the program `orca`, and its ALSA MIDI port `bOrca:0`.
 
 ## On the uConsole
 
@@ -552,13 +552,13 @@ The tables in [Scales and chords](#scales-and-chords) are generated. `build/read
 
 ### Versions and branches
 
-Each release is an annotated tag, `vX.Y.Z`, listed on the [tags page](https://github.com/ianhundere/bOrca-d/tags); the newest tag is the latest release. `git checkout vX.Y.Z` checks a release out to build it, and `git describe --tags` names the release a checkout is at or after; `orca --version` and `cli --version` print it. `main` is bOrca's release line from v1.0.0 and moves only at a release; changes land on `spec/borca-fixes` first. The JS Orca that `main` held before v1.0.0 is kept on the `js-orca` branch.
+Each release is an annotated tag, `vX.Y.Z`, listed on the [tags page](https://github.com/ianhundere/zbOrca/tags); the newest tag is the latest release. `git checkout vX.Y.Z` checks a release out to build it, and `git describe --tags` names the release a checkout is at or after; `orca --version` and `cli --version` print it. `main` is bOrca's release line from v1.0.0 and moves only at a release; changes land on `spec/borca-fixes` first. The JS Orca that `main` held before v1.0.0 is kept on the `js-orca` branch.
 
 ## Changelog
 
 The release notes are in [CHANGELOG.md](CHANGELOG.md), newest first.
 
-Each release is a git tag; see the [tags page](https://github.com/ianhundere/bOrca-d/tags).
+Each release is a git tag; see the [tags page](https://github.com/ianhundere/zbOrca/tags).
 
 ## Credits and licence
 
