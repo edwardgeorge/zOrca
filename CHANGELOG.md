@@ -4,7 +4,7 @@ zOrca's versions follow [semantic versioning](https://semver.org). A change is B
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 
-## Unreleased
+## v6.1.0 (2026-10-18)
 
 ### Changed
 
