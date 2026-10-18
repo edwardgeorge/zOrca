@@ -1,8 +1,8 @@
-# bOrca
+# zOrca
 
-bOrca is a terminal [Orca](https://wiki.xxiivv.com/site/orca.html) for hardware MIDI. Orca is a livecoding language for procedural sequencers: every letter of the alphabet is an operator, lowercase operators run when banged, and uppercase ones run on every frame. bOrca adds scales and chords, chord and arpeggiator operators, an LFO, CC glides and following an external MIDI clock, and it sends MIDI notes, CC with glides, MIDI clock and OSC status messages. It runs on Linux and macOS, and as an appliance on a ClockworkPi uConsole. The program is `orca`. The code is at [github.com/ianhundere/zbOrca](https://github.com/ianhundere/zbOrca), each release is a [tag](https://github.com/ianhundere/zbOrca/tags), and the release notes are in [CHANGELOG.md](CHANGELOG.md).
+zOrca is a terminal [Orca](https://wiki.xxiivv.com/site/orca.html) for hardware MIDI. Orca is a livecoding language for procedural sequencers: every letter of the alphabet is an operator, lowercase operators run when banged, and uppercase ones run on every frame. zOrca adds scales and chords, chord and arpeggiator operators, an LFO, CC glides and following an external MIDI clock, and it sends MIDI notes, CC with glides, MIDI clock and OSC status messages. It runs on Linux and macOS, and as an appliance on a ClockworkPi uConsole. The program is `orca`. The code is at [github.com/ianhundere/zOrca](https://github.com/ianhundere/zOrca), each release is a [tag](https://github.com/ianhundere/zOrca/tags), and the release notes are in [CHANGELOG.md](CHANGELOG.md).
 
-bOrca's operators are the default; patches written for Orca-c play in the upstream [dialect](#dialects). The patches in `examples/upstream/` are upstream Orca-c examples, which play in that dialect; see [`examples/upstream/README.md`](examples/upstream/README.md).
+The bOrca dialect's operators are the default; patches written for Orca-c play in the upstream [dialect](#dialects). The patches in `examples/upstream/` are upstream Orca-c examples, which play in that dialect; see [`examples/upstream/README.md`](examples/upstream/README.md).
 
 ## Quick start
 
@@ -18,28 +18,28 @@ On macOS, install PortMidi and ncurses with Homebrew, `brew install portmidi ncu
 Then clone the repository, build `orca` with the backend you installed, and run an example:
 
 ```sh
-git clone https://github.com/ianhundere/zbOrca.git
-cd zbOrca
+git clone https://github.com/ianhundere/zOrca.git
+cd zOrca
 ./tool build --portmidi orca   # or: ./tool build --alsa orca
 build/orca examples/misc/chord.orca
 ```
 
 `orca` starts playing at once on its internal clock; Space pauses and resumes. With the clock source set to External it waits for the master to start instead (see [Clock & Timing](#clock--timing)).
 
-To hear it, connect bOrca's MIDI output to a synth:
+To hear it, connect zOrca's MIDI output to a synth:
 
-- In an ALSA build, `aconnect -l` lists the sequencer's clients and ports, and `aconnect bOrca:0 <synth client>:<port>` connects bOrca's `MIDI out` port to one.
+- In an ALSA build, `aconnect -l` lists the sequencer's clients and ports, and `aconnect zOrca:0 <synth client>:<port>` connects zOrca's `MIDI out` port to one.
 - In a PortMidi build, open the main menu with Ctrl+D, choose MIDI Output... and pick the device.
 
 ## On the uConsole
 
-On a ClockworkPi uConsole, bOrca runs as an appliance:
+On a ClockworkPi uConsole, zOrca runs as an appliance:
 
 - `make appliance` builds the engine, an ALSA-only `orca`, and a systemd service runs it.
 - A separate provisioning setup installs it, and its `verify` check reports on it.
 - The engine's settings are in `~/.config/borca/orca.conf`. A hand edit there may be overwritten when the device is provisioned again.
-- The appliance's MIDI router connects `bOrca:0` by itself.
-- A development build runs beside it as `BORCA_ALSA_CLIENT_NAME=bOrca-dev nice -n 19 build/orca`, optionally under `taskset -c 0-2`. Without its own client name an `--alsa` build exits at startup, because `bOrca` is taken. It reads its own `orca.conf` (`~/.config/orca.conf`), not the engine's. Its MIDI out is not connected to the synths while the appliance plays, so only one sequencer drives them.
+- The appliance's MIDI router connects `zOrca:0` by itself.
+- A development build runs beside it as `ZORCA_ALSA_CLIENT_NAME=zOrca-dev nice -n 19 build/orca`, optionally under `taskset -c 0-2`. Without its own client name an `--alsa` build exits at startup, because `zOrca` is taken. It reads its own `orca.conf` (`~/.config/orca.conf`), not the engine's. Its MIDI out is not connected to the synths while the appliance plays, so only one sequencer drives them.
 
 ## The editor
 
@@ -356,11 +356,11 @@ When the rate, the 6th input, is `1` to `y`, `!` glides the CC from its current 
 
 - **Rates `.`, `0` and `z`**: instant. The value goes out at once, in the tick that bangs the operator. Uppercase reads like lowercase, so `Z` is instant too, and any other glyph counts as `0`, so it is instant.
 - **Rates `1` to `y`**: a glide over 36 − rate ticks: `1` takes 35 ticks (the slowest), `w` 4 and `y` 2. Its length is fixed in time when it starts, so a tempo change while it runs does not move its end.
-- **Where a glide starts**: from the CC's current value, which is where a glide already running on that channel and control has got to, or else the last value bOrca sent to it. If bOrca has sent nothing to that control since it started, since the file was opened or created, or since the MIDI output changed, the glide jumps straight to its target. To glide from a known value, send it first with an instant `!`.
+- **Where a glide starts**: from the CC's current value, which is where a glide already running on that channel and control has got to, or else the last value zOrca sent to it. If zOrca has sent nothing to that control since it started, since the file was opened or created, or since the MIDI output changed, the glide jumps straight to its target. To glide from a known value, send it first with an instant `!`.
 - **Banging it again**: banging the same glide again (the same target and rate) while it runs leaves it running, so a `!` banged on every tick still reaches its target on time. A new target or rate starts a new glide from the current value, and a target equal to the current value stops the glide. That target goes out first if the last value sent differs from it, because the glide's step to it was held back by the glide rate or the CC cap, so the control never stays a step short; otherwise nothing goes out. An instant `!` on the same control stops a running glide.
 - **Steps**: a glide sends a step whenever its value changes, on wall-clock time: between ticks, as soon as the step is due, and not only when a tick runs. One control gets at most Glide Rate steps a second, 100 unless the Glide Rate setting changes it, and a glide that runs to its end finishes on its target, which goes out at its end whatever the glide rate. A value already reached is not sent again while the operator keeps banging.
 - **Glide Rate**: open the main menu (Ctrl+D), choose Clock & Timing..., then Glide Rate..., and pick 50, 100 or 200 Hz, the most steps a second one glide sends. A new rate applies at once, to running glides too. It is saved in `orca.conf` as `glide_hz = 50`, `100` or `200`; any other value is ignored, which leaves 100, and its value is kept. Picking the rate that is already active saves nothing.
-- **The cap**: bOrca keeps one budget of 800 CC messages a second, with bursts of up to 80, that every CC it sends draws on. A glide's step goes out only when the budget has room for it, and otherwise waits; when many glides run at once, their steps take turns, so none of them always waits. Instant CCs and glide targets always go out and draw on the budget, even past the cap, so while instants alone go past 800 a second, running glides send no steps and jump to their targets at their ends. The cap is fixed; there is no setting for it.
+- **The cap**: zOrca keeps one budget of 800 CC messages a second, with bursts of up to 80, that every CC it sends draws on. A glide's step goes out only when the budget has room for it, and otherwise waits; when many glides run at once, their steps take turns, so none of them always waits. Instant CCs and glide targets always go out and draw on the budget, even past the cap, so while instants alone go past 800 a second, running glides send no steps and jump to their targets at their ends. The cap is fixed; there is no setting for it.
 - **Pausing** stops every running glide where it is; the next glide starts from the last value sent.
 
 Each channel and control has its own glide, so several CCs glide independently. `examples/misc/glide_rate.orca` keeps one glide running, its target changing on every tick, so it steps at the glide rate.
@@ -374,34 +374,34 @@ The `R` operator (uppercase) provides pure random generation that runs every tic
 
 Both swap min and max when min is the larger, and both take their right input's case: an uppercase max gives uppercase letters, and digits stay digits. When min equals max, bOrca's `R` and `r` keep the max's case too, so `aRA` gives `A` and `crC` gives `C`; the upstream `R` writes that value in lowercase. An uppercase letter directly left of `r` is an operator itself, and most (`A`, `B`, `C`, `D` …) run first and take `r` as their input, so give `r` a lowercase or digit min: `arC`, not `ArC`. Like any uppercase letter, an uppercase max, and the uppercase letters `r` writes, run as operators on every tick `r` is not banged; so bang `r` every tick, or feed its output to an input that locks it, such as `:`'s note, as `examples/misc/random_unique.orca` does. That patch plays two `r`.
 
-More patches: `examples/basics/` has a short patch for many single operators, `examples/misc/` holds bOrca's demos and other small patches, `examples/benchmarks/` and `examples/setups/` larger ones, and `examples/upstream/` the patches that need the upstream dialect.
+More patches: `examples/basics/` has a short patch for many single operators, `examples/misc/` holds zOrca's demos and other small patches, `examples/benchmarks/` and `examples/setups/` larger ones, and `examples/upstream/` the patches that need the upstream dialect.
 
 ## Clock & Timing
 
-bOrca runs on its own clock, or follows an external MIDI clock: an iPad, a hardware sequencer or a DAW. Open the main menu (Ctrl+D) and choose Clock & Timing... for these settings; the Glide Rate setting of `!` lives there too (see [Glides](#glides)).
+zOrca runs on its own clock, or follows an external MIDI clock: an iPad, a hardware sequencer or a DAW. Open the main menu (Ctrl+D) and choose Clock & Timing... for these settings; the Glide Rate setting of `!` lives there too (see [Glides](#glides)).
 
 ### Tempo and beat clock out
 
-Internal, the default clock source, is bOrca's own tempo, set with Set BPM..., `<` and `>` or `--bpm` (120 by default). One frame is a sixteenth note: 4 frames to a beat.
+Internal, the default clock source, is zOrca's own tempo, set with Set BPM..., `<` and `>` or `--bpm` (120 by default). One frame is a sixteenth note: 4 frames to a beat.
 
-Send MIDI Beat Clock, under Clock & Timing..., sends the beat clock to downstream gear while the source is Internal: `FA` (start) when playback starts, 24 `F8` pulses to a beat while it plays, and `FC` (stop) when it pauses or when bOrca quits while playing. Turning it on while playing sends `FB` (continue) and keeps the tick grid; turning it off while playing sends `FC`. It is saved in `orca.conf` as `midi_beat_clock = 1` or `0`. With OSC output on, `/orca/bpm` carries the tempo whenever it changes, and `/orca/started` and `/orca/stopped` mark playback.
+Send MIDI Beat Clock, under Clock & Timing..., sends the beat clock to downstream gear while the source is Internal: `FA` (start) when playback starts, 24 `F8` pulses to a beat while it plays, and `FC` (stop) when it pauses or when zOrca quits while playing. Turning it on while playing sends `FB` (continue) and keeps the tick grid; turning it off while playing sends `FC`. It is saved in `orca.conf` as `midi_beat_clock = 1` or `0`. With OSC output on, `/orca/bpm` carries the tempo whenever it changes, and `/orca/started` and `/orca/stopped` mark playback.
 
 ### Following an external clock
 
 Following needs a build with a MIDI input: an ALSA or a PortMidi build.
 
-1. **Pick the input.** Under Clock & Timing..., MIDI Input... lists the inputs. An ALSA build lists the sequencer ports that can be read and subscribed to, as `client:port` (Midi Through included, which is how a software master on the same machine is usually reached), and saves the pick in `orca.conf` as `alsa_input_device = Midi Through:Midi Through Port-0`; while the clock source is External, bOrca subscribes that port to its own `MIDI in` port itself, and resubscribes it when its client leaves and comes back, so there is nothing to connect with `aconnect`. A connection made by hand to `MIDI in` also feeds the clock, so two clocks there double-count. A PortMidi build lists the input devices and saves the pick as `portmidi_input_device = <name>`; a device plugged in after `orca` started needs a restart to be seen. `orca --midi-in <name>` picks the input for one session, over the saved one, without changing it: `client:port` in an ALSA build, the device name in a PortMidi build. An input that is not there when External is chosen is reported on screen; an ALSA build then waits for it to appear, a PortMidi build needs the menu or a restart. An input line in `orca.conf` naming a device that is not found is kept as it is.
+1. **Pick the input.** Under Clock & Timing..., MIDI Input... lists the inputs. An ALSA build lists the sequencer ports that can be read and subscribed to, as `client:port` (Midi Through included, which is how a software master on the same machine is usually reached), and saves the pick in `orca.conf` as `alsa_input_device = Midi Through:Midi Through Port-0`; while the clock source is External, zOrca subscribes that port to its own `MIDI in` port itself, and resubscribes it when its client leaves and comes back, so there is nothing to connect with `aconnect`. A connection made by hand to `MIDI in` also feeds the clock, so two clocks there double-count. A PortMidi build lists the input devices and saves the pick as `portmidi_input_device = <name>`; a device plugged in after `orca` started needs a restart to be seen. `orca --midi-in <name>` picks the input for one session, over the saved one, without changing it: `client:port` in an ALSA build, the device name in a PortMidi build. An input that is not there when External is chosen is reported on screen; an ALSA build then waits for it to appear, a PortMidi build needs the menu or a restart. An input line in `orca.conf` naming a device that is not found is kept as it is.
 2. **Choose External** under Clock Source.... The choice is saved in `orca.conf` as `clock_source = internal` or `external`; a value other than these two is ignored, which leaves Internal, and so is `external` in a build with no MIDI input. `orca --clock-source external` (or `internal`) picks the source for one session, over the saved one, without changing it. Picking the source that is already active saves nothing.
-3. **Start the master.** Its `FA` (start) starts playback from tick 0, `FB` (continue) resumes it, `FC` (stop) pauses it, releasing the sustained notes and stopping running glides, and `F2` (song position) sets the frame, in sixteenths, so each song-position unit is one frame; the first `F8` after `FA` runs frame 0 and every sixth pulse after it runs the next. Only the master runs playback: Space (outside append mode), `<` and `>` are ignored, Set BPM... says that the BPM follows the external clock, and bOrca does not auto-play when it starts. Ctrl+R and Ctrl+F still work.
+3. **Start the master.** Its `FA` (start) starts playback from tick 0, `FB` (continue) resumes it, `FC` (stop) pauses it, releasing the sustained notes and stopping running glides, and `F2` (song position) sets the frame, in sixteenths, so each song-position unit is one frame; the first `F8` after `FA` runs frame 0 and every sixth pulse after it runs the next. Only the master runs playback: Space (outside append mode), `<` and `>` are ignored, Set BPM... says that the BPM follows the external clock, and zOrca does not auto-play when it starts. Ctrl+R and Ctrl+F still work.
 4. **Watch the HUD.** The BPM field shows the clock while the source is External: `ext --` until a tempo has been measured, and `ext 120` once a beat of pulses has been measured (the 25th pulse, 24 intervals). The shown tempo moves only when the measured one has stayed at least 1 BPM away from it for a whole beat, so the jitter of a Bluetooth link does not flicker it. CC glides take their length from the measured tempo, and `/orca/bpm` carries the shown value whenever it changes; `/orca/started` and `/orca/stopped` follow the master's transport.
 
-While bOrca follows, Send MIDI Beat Clock is suspended: the setting stays as it is and is saved as it is, the item reads `(suspended)`, and bOrca sends none of `F8`, `FA`, `FB` and `FC`, so nothing echoes transport back to the master. Switching to External stops playback without sending `FC` to downstream gear: bOrca is about to follow another master, so it transmits nothing from then on. Switching back to Internal adopts the shown tempo as the BPM when one has been measured, and keeps the stored BPM otherwise; if bOrca was playing it keeps playing, its first internal frame coming one frame later, with `FB` and the pulses if beat clock is on. A master that stops its own clock on `FC`, as hardware sequencers do, leaves bOrca with no pulses, so its tempo is dropped a second later and a switch to Internal after that keeps the stored BPM.
+While zOrca follows, Send MIDI Beat Clock is suspended: the setting stays as it is and is saved as it is, the item reads `(suspended)`, and zOrca sends none of `F8`, `FA`, `FB` and `FC`, so nothing echoes transport back to the master. Switching to External stops playback without sending `FC` to downstream gear: zOrca is about to follow another master, so it transmits nothing from then on. Switching back to Internal adopts the shown tempo as the BPM when one has been measured, and keeps the stored BPM otherwise; if zOrca was playing it keeps playing, its first internal frame coming one frame later, with `FB` and the pulses if beat clock is on. A master that stops its own clock on `FC`, as hardware sequencers do, leaves zOrca with no pulses, so its tempo is dropped a second later and a switch to Internal after that keeps the stored BPM.
 
-### When the clock stops or bOrca stalls
+### When the clock stops or zOrca stalls
 
-The HUD shows `ext lost` when the pulses stop for a second while playing, which also pauses playback and releases the notes, until the master sends Start or Continue. A gap of a second or more between two pulses that do arrive drops the measured tempo (`ext --`) but does not stop playback: only a second with no pulse at all is a lost clock. If bOrca itself stalls while the master's pulses queue, the stall does not count as a lost clock once the queued pulses arrive.
+The HUD shows `ext lost` when the pulses stop for a second while playing, which also pauses playback and releases the notes, until the master sends Start or Continue. A gap of a second or more between two pulses that do arrive drops the measured tempo (`ext --`) but does not stop playback: only a second with no pulse at all is a lost clock. If zOrca itself stalls while the master's pulses queue, the stall does not count as a lost clock once the queued pulses arrive.
 
-If bOrca itself hangs while the master keeps clocking, because the device stalls or a terminal stops reading, its notes go silent and a note that was sounding holds until it recovers. On recovery, the steps it missed play at once as very short notes (up to about 83), so it lands back on the master's frame; the HUD can show a wrong tempo, up to `ext 999`, for about a beat (half a second at 120 BPM), and a glide started then arrives early. An ALSA build keeps up to 500 queued events, about 10 seconds of clock alone at 120 BPM (4 seconds at 300 BPM), less when other MIDI messages or port changes reach bOrca's input during the hang. After a longer hang, the queued clock is lost and the missed steps never play: bOrca carries on from the frame where it stopped, behind the master by the length of the hang, and off the master's sixteenths by part of a step unless the hang lasted a whole number of steps, until the master next sends Start (`FA`) or a song position (`F2`). A Start, Stop or song position the master sent during such a hang is lost too, so bOrca can play on after the master stopped, until the master's next Start or Stop, or stay stopped while the master plays, until its next Start or Continue. A PortMidi build on Linux still stops at `ext lost` after a hang of about four seconds at 120 BPM; use an `--alsa` build.
+If zOrca itself hangs while the master keeps clocking, because the device stalls or a terminal stops reading, its notes go silent and a note that was sounding holds until it recovers. On recovery, the steps it missed play at once as very short notes (up to about 83), so it lands back on the master's frame; the HUD can show a wrong tempo, up to `ext 999`, for about a beat (half a second at 120 BPM), and a glide started then arrives early. An ALSA build keeps up to 500 queued events, about 10 seconds of clock alone at 120 BPM (4 seconds at 300 BPM), less when other MIDI messages or port changes reach zOrca's input during the hang. After a longer hang, the queued clock is lost and the missed steps never play: zOrca carries on from the frame where it stopped, behind the master by the length of the hang, and off the master's sixteenths by part of a step unless the hang lasted a whole number of steps, until the master next sends Start (`FA`) or a song position (`F2`). A Start, Stop or song position the master sent during such a hang is lost too, so zOrca can play on after the master stopped, until the master's next Start or Stop, or stay stopped while the master plays, until its next Start or Continue. A PortMidi build on Linux still stops at `ext lost` after a hang of about four seconds at 120 BPM; use an `--alsa` build.
 
 ## Settings and command line
 
@@ -459,7 +459,7 @@ An ignored value leaves the key at its default, and its line is written back as 
 
 ## Dialects
 
-bOrca runs one of two operator lists, its dialect:
+zOrca runs one of two operator lists, its dialect:
 
 - **bOrca** (the default) is this fork's: `!` is the MIDI CC operator with three control digits and glides, `$` the Scale operator, `;` the Arpeggiator, `=` the Midichord operator, `&` the Bouncer, and lowercase `r` deals from a shuffled bag. [bOrca's operators](#borcas-operators) describes them. `L`, `I`, `U`, `R`, `D`, `C` and `Z` follow Orca's 2025 rules, below.
 - **Upstream** is upstream Orca-c's (at `9df9786`), so its patches play unchanged. `!` sends a MIDI CC from three inputs, channel, control and value: the control is one glyph, `0`-`z` for controls 0-35, the value's `0`-`z` is scaled to 0-127 (× 127 / 35), and it never glides; it sends nothing when the channel is above `f` or the channel or control is empty. `;` sends the glyphs east of it, up to the first `.` and at most 16, as one UDP datagram. `=` sends an OSC message to `/` plus its first input, with as many integers as its second input says, read from the inputs east of that. Lowercase `r` is a banged `R`, so its max is exclusive. `$` and `&` do nothing. `L`, `I`, `U`, `R`, `D`, `C` and `Z` keep Orca-c's defaults, and `R` its range.
@@ -478,7 +478,7 @@ In November 2025 Orca's author removed the defaults of `L`, `I`, `U`, `R`, `D`, 
 
 A bang (`*`) in the left input of `I`, `U` or `Z` counts as an empty input: 0 in bOrca's dialect, and upstream a step or rate of 1.
 
-Each implementation's `R` plays its own sequence. bOrca's two dialects share Orca-c's hash, so with the same seed bOrca's `1R4` plays what upstream `1R5` plays.
+Each implementation's `R` plays its own sequence. zOrca's two dialects share Orca-c's hash, so with the same seed bOrca's `1R4` plays what upstream `1R5` plays.
 
 To write a patch that plays the same in both dialects, write the values out: `1C8`, `1D8`, `1I4`, `1U8`, `1Z5`. `R`'s top value is included in bOrca's dialect, so write the larger input one lower: `1R3` there plays what `1R4` plays upstream, and `3R1` what `4R1` plays. A max of `.` or `0` becomes `z`: `5Rz` plays what `5R.` plays, and `0Rz` what `.R.` plays. Equal inputs keep the max's case in bOrca's dialect, so `aRa` plays the `a` that `aRA` plays upstream. An `L` with an empty input, and an `I` with a step and an empty or `0` max (`.I.` counts to `z` and wraps), have no written form. An input that another operator writes as `.` or `0` while the patch plays follows the new rule too, and writing a value out cannot change that.
 
@@ -517,11 +517,11 @@ make clean       # removes build/
 
 ### Which backend
 
-ALSA, on Linux only, is native: `orca` opens its own sequencer client, which `aconnect` and MIDI routers see by name, and needs only `libasound`. PortMidi works on Linux and macOS, and picks its output under MIDI Output... in the main menu. Either can follow an external clock, but after a long hang only an ALSA build keeps following (see [When the clock stops or bOrca stalls](#when-the-clock-stops-or-borca-stalls)). `--alsa` cannot be combined with `--portmidi` or `--static`, and fails on anything but Linux. A build with neither sends no hardware MIDI; it can still send OSC.
+ALSA, on Linux only, is native: `orca` opens its own sequencer client, which `aconnect` and MIDI routers see by name, and needs only `libasound`. PortMidi works on Linux and macOS, and picks its output under MIDI Output... in the main menu. Either can follow an external clock, but after a long hang only an ALSA build keeps following (see [When the clock stops or zOrca stalls](#when-the-clock-stops-or-zorca-stalls)). `--alsa` cannot be combined with `--portmidi` or `--static`, and fails on anything but Linux. A build with neither sends no hardware MIDI; it can still send OSC.
 
 ### The ALSA client
 
-An `--alsa` build opens one ALSA sequencer client when it starts, named `bOrca`, or the value of `BORCA_ALSA_CLIENT_NAME` when that is set and non-empty, with one output port, `MIDI out`, that other programs subscribe to (`aconnect -l` lists it), and one input port, `MIDI in`, which bOrca itself subscribes to the chosen MIDI Input while the clock source is External (see [Following an external clock](#following-an-external-clock)). `MIDI in` is write-only, so a router that connects readable ports never connects it. The client opens even with `--osc-midi-bidule`, whose output then replaces it, so such a run also needs a sequencer and, while another `bOrca` runs, its own client name. If the sequencer cannot be opened, or another client already has the name (checked at startup, before and after taking the name: when restarting `orca` by hand, wait for the old instance to exit; two instances started at the same moment may both exit; start one again), or the sequencer cannot list its clients, or the name is over 63 bytes (ALSA keeps 63; set a shorter `BORCA_ALSA_CLIENT_NAME`), `orca` prints an error and exits with status 1 before the screen starts; two clients with one name would make the uConsole appliance's router refuse to route either. A MIDI message the sequencer does not take is dropped and the HUD's first line then shows a bold `MIDI err` until you quit; only a refused note-off is kept and sent again, for up to 3 seconds, so the note does not hang. SIGTERM, SIGHUP or SIGINT quits cleanly, stopping playback first, unless that signal was already ignored when `orca` started. `orca -h` repeats the client's name, ports and exit rules in an `--alsa` build.
+An `--alsa` build opens one ALSA sequencer client when it starts, named `zOrca`, or the value of `ZORCA_ALSA_CLIENT_NAME` when that is set and non-empty (else `BORCA_ALSA_CLIENT_NAME`, its name before v5.0.0), with one output port, `MIDI out`, that other programs subscribe to (`aconnect -l` lists it), and one input port, `MIDI in`, which zOrca itself subscribes to the chosen MIDI Input while the clock source is External (see [Following an external clock](#following-an-external-clock)). `MIDI in` is write-only, so a router that connects readable ports never connects it. The client opens even with `--osc-midi-bidule`, whose output then replaces it, so such a run also needs a sequencer and, while another `zOrca` runs, its own client name. If the sequencer cannot be opened, or another client already has the name (checked at startup, before and after taking the name: when restarting `orca` by hand, wait for the old instance to exit; two instances started at the same moment may both exit; start one again), or the sequencer cannot list its clients, or the name is over 63 bytes (ALSA keeps 63; set a shorter `ZORCA_ALSA_CLIENT_NAME`), `orca` prints an error and exits with status 1 before the screen starts; two clients with one name would make the uConsole appliance's router refuse to route either. A MIDI message the sequencer does not take is dropped and the HUD's first line then shows a bold `MIDI err` until you quit; only a refused note-off is kept and sent again, for up to 3 seconds, so the note does not hang. SIGTERM, SIGHUP or SIGINT quits cleanly, stopping playback first, unless that signal was already ignored when `orca` started. `orca -h` repeats the client's name, ports and exit rules in an `--alsa` build.
 
 ### Testing
 
@@ -538,11 +538,11 @@ CI runs these and more on every push and pull request to `main` and `spec/borca-
 
 For development, `CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS ./tool build orca`, with or without `--alsa`, counts the event loop's wakeups and, after the screen closes on quit, prints its lines to stderr, the wakeup line last. The counters are never in a release or appliance build; CI checks this.
 
-- `bOrca wakeups: <n> waits, <z> zero-timeout in <s> s`: `<n>` counts the loop's waits for input entered with a timeout above 0, `<z>` those entered with a timeout of 0, and `<s>` the seconds since the loop started. Under External with ALSA the loop's wait is a `poll()` over the keyboard and the sequencer, and this line counts those waits in place of the keyboard reads. `tests/wakeups/ab.sh` compares it with `4f349cd`'s (see [Wakeup check](tests/README.md#wakeup-check)).
-- `bOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`, in an `--alsa` build: `<n>` counts the messages dropped because the sequencer's output was full or the write was interrupted, and `<m>` every message that did not go out.
-- `bOrca MIDI in: <n> overflows, <m> read errors`, in a build with a MIDI input (`--alsa` or `--portmidi`): `<n>` counts the input overflows the reader met (the sequencer's `-ENOSPC`, which empties its input queue, or PortMidi's buffer overflow), after each of which it went on reading, and `<m>` the other read errors, each of which ended one pass over the input.
-- `bOrca ALSA input pool: <p> events (asked for 500)`, in an `--alsa` build: `<p>` is the input pool its sequencer client has, read back after it asked for 500 events at startup (`-1` when it could not be read).
-- `bOrca events: <n> dropped (tick <t>, preview <p>, engine <e>)`, just before the wakeup line in every counter build: the events each event list dropped because it could not grow, which happens only when memory runs out, `<n>` in all and then the tick's, the preview's and the engine's lists.
+- `zOrca wakeups: <n> waits, <z> zero-timeout in <s> s`: `<n>` counts the loop's waits for input entered with a timeout above 0, `<z>` those entered with a timeout of 0, and `<s>` the seconds since the loop started. Under External with ALSA the loop's wait is a `poll()` over the keyboard and the sequencer, and this line counts those waits in place of the keyboard reads. `tests/wakeups/ab.sh` compares it with `4f349cd`'s (see [Wakeup check](tests/README.md#wakeup-check)).
+- `zOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`, in an `--alsa` build: `<n>` counts the messages dropped because the sequencer's output was full or the write was interrupted, and `<m>` every message that did not go out.
+- `zOrca MIDI in: <n> overflows, <m> read errors`, in a build with a MIDI input (`--alsa` or `--portmidi`): `<n>` counts the input overflows the reader met (the sequencer's `-ENOSPC`, which empties its input queue, or PortMidi's buffer overflow), after each of which it went on reading, and `<m>` the other read errors, each of which ended one pass over the input.
+- `zOrca ALSA input pool: <p> events (asked for 500)`, in an `--alsa` build: `<p>` is the input pool its sequencer client has, read back after it asked for 500 events at startup (`-1` when it could not be read).
+- `zOrca events: <n> dropped (tick <t>, preview <p>, engine <e>)`, just before the wakeup line in every counter build: the events each event list dropped because it could not grow, which happens only when memory runs out, `<n>` in all and then the tick's, the preview's and the engine's lists.
 
 ### The README's tables
 
@@ -550,28 +550,28 @@ The tables in [Scales and chords](#scales-and-chords) are generated. `build/read
 
 ### Versions and branches
 
-Each release is an annotated tag, `vX.Y.Z`, listed on the [tags page](https://github.com/ianhundere/zbOrca/tags); the newest tag is the latest release. `git checkout vX.Y.Z` checks a release out to build it, and `git describe --tags` names the release a checkout is at or after; `orca --version` and `cli --version` print it. `main` is bOrca's release line from v1.0.0 and moves only at a release; changes land on `spec/borca-fixes` first. The JS Orca that `main` held before v1.0.0 is kept on the `js-orca` branch.
+Each release is an annotated tag, `vX.Y.Z`, listed on the [tags page](https://github.com/ianhundere/zOrca/tags); the newest tag is the latest release. `git checkout vX.Y.Z` checks a release out to build it, and `git describe --tags` names the release a checkout is at or after; `orca --version` and `cli --version` print it. `main` is zOrca's release line from v1.0.0 and moves only at a release; changes land on `spec/borca-fixes` first. The JS Orca that `main` held before v1.0.0 is kept on the `js-orca` branch.
 
 ## Changelog
 
 The release notes are in [CHANGELOG.md](CHANGELOG.md), newest first.
 
-Each release is a git tag; see the [tags page](https://github.com/ianhundere/zbOrca/tags).
+Each release is a git tag; see the [tags page](https://github.com/ianhundere/zOrca/tags).
 
 ## Credits and licence
 
-[ORCΛ](https://wiki.xxiivv.com/site/orca.html) is by Hundred Rabbits, and Orca-c, its C implementation, is the code bOrca grew from:
+[ORCΛ](https://wiki.xxiivv.com/site/orca.html) is by Hundred Rabbits, and Orca-c, its C implementation, is the code zOrca grew from:
 
 | Main git repo | GitHub mirror |
 | ------------- | ------------- |
 | [git.sr.ht/~rabbits/orca](https://git.sr.ht/~rabbits/orca) | [github.com/hundredrabbits/Orca-c](https://github.com/hundredrabbits/Orca-c) |
 
-bOrca is a fork of [boorch/bOrca](https://github.com/boorch/bOrca), at `4f349cd`. boorch added the operators `$`, `=`, `;`, `&`, `r` and the CC `!`. His note on the fork reads:
+zOrca is a fork of [boorch/bOrca](https://github.com/boorch/bOrca), at `4f349cd`. boorch added the operators `$`, `=`, `;`, `&`, `r` and the CC `!`. His note on the fork reads:
 
 > I'll try to add new operators based on my needs. I'm not a professional programmer, just a hobbyist, so most of the code here is generated by various AI assistants, based on 'painfully' extensive directions I provided. I've tried to include comments as much as possible to remember what I did and why, but I'm fairly certain it's not the most elegant code that adheres to proper standards. You should consider this fork to be 'somewhat' functional. Currently I'm focused on Orca-c only, since my use cases are:
 > - Using it through SSH on a Raspberry Pi Zero 2W, connected to an iPad Pro 11", outputting MIDI data via USB, acting as a MIDI Gadget
 > - Using it on my uConsole terminal, paired to a CME WIDI Jack via Bluetooth, which is connected to the MIDI ports of a Torso S4.
 
-bOrca is maintained by Ian Hundere.
+zOrca is maintained by Ian Hundere.
 
 MIT; see [LICENSE.md](LICENSE.md).
