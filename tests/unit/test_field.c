@@ -107,7 +107,7 @@ void test_field_alloc_fail(void) {
   // Part 5: a load whose first row cannot grow the field.
   CHECK(strcmp(field_load_error_string(Field_load_error_no_memory),
                "Not enough memory for the grid") == 0);
-  char path[] = "/tmp/borca-unit-field-XXXXXX";
+  char path[] = "/tmp/zorca-unit-field-XXXXXX";
   int fd = mkstemp(path);
   CHECK(fd >= 0);
   if (fd >= 0) {

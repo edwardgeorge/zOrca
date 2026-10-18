@@ -13,7 +13,7 @@
 # both orcas without --alsa or --portmidi, so they open no MIDI device: the
 # check refuses (exit 2, before any run) an <orca> or <debug-orca> whose
 # `readelf -d` lists libasound or libportmidi, and every orca run also has
-# ZORCA_ALSA_CLIENT_NAME=borca-realloc-shim-<pid>. It unsets the caller's
+# ZORCA_ALSA_CLIENT_NAME=zorca-realloc-shim-<pid>. It unsets the caller's
 # SHIM_MALLOC_MAX and SHIM_REALLOC_MAX, so each case sets only the limits it
 # names. The check compiles shim.c, beside this script, with $CC (default
 # cc) into a scratch directory: an LD_PRELOAD library that fails every
@@ -77,14 +77,14 @@ for b in "$orca" "$dorca"; do
     exit 2
   fi
 done
-alsa_name=borca-realloc-shim-$$
-tmp=$(mktemp -d "${TMPDIR:-/tmp}/borca-realloc-shim.XXXXXX") || exit 2
+alsa_name=zorca-realloc-shim-$$
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/zorca-realloc-shim.XXXXXX") || exit 2
 # Each tmux run has a server of its own, $sock-<run>: a new session on a
 # server that kill-server is still shutting down fails ("server exited
 # unexpectedly"). Each server's socket is added to socks as it is created,
 # and cleanup kills exactly those. Each run's exit status is written to a
 # .new file and renamed, so a waiting check never reads it half written.
-sock=borca-realloc-shim-$$
+sock=zorca-realloc-shim-$$
 socks=
 cleanup() {
   for s in $socks; do tmux -L "$s" kill-server 2>/dev/null; done

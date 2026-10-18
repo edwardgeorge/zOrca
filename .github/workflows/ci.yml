@@ -73,7 +73,7 @@ jobs:
       # this step prints is the expected outcome.
       - name: Check that CFLAGS_EXTRA reaches the compiler
         run: |
-          if CFLAGS_EXTRA=-fborca-no-such-flag ./tool build cli; then
+          if CFLAGS_EXTRA=-fzorca-no-such-flag ./tool build cli; then
             echo "tool ignored CFLAGS_EXTRA"
             exit 1
           fi

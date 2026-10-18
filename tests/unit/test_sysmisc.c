@@ -194,11 +194,11 @@ void test_events_dropped_format(void) {
 void test_path_is_dir(void) {
   CHECK(!path_is_dir(NULL));
   CHECK(!path_is_dir(""));
-  CHECK(!path_is_dir("/nonexistent_path_borca_unit_test"));
+  CHECK(!path_is_dir("/nonexistent_path_zorca_unit_test"));
   CHECK(path_is_dir("."));
   CHECK(path_is_dir("/tmp"));
 
-  char file_path[] = "/tmp/borca-unit-isdir-file-XXXXXX";
+  char file_path[] = "/tmp/zorca-unit-isdir-file-XXXXXX";
   int fd = mkstemp(file_path);
   CHECK(fd >= 0);
   if (fd >= 0) {
@@ -207,7 +207,7 @@ void test_path_is_dir(void) {
     unlink(file_path);
   }
 
-  char dir_path[] = "/tmp/borca-unit-isdir-dir-XXXXXX";
+  char dir_path[] = "/tmp/zorca-unit-isdir-dir-XXXXXX";
   char *d = mkdtemp(dir_path);
   CHECK(d != NULL);
   if (d) {

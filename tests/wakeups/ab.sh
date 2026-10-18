@@ -13,7 +13,7 @@
 #    - base: 4f349cd from `git archive`, with
 #      tests/wakeups/4f349cd-counter.patch applied (`patch -p1`), built with
 #      its own tool;
-#    - borca: a copy of this working tree's tracked files, built with
+#    - zorca: a copy of this working tree's tracked files, built with
 #      CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS. A new source file must be
 #      tracked (`git add`) before the A/B copies it: the copy is plain
 #      `git ls-files`, since the untracked files include planning trees
@@ -79,7 +79,7 @@ die() {
 }
 
 mkdir -p "$out"
-rm -rf "$out/base" "$out/borca" "$out/runs" "$out/base.tar" "$out/borca.tar" \
+rm -rf "$out/base" "$out/zorca" "$out/runs" "$out/base.tar" "$out/zorca.tar" \
   "$out/files.txt"
 
 # 1. The builds. Each goes through a file, not a pipe, so a failure stops
@@ -97,14 +97,14 @@ patch -p1 -N -s -d "$out/base" -i "$root/tests/wakeups/4f349cd-counter.patch" ||
 
 echo "zOrca: the working tree's tracked files, build"
 (cd "$root" && git ls-files) >"$out/files.txt"
-(cd "$root" && tar -c -f "$out/borca.tar" -T "$out/files.txt") ||
+(cd "$root" && tar -c -f "$out/zorca.tar" -T "$out/files.txt") ||
   die "copying the tracked files failed"
-mkdir "$out/borca"
-tar -x -f "$out/borca.tar" -C "$out/borca"
-rm "$out/borca.tar" "$out/files.txt"
-(cd "$out/borca" && CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS ./tool build orca) \
-  >"$out/borca-build.log" 2>&1 ||
-  die "the zOrca build failed; see $out/borca-build.log"
+mkdir "$out/zorca"
+tar -x -f "$out/zorca.tar" -C "$out/zorca"
+rm "$out/zorca.tar" "$out/files.txt"
+(cd "$out/zorca" && CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS ./tool build orca) \
+  >"$out/zorca-build.log" 2>&1 ||
+  die "the zOrca build failed; see $out/zorca-build.log"
 
 # The grids: the glide patch, its control, and the empty grid.
 mkdir -p "$out/runs"
@@ -163,24 +163,24 @@ for conf in strict off; do
   run "idle-$conf-4f349cd" base empty "$conf"
   base_waits=$waits_s
   base_zero=$zero_s
-  run "idle-$conf-borca" borca empty "$conf"
+  run "idle-$conf-zorca" zorca empty "$conf"
   check "idle $conf: zOrca $waits_s waits/s is 0.90-1.10 x 4f349cd's $base_waits" \
     'a >= 0.90 * b && a <= 1.10 * b' "$waits_s" "$base_waits"
   check "idle $conf: zOrca $zero_s zero-timeout/s <= 1.5 x 4f349cd's $base_zero + 5" \
     'a <= 1.5 * b + 5' "$zero_s" "$base_zero"
 done
 ceiling=$((2 * glide_hz))
-run glide-off-control borca control off
+run glide-off-control zorca control off
 control_waits=$waits_s
-run glide-off borca glide off
+run glide-off zorca glide off
 check "glide off: $waits_s waits/s >= the control's $control_waits + 50" \
   'a >= b + 50' "$waits_s" "$control_waits"
 check "glide off: $waits_s waits/s <= the control's $control_waits + $ceiling" \
   "a <= b + $ceiling" "$waits_s" "$control_waits"
-run glide-strict-control borca control strict
+run glide-strict-control zorca control strict
 control_waits=$waits_s
 control_zero=$zero_s
-run glide-strict borca glide strict
+run glide-strict zorca glide strict
 check "glide strict: $zero_s zero-timeout/s <= 1.5 x the control's $control_zero" \
   'a <= 1.5 * b' "$zero_s" "$control_zero"
 check "glide strict: $waits_s waits/s <= the control's $control_waits + $ceiling" \
