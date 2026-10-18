@@ -5,7 +5,7 @@
 // one mistake it plants, while canary_ok's three correct calls pass. If one
 // does not, the check is blind to that mistake and the run fails. The
 // functions keep tui_main.c's spellings (Ged *a, now, e, sink), and every
-// clock_out_return_internal call sits under #ifdef BORCA_HAS_MIDI_IN, as the
+// clock_out_return_internal call sits under #ifdef ZORCA_HAS_MIDI_IN, as the
 // shell's does, unless its conditionals are the planted mistake, so each bad
 // function fails only through its mistake. A function added here is added
 // to the script's canary_bad list too.
@@ -85,7 +85,7 @@ static void canary_now_stale(Ged *a) {
                    a->is_playing, &sink);
 }
 
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
 // FB while stopped.
 static void canary_playing_true(Ged *a) {
   Tick_sink const sink = ged_sink(a);
@@ -232,7 +232,7 @@ static void canary_toggle_playing_true(Ged *a) {
   clock_out_toggle(&a->clock_out, a->clock_source, a->bpm, now, e, true, &sink);
 }
 
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
 // The re-arm from the last deadline, not the present.
 static void canary_return_now_stale(Ged *a) {
   Tick_sink const sink = ged_sink(a);
@@ -253,10 +253,10 @@ static void canary_return_unguarded(Ged *a) {
                             &sink);
 }
 
-// A correct call in the #else arm of #ifdef BORCA_HAS_MIDI_IN.
+// A correct call in the #else arm of #ifdef ZORCA_HAS_MIDI_IN.
 static void canary_return_else_arm(Ged *a) {
   Tick_sink const sink = ged_sink(a);
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
   (void)sink;
 #else
   clock_out_return_internal(&a->clock_out, a->bpm, stm_now(), a->is_playing,
@@ -264,12 +264,12 @@ static void canary_return_else_arm(Ged *a) {
 #endif
 }
 
-// A correct call in an #elif arm after #ifdef BORCA_HAS_MIDI_IN.
+// A correct call in an #elif arm after #ifdef ZORCA_HAS_MIDI_IN.
 static void canary_return_elif(Ged *a) {
   Tick_sink const sink = ged_sink(a);
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
   (void)sink;
-#elif defined(BORCA_HAS_MIDI_OUT)
+#elif defined(ZORCA_HAS_MIDI_OUT)
   clock_out_return_internal(&a->clock_out, a->bpm, stm_now(), a->is_playing,
                             &sink);
 #endif
@@ -300,7 +300,7 @@ static void canary_ok(Ged *a) {
                    stm_sec(stm_diff(now, a->clock_out.clock)) +
                        a->clock_out.accum_secs,
                    a->is_playing, &sink);
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
   clock_out_return_internal(&a->clock_out, a->bpm, stm_now(), a->is_playing,
                             &sink);
 #endif

@@ -3,7 +3,7 @@
 // The check scans it with the no-call rule: it must give exactly the
 // unbalanced-braces FAIL, or the check is blind and the run fails.
 
-#if defined(BORCA_HAS_MIDI_IN)
+#if defined(ZORCA_HAS_MIDI_IN)
 static void unbalanced_arms(Ged *a) {
 #else
 static void unbalanced_arms(Ged *a, int unused) {

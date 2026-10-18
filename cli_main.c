@@ -9,8 +9,8 @@
 #include <errno.h>
 #include <getopt.h>
 
-#ifndef BORCA_VERSION
-#define BORCA_VERSION "unknown"
+#ifndef ZORCA_VERSION
+#define ZORCA_VERSION "unknown"
 #endif
 
 static ORCA_NOINLINE void usage(void) { // clang-format off
@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
       usage();
       return 0;
     case Argopt_version:
-      printf("zOrca %s\n", BORCA_VERSION);
+      printf("zOrca %s\n", ZORCA_VERSION);
       return 0;
     case '?':
       usage();

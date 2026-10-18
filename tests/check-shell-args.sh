@@ -31,7 +31,7 @@
 #     and playing (the fourth) is a->is_playing;
 #   - every tick_stop and clock_out_toggle call sits under no conditional,
 #     and every clock_out_return_internal call under exactly
-#     #ifdef BORCA_HAS_MIDI_IN, so a call compiled out never counts;
+#     #ifdef ZORCA_HAS_MIDI_IN, so a call compiled out never counts;
 #   - each helper has at least one call, every call found is checked, and a
 #     helper name used any other way (in a #define, its address taken, a
 #     parenthesised (tick_stop)(...)) fails where it is used.
@@ -66,7 +66,7 @@
 # scanned, so a call added to another shell file is not checked, but the
 # no-call rule fails if the call leaves tui_main.c; a declaration of a helper
 # inside tui_main.c reads as a call and fails; the conditionals are pinned by
-# the directive's spelling, so #if defined(BORCA_HAS_MIDI_IN), or a call
+# the directive's spelling, so #if defined(ZORCA_HAS_MIDI_IN), or a call
 # moved under another guard, fails until the script is updated with it.
 # Correct code can fail loudly: a local declared outside the call's block,
 # one declared after another declarator (bool x = y, clock_out = ...) and a
@@ -346,7 +346,7 @@ scan() {
       FTEXT = top ? substr(T, FBASE, closeof(OPENI[1]) - FBASE + 1) : ""
 
       stk = stackat(at)
-      want = (name == "clock_out_return_internal") ? "#ifdef BORCA_HAS_MIDI_IN" : ""
+      want = (name == "clock_out_return_internal") ? "#ifdef ZORCA_HAS_MIDI_IN" : ""
       if (stk != want)
         return fail(fn, name Q "s conditionals are " show(stk) ", expected " show(want))
 
@@ -386,7 +386,7 @@ scan() {
       if (ARG[3] != "stm_now()") return fail(fn, name Q "s now is " ARG[3] ", expected stm_now()")
       if (ARG[4] != "a->is_playing")
         return fail(fn, name Q "s playing is " ARG[4] ", expected a->is_playing")
-      return pass(fn, name Q "s now is stm_now() and playing is a->is_playing, under #ifdef BORCA_HAS_MIDI_IN")
+      return pass(fn, name Q "s now is stm_now() and playing is a->is_playing, under #ifdef ZORCA_HAS_MIDI_IN")
     }
 
     BEGIN {

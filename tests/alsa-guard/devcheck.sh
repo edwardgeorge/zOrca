@@ -18,7 +18,7 @@
 # util-linux script (so the TUI has a terminal) and `timeout --foreground
 # -k 1 <s>` (3 s; 6 s for D1's first instance), which ends a run that
 # starts with SIGTERM, so a run that gets past the guard exits 124. The
-# shim, by BORCA_GUARD_SHIM, makes a lost race deterministic (hold: a
+# shim, by ZORCA_GUARD_SHIM, makes a lost race deterministic (hold: a
 # second client of this process takes the name just before orca's rename)
 # or fails the scans (eio: every scan; eio2: only the one after the
 # rename), and prints `pid <n> ports created <k>` on exit. Checks, one PASS
@@ -136,7 +136,7 @@ xdg() {
 run() {
   r_env="TERM=xterm XDG_CONFIG_HOME='$4' ZORCA_ALSA_CLIENT_NAME=$base-$1"
   if [ "$2" != - ]; then
-    r_env="$r_env LD_PRELOAD='$tmp/shim.so' BORCA_GUARD_SHIM=$2"
+    r_env="$r_env LD_PRELOAD='$tmp/shim.so' ZORCA_GUARD_SHIM=$2"
   fi
   nice -n 19 taskset -c 0-2 script -qec \
     "timeout --foreground -k 1 ${5-3} env $r_env '$orca' '$tmp/patch.orca'" \

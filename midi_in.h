@@ -15,11 +15,11 @@
 // Everything here is static inline, reads no clock and does no I/O but through
 // a sink or a callback. The backend-specific helpers sit behind their FEAT_
 // flags and may include that backend's header (an adapter, not core).
-// BORCA_HAS_MIDI_IN is defined when a build has a reader; with none, External
+// ZORCA_HAS_MIDI_IN is defined when a build has a reader; with none, External
 // is hidden and the --clock-source and --midi-in flags are unknown options.
 
 #if defined(FEAT_ALSA) || defined(FEAT_PORTMIDI)
-#define BORCA_HAS_MIDI_IN 1
+#define ZORCA_HAS_MIDI_IN 1
 #endif
 
 // The HUD's BPM field under External, at most 8 characters: "ext lost" while
@@ -397,7 +397,7 @@ static inline bool pending_offs_wait_us(Pending_offs const *p, U64 now_us,
 // sees no notes, controls or realtime noise. PortMidi has no filter bit for
 // F4 and F5, which pass the mask and are rejected by the parser.
 // Pm_SetFilter takes it right after Pm_OpenInput.
-#define BORCA_PM_IN_DROP                                                       \
+#define ZORCA_PM_IN_DROP                                                       \
   (PM_FILT_ACTIVE | PM_FILT_SYSEX | PM_FILT_TICK | PM_FILT_UNDEFINED |         \
    PM_FILT_RESET | PM_FILT_MTC | PM_FILT_SONG_SELECT | PM_FILT_TUNE |          \
    PM_FILT_NOTE | PM_FILT_AFTERTOUCH | PM_FILT_PROGRAM | PM_FILT_CONTROL |     \

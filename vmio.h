@@ -77,7 +77,7 @@ typedef struct {
   Usz count, capacity;
   // The number of events dropped into the discard slot since
   // oevent_list_init. oevent_list_clear keeps it. Only orca reports it: a
-  // BORCA_DEBUG_COUNTERS build prints it on quit; cli does not.
+  // ZORCA_DEBUG_COUNTERS build prints it on quit; cli does not.
   Usz dropped;
   // The slot oevent_list_alloc_item returns when the list cannot grow: the
   // caller writes its event here and it is dropped. Never read or sent; each

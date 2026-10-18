@@ -9,7 +9,7 @@
 // call, and the text saved after each `key = `. Like tick.c and tooltips.c it
 // does no I/O, reads no clock, holds no writable statics and includes only the
 // core allow-list, never midi_in.h or a backend header, and it holds no FEAT_
-// or BORCA_HAS_MIDI_IN ifdef: the build's input reader comes in as
+// or ZORCA_HAS_MIDI_IN ifdef: the build's input reader comes in as
 // tui_prefs_init's has_midi_in and the backend's input key. tui_main.c owns the
 // file (ezconf_r_step and ezconf_w_step in sysmisc.c), curses, the menus and
 // forms, the PortMidi output device's save, and every engine call

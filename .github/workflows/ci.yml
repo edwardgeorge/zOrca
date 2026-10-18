@@ -755,11 +755,11 @@ jobs:
       # its counter strings in the -flto -s binary; after the plain --alsa
       # build and make appliance below, it must find neither, which proves
       # that the counters stay out of the shipped builds. The positive greps
-      # are the canary for the negative ones. BORCA_DEBUG_COUNTERS also
+      # are the canary for the negative ones. ZORCA_DEBUG_COUNTERS also
       # gates the MIDI-in counter line and the ALSA input pool line; the
       # wakeup line catches their leak.
       - name: Build release orca with debug counters
-        run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build orca
+        run: CFLAGS_EXTRA="-Werror -DZORCA_DEBUG_COUNTERS" ./tool build orca
 
       - name: Check that the counter orca holds the wakeup and events counter strings
         run: |
@@ -773,7 +773,7 @@ jobs:
           fi
 
       - name: Build release orca with ALSA and debug counters
-        run: CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" ./tool build --alsa orca
+        run: CFLAGS_EXTRA="-Werror -DZORCA_DEBUG_COUNTERS" ./tool build --alsa orca
 
       - name: Check that the ALSA counter orca holds the wakeup, ALSA, input pool and events counter strings
         run: |

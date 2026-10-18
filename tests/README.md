@@ -568,7 +568,7 @@ today:
 
 | Flag | List | Tests |
 | --- | --- | --- |
-| `--portmidi` (`FEAT_PORTMIDI`) | `PORTMIDI_TESTS_ALL` | `portmidi_error_text_and_filters`: `Pm_GetErrorText` returns text; the clock, play and song-position filter bits are set and disjoint. `portmidi_in_filter`: PortMidi 217's filter logic over `BORCA_PM_IN_DROP` passes F8, FA, FB, FC and F2 and drops notes, controls and realtime noise. `portmidi_in_decode`: the reader's `pm_in_decode` reads status, Data1 and Data2 in that order (F2 with Data1 16 is song position 16), and F2(16), FB and six F8s on a reset machine give tick 17 |
+| `--portmidi` (`FEAT_PORTMIDI`) | `PORTMIDI_TESTS_ALL` | `portmidi_error_text_and_filters`: `Pm_GetErrorText` returns text; the clock, play and song-position filter bits are set and disjoint. `portmidi_in_filter`: PortMidi 217's filter logic over `ZORCA_PM_IN_DROP` passes F8, FA, FB, FC and F2 and drops notes, controls and realtime noise. `portmidi_in_decode`: the reader's `pm_in_decode` reads status, Data1 and Data2 in that order (F2 with Data1 16 is song position 16), and F2(16), FB and six F8s on a reset machine give tick 17 |
 | `--alsa` (`FEAT_ALSA`, Linux only) | `ALSA_TESTS_ALL` | `alsa_version_and_open_modes`: `snd_asoundlib_version()` is non-empty; `SND_SEQ_OPEN_DUPLEX` is `SND_SEQ_OPEN_OUTPUT \| SND_SEQ_OPEN_INPUT`; `SND_SEQ_NONBLOCK` is non-zero. `alsa_in_mapping`: sequencer events map to transport events, SONGPOS clamped. `alsa_in_announce`: the stored source is cleared on its CLIENT_EXIT, PORT_EXIT or PORT_UNSUBSCRIBED and re-matched on PORT_START only while none is stored. `alsa_in_split`: `client:port` splits at the last colon, both sides non-empty. `alsa_name_scan`: the client-name scan is free only when its list ends on `-ENOENT`, taken on another client of the name, and returns any other error. `alsa_client_name_fits`: a client name fits at 63 bytes and not at 64 or 200; the empty string fits |
 
 The PortMidi build needs `libportmidi-dev`, so it runs in CI only, not on
@@ -960,7 +960,7 @@ rules:
   `stm_now()`, and `playing`, the fourth, is `a->is_playing`.
 - Every `tick_stop` and `clock_out_toggle` call sits under no conditional,
   and every `clock_out_return_internal` call under exactly
-  `#ifdef BORCA_HAS_MIDI_IN`, as today's does. Any other stack (`#if 0`, an
+  `#ifdef ZORCA_HAS_MIDI_IN`, as today's does. Any other stack (`#if 0`, an
   `#else` or `#elif` arm, another macro, an extra level) fails the call, so
   a call compiled out never counts as present.
 - Each helper has at least one call in `tui_main.c`
@@ -1029,7 +1029,7 @@ each plant one mistake, and each must fail exactly once:
   `a->clock_out.clock` as `now` (`canary_return_now_stale`), four arguments
   (`canary_return_four_args`), and a correct call outside any conditional
   (`canary_return_unguarded`), in the `#else` arm of
-  `#ifdef BORCA_HAS_MIDI_IN` (`canary_return_else_arm`) and in an `#elif`
+  `#ifdef ZORCA_HAS_MIDI_IN` (`canary_return_else_arm`) and in an `#elif`
   arm (`canary_return_elif`);
 - other uses: a correct `tick_stop` call under `#if 0` (`canary_call_if0`),
   a call in a `#define` (`canary_call_in_define`), the address taken
@@ -1037,7 +1037,7 @@ each plant one mistake, and each must fail exactly once:
   (`canary_call_parenthesised`).
 
 Every other `clock_out_return_internal` call in it sits under
-`#ifdef BORCA_HAS_MIDI_IN`, so each function fails only through its
+`#ifdef ZORCA_HAS_MIDI_IN`, so each function fails only through its
 planted mistake. `canary_ok` holds one correct call of each helper, the
 gate and `e` passed inline, which must pass, and a comment and a string
 literal each holding a wrong `tick_stop` call and a `{`, and the character
@@ -1062,7 +1062,7 @@ Known edges:
 - A declaration of a helper inside `tui_main.c` would be read as a call and
   fail.
 - The conditionals are pinned by the directive's spelling
-  (`#ifdef BORCA_HAS_MIDI_IN`). Respelling it (`#if defined(…)`) or moving
+  (`#ifdef ZORCA_HAS_MIDI_IN`). Respelling it (`#if defined(…)`) or moving
   a call under another guard fails loudly and needs the script updated in
   the same commit.
 - Correct code can fail loudly: a local declared outside the call's block,
@@ -1080,7 +1080,7 @@ $ tests/check-shell-args.sh
 PASS  canary (rejected: canary_gate_enabled, canary_gate_direct_enabled, canary_gate_internal, canary_gate_reassigned, canary_gate_param, canary_e_no_carry, canary_e_since, canary_now_call, canary_now_stale, canary_playing_true, canary_playing_enabled, canary_call_if0, canary_gate_outer_default, canary_gate_if0_decl, canary_gate_if_unbraced, canary_gate_nested_decl, canary_gate_after_call, canary_now_postinc, canary_e_predec, canary_call_in_define, canary_address_taken, canary_call_parenthesised, canary_toggle_src_internal, canary_toggle_playing_true, canary_return_now_stale, canary_return_unguarded, canary_return_else_arm, canary_return_elif, canary_gate_compound_only, canary_return_four_args; accepted: canary_ok's 3 calls; fixtures: nocall.c's 3 no-call FAILs, unbalanced.c's unbalanced braces)
 PASS  tui_main.c ged_set_playing: tick_stop's gate is clock_out, declared from clock_out_active(&a->clock_out,a->clock_source)
 PASS  tui_main.c tui_drive_menus: clock_out_toggle's src is a->clock_source, now is now, declared from stm_now(), e is e, declared from stm_sec(stm_diff(now,a->clock_out.clock))+a->clock_out.accum_secs, and playing is a->is_playing
-PASS  tui_main.c tui_set_clock_source: clock_out_return_internal's now is stm_now() and playing is a->is_playing, under #ifdef BORCA_HAS_MIDI_IN
+PASS  tui_main.c tui_set_clock_source: clock_out_return_internal's now is stm_now() and playing is a->is_playing, under #ifdef ZORCA_HAS_MIDI_IN
 shell-args check: 3 calls, 3 pass, 0 fail; canary detected
 ```
 
@@ -1097,7 +1097,7 @@ nice -n 19 taskset -c 0-2 tests/wakeups/ab.sh
 It builds two release `orca`s without ALSA or PortMidi, each in its own
 tree under `build/wakeups/`, and never writes `build/orca`: `4f349cd`, from
 `git archive` with `tests/wakeups/4f349cd-counter.patch` applied, and this
-working tree's tracked files with `CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS`.
+working tree's tracked files with `CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS`.
 Both count the loop's waits and print
 `<name> wakeups: <n> waits, <z> zero-timeout in <s> s` (`bOrca` for 4f349cd, `zOrca` for this build) to stderr on quit:
 `<n>` counts the waits (`wgetch` calls) entered with a timeout above 0,
@@ -1218,7 +1218,7 @@ scratch directory and runs the `orca` on a scratch three-line patch, with
 `TERM=xterm`, under util-linux `script` (with `SHELL=/bin/sh`) and
 `timeout --foreground -k 1 3` (6 s for D1's first instance), so a run that
 gets past the guard exits 124.
-The shim's mode, in `BORCA_GUARD_SHIM`, makes a lost race deterministic
+The shim's mode, in `ZORCA_GUARD_SHIM`, makes a lost race deterministic
 (`hold`: a second client of the same process takes the name just before
 `orca`'s rename) or fails the scans (`eio`: every scan; `eio2`: only the one
 after the rename), and it prints `pid <n> ports created <k>` on exit. One
@@ -1457,12 +1457,12 @@ its wait at the idle ceiling, so the check's limits cannot tell the two apart. C
 since hosted runners have no `/dev/snd/seq`.
 
 ```sh
-CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
+CFLAGS_EXTRA="-Werror -DZORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
 nice -n 19 taskset -c 0-2 tests/alsa-noteoff/devcheck.sh build/orca [baseline-orca]
 ```
 
 The first argument is the build under test (any `--alsa` build: release,
-`-d` or `make appliance`; with `-DBORCA_DEBUG_COUNTERS` the check also reads
+`-d` or `make appliance`; with `-DZORCA_DEBUG_COUNTERS` the check also reads
 the held and sent-again counts the `orca` prints on exit). The optional
 second is the negative control: a build without the held list (6788188 or
 50be43f), which must hang the note, or the check proves nothing. A build
@@ -1587,7 +1587,7 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   `--alsa --portmidi` with `Choose ALSA or PortMidi`, then builds the debug
   `orca`, the debug `orca` with PortMidi (`make debug`) and with ALSA, the
   release `orca` without mouse support, the release `orca` with PortMidi,
-  the release `orca` with `-DBORCA_DEBUG_COUNTERS`, without and then with
+  the release `orca` with `-DZORCA_DEBUG_COUNTERS`, without and then with
   ALSA, the release `orca` with ALSA and the appliance `orca`
   (`make appliance`, which is `--alsa --harden --pie`), all with `-Werror`.
   After the first counter build `grep -a` must find `zOrca wakeups:` and
@@ -1700,9 +1700,9 @@ nice -n 19 taskset -c 0-2 tests/check-debug-build.sh build/debug/unit_tests /tmp
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --no-mouse orca
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build -d --alsa orca
-CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build orca
+CFLAGS_EXTRA="-Werror -DZORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build orca
 grep -aq 'zOrca wakeups:' build/orca && grep -aq 'zOrca events:' build/orca  # must succeed
-CFLAGS_EXTRA="-Werror -DBORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
+CFLAGS_EXTRA="-Werror -DZORCA_DEBUG_COUNTERS" nice -n 19 taskset -c 0-2 ./tool build --alsa orca
 grep -aq 'zOrca wakeups:' build/orca && grep -aq 'zOrca ALSA:' build/orca &&
   grep -aq 'zOrca events:' build/orca                                  # must succeed
 CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 ./tool build --alsa orca
@@ -1713,7 +1713,7 @@ CFLAGS_EXTRA=-Werror nice -n 19 taskset -c 0-2 make appliance
   ! grep -aq 'zOrca events:' build/orca                                # none of the three
 ```
 
-`-DBORCA_DEBUG_COUNTERS`, passed through `CFLAGS_EXTRA`, is a development
+`-DZORCA_DEBUG_COUNTERS`, passed through `CFLAGS_EXTRA`, is a development
 switch for `orca`, with or without `--alsa`. The event loop counts its waits
 and, on quit, after the screen closes, prints
 `zOrca wakeups: <n> waits, <z> zero-timeout in <s> s` to stderr, which the

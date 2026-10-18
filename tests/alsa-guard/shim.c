@@ -1,7 +1,7 @@
 // LD_PRELOAD shim for the ALSA name-guard device check,
 // tests/alsa-guard/devcheck.sh (the ALSA name guard, since v3.0.0). It
 // wraps three libasound calls that alsa_ctx_open makes, by mode in
-// BORCA_GUARD_SHIM:
+// ZORCA_GUARD_SHIM:
 //
 //   hold  before the first real snd_seq_set_client_name, open a second
 //         snd_seq_t in this process and give it the same name: the state a
@@ -22,7 +22,7 @@
 // Run (the shim loaded by orca only, never by timeout, script or the shell):
 //   script -qec "timeout --foreground -k 1 3 env XDG_CONFIG_HOME=<scratch>
 //                ZORCA_ALSA_CLIENT_NAME=guard-<pid>-<check>
-//                LD_PRELOAD=shim.so BORCA_GUARD_SHIM=hold orca <patch>"
+//                LD_PRELOAD=shim.so ZORCA_GUARD_SHIM=hold orca <patch>"
 //                /dev/null
 #define _GNU_SOURCE
 #include <alsa/asoundlib.h>
@@ -47,7 +47,7 @@ static void note_used(void) {
 }
 
 static char const *mode(void) {
-  char const *m = getenv("BORCA_GUARD_SHIM");
+  char const *m = getenv("ZORCA_GUARD_SHIM");
   return m ? m : "";
 }
 

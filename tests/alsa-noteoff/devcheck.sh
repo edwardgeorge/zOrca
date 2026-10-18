@@ -11,7 +11,7 @@
 #   tests/alsa-noteoff/devcheck.sh <fixed orca> [<baseline orca>]
 #
 # Each is an --alsa build. The fixed one is the build under test; build it with
-# CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS to have the check also read the held and
+# CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS to have the check also read the held and
 # resent counts the orca prints on exit. The optional baseline is the same
 # source without the held list (a build of 6788188 or 50be43f): the negative
 # control, which must hang the note, or the check proves nothing.
@@ -308,7 +308,7 @@ else
       fi
       ;;
   esac
-  note="counters: not a BORCA_DEBUG_COUNTERS build"
+  note="counters: not a ZORCA_DEBUG_COUNTERS build"
   if [ -n "$counters" ]; then
     # shellcheck disable=SC2086 # two words, split on purpose
     set -- $counters

@@ -48,7 +48,7 @@ static bool pm217_drops(int status, uint32_t filters) {
 // CLOCK, PLAY or SONG_POSITION; and its complement, which is never used,
 // would drop F8.
 void test_portmidi_in_filter(void) {
-  uint32_t const mask = (uint32_t)BORCA_PM_IN_DROP;
+  uint32_t const mask = (uint32_t)ZORCA_PM_IN_DROP;
   CHECK(!pm217_drops(0xF8, mask));
   CHECK(!pm217_drops(0xFA, mask));
   CHECK(!pm217_drops(0xFB, mask));

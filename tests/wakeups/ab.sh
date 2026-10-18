@@ -14,7 +14,7 @@
 #      tests/wakeups/4f349cd-counter.patch applied (`patch -p1`), built with
 #      its own tool;
 #    - borca: a copy of this working tree's tracked files, built with
-#      CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS. A new source file must be
+#      CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS. A new source file must be
 #      tracked (`git add`) before the A/B copies it: the copy is plain
 #      `git ls-files`, since the untracked files include planning trees
 #      whose names tar cannot read.
@@ -102,7 +102,7 @@ echo "zOrca: the working tree's tracked files, build"
 mkdir "$out/borca"
 tar -x -f "$out/borca.tar" -C "$out/borca"
 rm "$out/borca.tar" "$out/files.txt"
-(cd "$out/borca" && CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS ./tool build orca) \
+(cd "$out/borca" && CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS ./tool build orca) \
   >"$out/borca-build.log" 2>&1 ||
   die "the zOrca build failed; see $out/borca-build.log"
 

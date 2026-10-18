@@ -536,7 +536,7 @@ CI runs these and more on every push and pull request to `main` and `dev`, and o
 
 ### Debug counters
 
-For development, `CFLAGS_EXTRA=-DBORCA_DEBUG_COUNTERS ./tool build orca`, with or without `--alsa`, counts the event loop's wakeups and, after the screen closes on quit, prints its lines to stderr, the wakeup line last. The counters are never in a release or appliance build; CI checks this.
+For development, `CFLAGS_EXTRA=-DZORCA_DEBUG_COUNTERS ./tool build orca`, with or without `--alsa`, counts the event loop's wakeups and, after the screen closes on quit, prints its lines to stderr, the wakeup line last. The counters are never in a release or appliance build; CI checks this.
 
 - `zOrca wakeups: <n> waits, <z> zero-timeout in <s> s`: `<n>` counts the loop's waits for input entered with a timeout above 0, `<z>` those entered with a timeout of 0, and `<s>` the seconds since the loop started. Under External with ALSA the loop's wait is a `poll()` over the keyboard and the sequencer, and this line counts those waits in place of the keyboard reads. `tests/wakeups/ab.sh` compares it with `4f349cd`'s (see [Wakeup check](tests/README.md#wakeup-check)).
 - `zOrca ALSA: <n> MIDI sends dropped on EAGAIN/EINTR, <m> not sent in all`, in an `--alsa` build: `<n>` counts the messages dropped because the sequencer's output was full or the write was interrupted, and `<m>` every message that did not go out.

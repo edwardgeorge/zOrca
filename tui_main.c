@@ -62,8 +62,8 @@ static int spin_track_timeout = 0;
 
 #define staticni ORCA_NOINLINE static
 
-#ifndef BORCA_VERSION
-#define BORCA_VERSION "unknown"
+#ifndef ZORCA_VERSION
+#define ZORCA_VERSION "unknown"
 #endif
 
 staticni void usage(void) { // clang-format off
@@ -107,7 +107,7 @@ fprintf(stderr,
 "        The path argument is the path of the Plogue OSC MIDI device.\n"
 "        Example: /OSC_MIDI_0/MIDI\n"
 );
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
 fprintf(stderr,
 "\n"
 "    --clock-source internal|external\n"
@@ -986,7 +986,7 @@ typedef struct {
   // held, resent and lost totals are printed to stderr after endwin in a
   // counters build.
   Pending_offs pending_offs;
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
   // Of those, the sends dropped on -EAGAIN or -EINTR. Printed to stderr after
   // endwin.
   Usz send_drops;
@@ -1119,7 +1119,7 @@ staticni int alsa_ctx_open(Alsa_ctx *ctx, bool *scan_failed) {
     goto fail;
   ctx->in_port = err;
   (void)snd_seq_set_client_pool_input(seq, Alsa_input_pool);
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
   {
     snd_seq_client_pool_t *pool;
     snd_seq_client_pool_alloca(&pool);
@@ -1244,7 +1244,7 @@ static void alsa_silent_error_handler(char const *file, int line,
 // nothing again itself: a refused note-off is kept by send_midi_3bytes in
 // pending_offs, and the main loop tries it again (ged_retry_note_offs).
 static void alsa_ctx_count_send_failure(Alsa_ctx *ctx, int err) {
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
   if (err == -EAGAIN || err == -EINTR)
     ++ctx->send_drops;
 #else
@@ -2574,7 +2574,7 @@ staticni void ged_stop(Ged *a) {
   ged_stop_all_sustained_notes(a);
 }
 
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
 // The transport machine's start: FA or FB from the master. Unlike
 // ged_set_playing(true) it pushes no undo snapshot, re-arms no internal
 // deadline, sends no MIDI and never cancels glides (FA, FB and F2 leave
@@ -2637,7 +2637,7 @@ static void ged_transport_overflow(Ged *a) {
   Transport_event const ov = {.type = Transport_overflow, .stamp = now_us()};
   ged_transport_event(a, &ov);
 }
-#endif // BORCA_HAS_MIDI_IN
+#endif // ZORCA_HAS_MIDI_IN
 
 // Returns false when a cut or copy could not fill the internal clipboard.
 staticni bool ged_input_cmd(Ged *a, Ged_input_cmd ev) {
@@ -2791,7 +2791,7 @@ enum {
 #ifdef FEAT_PORTMIDI
   Portmidi_output_device_menu_id,
 #endif
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
   Clock_source_menu_id,
   Midi_input_menu_id,
 #endif
@@ -2961,7 +2961,7 @@ static void push_playback_menu(bool midi_bclock_enabled, bool external) {
                    midi_bclock_enabled ? '*' : ' ',
                    external ? " (suspended)" : "");
   qmenu_add_choice(qm, Playback_menu_glide_rate, "Glide Rate...");
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
   qmenu_add_choice(qm, Playback_menu_clock_source, "Clock Source...");
   qmenu_add_choice(qm, Playback_menu_midi_input, "MIDI Input...");
 #else
@@ -2969,7 +2969,7 @@ static void push_playback_menu(bool midi_bclock_enabled, bool external) {
 #endif
   qmenu_push_to_nav(qm);
 }
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
 // The clock source: a radio with the active one marked, as
 // the dialect radio. Picking it again changes nothing.
 enum {
@@ -3368,7 +3368,7 @@ typedef struct {
 #ifdef FEAT_PORTMIDI
   PortMidiStream *midi_in_stream; // open only while External
 #endif
-#if defined(BORCA_DEBUG_COUNTERS) && defined(BORCA_HAS_MIDI_IN)
+#if defined(ZORCA_DEBUG_COUNTERS) && defined(ZORCA_HAS_MIDI_IN)
   // The input reader's overflows (-ENOSPC, pmBufferOverflow) and other read
   // errors. Printed to stderr after endwin.
   Usz midi_in_overflows, midi_in_errors;
@@ -3577,7 +3577,7 @@ staticni void glide_rate_menu_was_picked(Tui *t, int picked_id) {
   tui_save_prefs(t);
 }
 
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
 // The MIDI input. It is open, as an ALSA subscription or a PortMidi
 // input stream, only while the clock source is External. A missing or failed
 // source shows a qnav message and never prints after initscr.
@@ -3649,7 +3649,7 @@ staticni void tui_input_open(Tui *t) {
                      name, Pm_GetErrorText(pmerr));
     return;
   }
-  Pm_SetFilter(t->midi_in_stream, BORCA_PM_IN_DROP);
+  Pm_SetFilter(t->midi_in_stream, ZORCA_PM_IN_DROP);
   // Discard whatever arrived before the filter.
   PmEvent discard[32];
   while (Pm_Read(t->midi_in_stream, discard, 32) > 0) {
@@ -3674,7 +3674,7 @@ staticni void tui_input_drain(Tui *t) {
     if (err == -EAGAIN)
       break;
     if (err == -ENOSPC) {
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
       ++t->midi_in_overflows;
 #endif
       // The kernel's overflow flush emptied the whole input FIFO, announces
@@ -3694,7 +3694,7 @@ staticni void tui_input_drain(Tui *t) {
       continue;
     }
     if (err < 0) {
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
       ++t->midi_in_errors;
 #endif
       break;
@@ -3733,13 +3733,13 @@ staticni void tui_input_drain(Tui *t) {
       break;
     if (n < 0) {
       if (n == pmBufferOverflow) {
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
         ++t->midi_in_overflows;
 #endif
         ged_transport_overflow(&t->ged);
         continue;
       }
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
       ++t->midi_in_errors;
 #endif
       break;
@@ -3986,7 +3986,7 @@ staticni void midi_input_menu_was_picked(Tui *t, int picked_id) {
     tui_input_restart(t);
   tui_save_prefs(t);
 }
-#endif // BORCA_HAS_MIDI_IN
+#endif // ZORCA_HAS_MIDI_IN
 
 staticni bool tui_restart_osc_udp_if_enabled_diderror(Tui *t) {
   bool error = false;
@@ -4283,7 +4283,7 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
         case Playback_menu_glide_rate:
           push_glide_rate_menu(t->ged.ccout.glide_hz);
           break;
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
         case Playback_menu_clock_source:
           push_clock_source_menu(t->ged.clock_source);
           break;
@@ -4293,7 +4293,7 @@ staticni Tui_menus_result tui_drive_menus(Tui *t, int key) {
 #endif
         }
         break;
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
       case Clock_source_menu_id:
         clock_source_menu_was_picked(t, act.picked.id);
         break;
@@ -4577,7 +4577,7 @@ int main(int argc, char **argv) {
       {"seed", required_argument, 0, Argopt_seed},
       {"dialect", required_argument, 0, Argopt_dialect},
       {"version", no_argument, 0, Argopt_version},
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
       // Unknown options in a build with no input reader.
       {"clock-source", required_argument, 0, Argopt_clock_source},
       {"midi-in", required_argument, 0, Argopt_midi_in},
@@ -4599,7 +4599,7 @@ int main(int argc, char **argv) {
   // The settings' defaults, before the flags and orca.conf. Without a reader
   // the input key is ignored, so Confoptslen stands in for the alias, which
   // has no #else arm.
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
   tui_prefs_init(&t.prefs, true, Confopt_midi_input_device);
 #else
   tui_prefs_init(&t.prefs, false, Confoptslen);
@@ -4615,7 +4615,7 @@ int main(int argc, char **argv) {
       usage();
       exit(0);
     case Argopt_version:
-      printf("zOrca %s\n", BORCA_VERSION);
+      printf("zOrca %s\n", ZORCA_VERSION);
       exit(0);
     case '?':
       usage();
@@ -4661,7 +4661,7 @@ int main(int argc, char **argv) {
       usage();
       OPTFAIL("Must be internal or external.");
     case Argopt_midi_in:
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
       // Any non-empty name that fits is accepted here and resolved after
       // initscr, as the conf key is; one that does not match shows a message
       // then.
@@ -4859,7 +4859,7 @@ int main(int argc, char **argv) {
 
   wtimeout(stdscr, 0);
   int cur_timeout = 0;
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
   // The wakeup counter: the event loop's waits, the wgetch calls,
   // counted apart by whether they enter with a timeout above 0 or with 0,
   // from the start of the loop. Printed to stderr after endwin.
@@ -4938,7 +4938,7 @@ int main(int argc, char **argv) {
   // auto-play. Under External the startup /orca/bpm is skipped (the
   // estimate's shown value goes out when it becomes valid) and so is
   // auto-play: the master starts playback.
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
   tui_apply_clock_source(&t);
 #endif
   bool const startup_external = t.ged.clock_source == Clock_source_external;
@@ -4951,7 +4951,7 @@ int main(int argc, char **argv) {
 #endif
   if (!startup_external)
     ged_set_playing(&t.ged, true); // Auto-play
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
   debug_waits_since = stm_now();
 #endif
   // Enter main loop. Process events as they arrive.
@@ -4960,7 +4960,7 @@ event_loop:;
   if (alsa_shutdown_requested)
     goto quit;
 #endif
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
   // Under External with ALSA the wait is the poll() below, counted there.
 #ifdef FEAT_ALSA
   if (t.ged.clock_source != Clock_source_external)
@@ -4979,7 +4979,7 @@ event_loop:;
   }
   switch (key) {
   case ERR: { // ERR indicates no more events.
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
     // Under External: every queued input event is drained
     // first, each stamped at read time, and only then the machine's
     // timeouts are polled, with a fresh now read after the drain, so a wait
@@ -5089,7 +5089,7 @@ event_loop:;
           new_timeout = (int)wait_ms;
       }
     }
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
     if (external) {
       // The transport machine's deadline (clock lost, or the idle drop of
       // the estimate), a sibling of the engine's: the tick deadline is
@@ -5129,7 +5129,7 @@ event_loop:;
                                          POLLIN);
         if (n < 0)
           n = 0;
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
         if (new_timeout > 0)
           ++debug_waits;
         else
@@ -5493,7 +5493,7 @@ quit:
 #ifdef FEAT_ALSA
   ged_flush_note_offs(&t.ged, 50000); // the stop's refused note-offs, 50 ms
 #endif
-#ifdef BORCA_HAS_MIDI_IN
+#ifdef ZORCA_HAS_MIDI_IN
   tui_input_close(&t); // the PortMidi input before Pm_Terminate
 #endif
   qnav_deinit();
@@ -5507,7 +5507,7 @@ quit:
 #ifdef FEAT_ALSA
   snd_lib_error_set_handler(NULL); // libasound's default handler again
 #endif
-#if defined(FEAT_ALSA) && defined(BORCA_DEBUG_COUNTERS)
+#if defined(FEAT_ALSA) && defined(ZORCA_DEBUG_COUNTERS)
   fprintf(stderr,
           "zOrca ALSA: %zu MIDI sends dropped on EAGAIN/EINTR, %zu not sent "
           "in all; %zu note-offs held for a retry, %zu sent again, %zu "
@@ -5516,15 +5516,15 @@ quit:
           alsa_ctx.pending_offs.held, alsa_ctx.pending_offs.resent,
           alsa_ctx.pending_offs.lost);
 #endif
-#if defined(BORCA_DEBUG_COUNTERS) && defined(BORCA_HAS_MIDI_IN)
+#if defined(ZORCA_DEBUG_COUNTERS) && defined(ZORCA_HAS_MIDI_IN)
   fprintf(stderr, "zOrca MIDI in: %zu overflows, %zu read errors\n",
           t.midi_in_overflows, t.midi_in_errors);
 #endif
-#if defined(FEAT_ALSA) && defined(BORCA_DEBUG_COUNTERS)
+#if defined(FEAT_ALSA) && defined(ZORCA_DEBUG_COUNTERS)
   fprintf(stderr, "zOrca ALSA input pool: %ld events (asked for %d)\n",
           alsa_ctx.input_pool, (int)Alsa_input_pool);
 #endif
-#ifdef BORCA_DEBUG_COUNTERS
+#ifdef ZORCA_DEBUG_COUNTERS
   char events_line[160];
   events_dropped_format(events_line, sizeof events_line,
                         t.ged.oevent_list.dropped,
