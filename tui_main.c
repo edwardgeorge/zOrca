@@ -729,35 +729,55 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
   bool has_cursor_cell =
       ged_cursor->y < field_h && ged_cursor->x < field_w;
   if (dialect == Orca_dialect_combined && has_cursor_cell) {
-    Glyph cell_glyph = gbuffer[ged_cursor->y * field_w + ged_cursor->x];
-    Orca_dialect cell_dialect = orca_glyph_dialect(cell_glyph);
-    Glyph_class cell_class = glyph_class_of(cell_glyph, dialect);
-    bool is_operator = cell_class == Glyph_class_uppercase ||
-                       cell_class == Glyph_class_lowercase ||
-                       cell_class == Glyph_class_movement ||
-                       cell_class == Glyph_class_bang;
-    bool cursor_on_port =
-        labels && labels_h == field_h && labels_w == field_w &&
-        labels[ged_cursor->y * labels_w + ged_cursor->x].id != Port_label_none;
-    if (is_operator && !cursor_on_port) {
-      char const *cell_dialect_name = orca_dialect_name(cell_dialect);
-      int len = (int)strlen(cell_dialect_name);
-      int limit = has_port_tooltip ? 0 : filename_x + filename_len;
-      int n = tooltip_place(limit, len, width, &dialect_badge_x);
-      if (n > 0) {
-        Color_name bg = C_natural;
-        if (orca_glyph_is_tagged(cell_glyph) &&
-            glyph_is_supported_symbol(orca_glyph_character(cell_glyph),
-                                     cell_dialect))
-          bg = cell_dialect == Orca_dialect_upstream ? C_green : C_magenta;
-        attr_t badge_attrs = A_bold;
-        if (bg != C_natural)
-          badge_attrs |= fg_bg(C_black, bg);
-        wmove(win, win_y + 1, dialect_badge_x);
-        wattrset(win, (int)badge_attrs);
-        waddnstr(win, cell_dialect_name, n);
-        wattrset(win, A_normal);
-        has_dialect_badge = true;
+    Usz cursor_at = ged_cursor->y * field_w + ged_cursor->x;
+    Port_label_cell const *cursor_port = NULL;
+    if (labels && labels_h == field_h && labels_w == field_w) {
+      Port_label_cell const *candidate = labels + cursor_at;
+      if (candidate->id != Port_label_none)
+        cursor_port = candidate;
+    }
+
+    Glyph badge_glyph = gbuffer[cursor_at];
+    bool has_badge_glyph = true;
+    if (cursor_port) {
+      // Port records point back to the operator that declared the port.
+      Isz owner_y = (Isz)ged_cursor->y + cursor_port->owner_dy;
+      Isz owner_x = (Isz)ged_cursor->x + cursor_port->owner_dx;
+      if (owner_y < 0 || owner_x < 0 || owner_y >= (Isz)field_h ||
+          owner_x >= (Isz)field_w) {
+        has_badge_glyph = false;
+      } else {
+        badge_glyph = gbuffer[(Usz)owner_y * field_w + (Usz)owner_x];
+      }
+    }
+
+    if (has_badge_glyph) {
+      Orca_dialect badge_dialect = orca_glyph_dialect(badge_glyph);
+      Glyph_class badge_class = glyph_class_of(badge_glyph, dialect);
+      bool is_operator = badge_class == Glyph_class_uppercase ||
+                         badge_class == Glyph_class_lowercase ||
+                         badge_class == Glyph_class_movement ||
+                         badge_class == Glyph_class_bang;
+      if (is_operator) {
+        char const *badge_name = orca_dialect_name(badge_dialect);
+        int len = (int)strlen(badge_name);
+        int limit = has_port_tooltip ? 0 : filename_x + filename_len;
+        int n = tooltip_place(limit, len, width, &dialect_badge_x);
+        if (n > 0) {
+          Color_name bg = C_natural;
+          if (orca_glyph_is_tagged(badge_glyph) &&
+              glyph_is_supported_symbol(orca_glyph_character(badge_glyph),
+                                       badge_dialect))
+            bg = badge_dialect == Orca_dialect_upstream ? C_green : C_magenta;
+          attr_t badge_attrs = A_bold;
+          if (bg != C_natural)
+            badge_attrs |= fg_bg(C_black, bg);
+          wmove(win, win_y + 1, dialect_badge_x);
+          wattrset(win, (int)badge_attrs);
+          waddnstr(win, badge_name, n);
+          wattrset(win, A_normal);
+          has_dialect_badge = true;
+        }
       }
     }
   }
