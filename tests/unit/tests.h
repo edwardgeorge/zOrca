@@ -98,6 +98,10 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(arp_step_is_counter_step)                                                  \
   X(arp_length_dot_and_zero)                                                   \
   X(dialect_names)                                                             \
+  X(dialect_combined_glyph_tags)                                               \
+  X(dialect_combined_dispatch)                                                 \
+  X(dialect_combined_seaflake_timing)                                          \
+  X(field_dialect_tags)                                                        \
   X(dialect_default_is_borca)                                                  \
   X(dialect_zorca_is_borca)                                                    \
   X(dialect_upstream_cc)                                                       \

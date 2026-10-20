@@ -61,7 +61,9 @@ bool field_copy(Field *src, Field *dest) {
   return true;
 }
 
-static inline bool glyph_char_is_valid(char c) { return c >= '!' && c <= '~'; }
+static inline bool glyph_char_is_valid(char c) {
+  return orca_glyph_is_valid((Glyph)c);
+}
 
 void field_fput(Field *f, FILE *stream) {
   enum { Column_buffer_count = 4096 };
@@ -108,7 +110,8 @@ Field_load_error field_load_file(char const *filepath, Field *field) {
     for (;;) {
       if (len == 0)
         break;
-      if (!isspace(buf[len - 1]))
+      if (orca_glyph_is_tagged((Glyph)buf[len - 1]) ||
+          !isspace((unsigned char)buf[len - 1]))
         break;
       --len;
     }

@@ -48,8 +48,7 @@ static Usz count_type(Oevent_list const *events, Oevent_types type) {
   return n;
 }
 
-// Only "borca", "upstream", "zorca", "seaflake" and "morfil" are
-// dialect names, exactly; anything else leaves the output alone, which the
+// Dialect names are exact; anything else leaves the output alone, which the
 // flags and the conf key rely on. Each name reads back as itself.
 void test_dialect_names(void) {
   CHECK(orca_is_valid_glyph('+'));
@@ -63,12 +62,15 @@ void test_dialect_names(void) {
         d == Orca_dialect_seaflake);
   CHECK(orca_dialect_from_name("morfil", &d) &&
         d == Orca_dialect_morfil);
+  CHECK(orca_dialect_from_name("combined", &d) &&
+        d == Orca_dialect_combined);
   static char const *const bad[] = {
       "",          "bOrca",   "Borca",    "Upstream", "upstream ",
       " borca",    "orca-c",  "1",        "zOrca",    "Zorca",
       "ZORCA",     "zorca ", " zorca",   "zorca2",   "sEaflake",
       "Seaflake",  "SEAFLAKE", "seaflake ", " seaflake", "Morfil",
-      "MORFIL",    "morfil ",  " morfil",   "foo",      "orca", "z"};
+      "MORFIL",    "morfil ",  " morfil",   "Combined", "combined ",
+      " combined", "foo",      "orca",      "z"};
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(bad); ++i) {
     d = Orca_dialect_upstream;
     CHECK(!orca_dialect_from_name(bad[i], &d));
@@ -79,9 +81,10 @@ void test_dialect_names(void) {
   CHECK(strcmp(orca_dialect_name(Orca_dialect_zorca), "zorca") == 0);
   CHECK(strcmp(orca_dialect_name(Orca_dialect_seaflake), "seaflake") == 0);
   CHECK(strcmp(orca_dialect_name(Orca_dialect_morfil), "morfil") == 0);
+  CHECK(strcmp(orca_dialect_name(Orca_dialect_combined), "combined") == 0);
   // The round trip, for every dialect.
   static char const *const names[] = {"borca", "upstream", "zorca",
-                                      "seaflake", "morfil"};
+                                      "seaflake", "morfil", "combined"};
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(names); ++i) {
     d = (Orca_dialect)7;
     CHECK(orca_dialect_from_name(names[i], &d));
@@ -92,6 +95,62 @@ void test_dialect_names(void) {
   CHECK(Orca_dialect_borca == 0); // a zeroed context is bOrca
   CHECK(Orca_dialect_zorca == 2); // borca and upstream keep 0 and 1
   CHECK(Orca_dialect_morfil == 4); // appended after seaflake
+  CHECK(Orca_dialect_combined == 5); // appended after morfil
+}
+
+void test_dialect_combined_glyph_tags(void) {
+  Glyph upstream = orca_glyph_with_dialect('C', Orca_dialect_upstream);
+  Glyph seaflake = orca_glyph_with_dialect('~', Orca_dialect_seaflake);
+  Glyph inert_scale = orca_glyph_with_dialect('$', Orca_dialect_seaflake);
+  CHECK(orca_glyph_is_tagged(upstream));
+  CHECK(orca_glyph_is_tagged(seaflake));
+  CHECK(orca_glyph_is_tagged(inert_scale));
+  CHECK((U8)(unsigned char)upstream >= 128 &&
+        (U8)(unsigned char)upstream <= 255);
+  CHECK(orca_glyph_character(upstream) == 'C');
+  CHECK(orca_glyph_character(seaflake) == '~');
+  CHECK(orca_glyph_character(inert_scale) == '$');
+  CHECK(orca_glyph_dialect(inert_scale) == Orca_dialect_seaflake);
+  CHECK(orca_glyph_dialect(upstream) == Orca_dialect_upstream);
+  CHECK(orca_glyph_dialect(seaflake) == Orca_dialect_seaflake);
+  CHECK(orca_glyph_with_dialect(upstream, Orca_dialect_borca) == 'C');
+  Glyph shared = orca_glyph_with_dialect('A', Orca_dialect_upstream);
+  CHECK(orca_glyph_is_tagged(shared));
+  CHECK(orca_glyph_character(shared) == 'A');
+  CHECK(orca_glyph_with_dialect('*', Orca_dialect_upstream) == '*');
+  CHECK(orca_glyph_with_dialect('C', Orca_dialect_zorca) == 'C');
+  for (Usz i = 0; i < sizeof glyph_dialect_characters - 1; ++i) {
+    for (Usz d = 0; d < 2; ++d) {
+      Orca_dialect dialect = d == 0 ? Orca_dialect_upstream
+                                    : Orca_dialect_seaflake;
+      Glyph encoded = orca_glyph_with_dialect(glyph_dialect_characters[i],
+                                              dialect);
+      CHECK(orca_glyph_is_tagged(encoded));
+      CHECK(orca_glyph_character(encoded) == glyph_dialect_characters[i]);
+      CHECK(orca_glyph_dialect(encoded) == dialect);
+      CHECK((U8)(unsigned char)encoded == 0x80 + d * 0x40 + i);
+    }
+  }
+}
+
+void test_dialect_combined_dispatch(void) {
+  enum { H = 2, W = 5 };
+  Glyph grid[H * W];
+  Mark marks[H * W];
+  Oevent_list events;
+  Opstate_store store;
+  memset(grid, '.', sizeof grid);
+  grid[0] = 'C';
+  grid[2] = orca_glyph_with_dialect('C', Orca_dialect_upstream);
+  oevent_list_init(&events);
+  opstate_init(&store);
+  run_tick(grid, marks, H, W, 3, &events, 1, &store,
+           Orca_dialect_combined);
+  CHECK(grid[W] == '0');
+  CHECK(grid[W + 2] == '3');
+  CHECK(grid[2] == orca_glyph_with_dialect('C', Orca_dialect_upstream));
+  oevent_list_deinit(&events);
+  opstate_free(&store);
 }
 
 // A context that names no dialect runs bOrca's list. Three copies of a grid
@@ -102,6 +161,36 @@ void test_dialect_names(void) {
 // of store entries. Summed over the ticks, [1] sends bOrca's CCs and notes
 // and keeps three entries (;, & and r), and [2] sends UDP, no CC and keeps
 // none.
+void test_dialect_combined_seaflake_timing(void) {
+  enum { H = 3, W = 4 };
+  Glyph grid[H * W];
+  Mark marks[H * W];
+  Oevent_list events;
+  Opstate_store store;
+  memset(grid, '.', sizeof grid);
+  grid[1] = '*';
+  grid[W + 1] = orca_glyph_with_dialect('~', Orca_dialect_seaflake);
+  grid[W + 2] = '2';
+  grid[W + 3] = '1';
+  oevent_list_init(&events);
+  opstate_init(&store);
+  U64 const now = UINT64_C(1000000);
+  run_tick_clock(grid, marks, H, W, 0, &events, 1, &store,
+                 Orca_dialect_combined, now, UINT64_C(125000));
+  U64 deadline = 0;
+  CHECK(orca_seaflake_next_deadline(&store, &deadline));
+  CHECK(deadline == now);
+  Orca_run_ctx const ctx = {.opstate = &store,
+                            .dialect = Orca_dialect_combined,
+                            .now_us = now,
+                            .tick_len_us = UINT64_C(125000)};
+  CHECK(orca_seaflake_process_due(grid, H, W, 0, &events, 1, &ctx, now));
+  CHECK(orca_seaflake_next_deadline(&store, &deadline));
+  CHECK(deadline == now + UINT64_C(125000));
+  oevent_list_deinit(&events);
+  opstate_free(&store);
+}
+
 void test_dialect_default_is_borca(void) {
   enum { H = 10, W = 12, Ticks = 16 };
   // !, $, ;, =, & and r, each banged from below where it needs a bang.

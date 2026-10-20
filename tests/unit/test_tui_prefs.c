@@ -187,6 +187,8 @@ void test_prefs_read_line(void) {
   CHECK(p.dialect == Orca_dialect_seaflake && p.touched == touched);
   CHECK(tui_prefs_read_line(&p, Confopt_dialect, "morfil"));
   CHECK(p.dialect == Orca_dialect_morfil && p.touched == touched);
+  CHECK(tui_prefs_read_line(&p, Confopt_dialect, "combined"));
+  CHECK(p.dialect == Orca_dialect_combined && p.touched == touched);
   CHECK(tui_prefs_read_line(&p, Confopt_dialect, "upstream"));
   CHECK(p.dialect == Orca_dialect_upstream && p.touched == touched);
 

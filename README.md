@@ -69,6 +69,7 @@ On a ClockworkPi uConsole, zOrca runs as an appliance:
 | Escape | Return to normal mode, or deselect |
 | F2 / F3 | Shrink / grow the grid's width |
 | F4 / F5 | Shrink / grow the grid's height |
+| F6 / F8 / F10 | In combined mode, assign the cell under the cursor to Upstream / Seaflake / Borca; only dialect-specific operators retain a tag |
 | `[` `]` `{` `}` | Change the rulers' spacing, across (`[` `]`) and down (`{` `}`) |
 | `<` and `>` | Lower or raise the BPM; under External they do nothing |
 | Ctrl+E | Show or hide the list of the events the last tick sent |
@@ -418,7 +419,7 @@ If zOrca itself hangs while the master keeps clocking, because the device stalls
 | `margins` | `<x>x<y>`, or one number for both | `2x1` | Appearance..., Margins... | Another value is ignored; entering the margins already set saves nothing |
 | `grid_dot_type` | `fancy` or `plain` | `fancy` | Appearance..., Grid dots... | Another value is ignored; picking the active one saves nothing |
 | `grid_ruler_type` | `fancy` or `plain` | `fancy` | Appearance..., Grid rulers... | Another value is ignored; picking the active one saves nothing |
-| `dialect` | `zorca`, `borca`, `upstream`, `seaflake` or `morfil` | `zorca` | Operator Dialect... | Another value is ignored; picking the active one saves nothing; `--dialect` overrides it for a session without saving |
+| `dialect` | `zorca`, `borca`, `upstream`, `seaflake`, `morfil` or `combined` | `zorca` | Operator Dialect... | Another value is ignored; picking the active one saves nothing; `--dialect` overrides it for a session without saving |
 | `glide_hz` | `50`, `100` or `200` | `100` | Clock & Timing..., Glide Rate... | Another value is ignored; picking the active one saves nothing |
 | `clock_source` | `internal` or `external` | `internal` | Clock & Timing..., Clock Source... (ALSA or PortMidi build) | Another value is ignored, and so is `external` in a build with no MIDI input; picking the active one saves nothing; `--clock-source` overrides it for a session without saving |
 | `portmidi_input_device` | a PortMidi input device name | none | Clock & Timing..., MIDI Input... (PortMidi build) | Free text: a read never changes it, and a name not found is kept as it is; picking the active one saves nothing; `--midi-in` overrides it for a session without saving |
@@ -434,7 +435,7 @@ An ignored value leaves the key at its default, and its line is written back as 
 | `--initial-size <x>x<y>` | The size of a new grid, such as `40x30` | fits the window | any |
 | `--bpm <number>` | The tempo in beats per minute | 120 | any |
 | `--seed <number>` | The seed for `R`, for lowercase `r` (each cell seeds its own shuffle from it) and for the Random pattern (`c`) of `;` | 1 | any |
-| `--dialect <name>` | The operator dialect for this session, `zorca`, `borca`, `upstream`, `seaflake` or `morfil`, over the saved one, without saving it | the saved dialect, else `zorca` | any |
+| `--dialect <name>` | The operator dialect for this session, `zorca`, `borca`, `upstream`, `seaflake`, `morfil` or `combined`, over the saved one, without saving it | the saved dialect, else `zorca` | any |
 | `--strict-timing` | Tries to reduce the timing jitter of outgoing MIDI and OSC; uses more CPU time, and may have no effect | off | any |
 | `--osc-midi-bidule <path>` | Sends MIDI as OSC formatted for Plogue Bidule, to the path of its OSC MIDI device, such as `/OSC_MIDI_0/MIDI` | off | any |
 | `--clock-source <source>` | The clock source for this session, `internal` or `external`, over the saved one, without saving it | the saved source, else `internal` | ALSA or PortMidi |
@@ -452,7 +453,7 @@ An ignored value leaves the key at its default, and its line is written back as 
 | `-q`, `--quiet` | Prints no grid | off |
 | `--events` | After each tick, prints that tick's events, one per line (`NOTE`, `CC`, `CCI`, `PB`, `OSC` and `UDP`, each after `t<tick>`), then `t<tick> GRID` and the grid; with `-q`, only the events | off |
 | `--seed <n>` | The seed for the random operators | 0 |
-| `--dialect <d>` | The operator dialect, `zorca`, `borca`, `upstream`, `seaflake` or `morfil` | `zorca` |
+| `--dialect <d>` | The operator dialect, `zorca`, `borca`, `upstream`, `seaflake`, `morfil` or `combined` | `zorca` |
 | `--version` | Prints the version and exits | |
 | `-h`, `--help` | Prints the options and exits | |
 
@@ -460,11 +461,14 @@ An ignored value leaves the key at its default, and its line is written back as 
 
 ## Dialects
 
-zOrca runs one of three operator lists, its dialect:
+zOrca runs an operator dialect selected for the session, or per-cell in combined mode:
 
 - **zOrca** (`zorca`, the default) is zOrca's own: bOrca's list, to which zOrca's own operators are added. It has none of its own yet, so it plays exactly as bOrca does; see [zorca](#zorca).
 - **bOrca** (`borca`) is this fork's: `!` is the MIDI CC operator with three control digits and glides, `$` the Scale operator, `;` the Arpeggiator, `=` the Midichord operator, `&` the Bouncer, and lowercase `r` deals from a shuffled bag. [bOrca's operators](#borcas-operators) describes them. `L`, `I`, `U`, `R`, `D`, `C` and `Z` follow Orca's 2025 rules, below.
-- **Upstream** (`upstream`) is upstream Orca-c's (at `9df9786`), so its patches play unchanged. `!` sends a MIDI CC from three inputs, channel, control and value: the control is one glyph, `0`-`z` for controls 0-35, the value's `0`-`z` is scaled to 0-127 (× 127 / 35), and it never glides; it sends nothing when the channel is above `f` or the channel or control is empty. `;` sends the glyphs east of it, up to the first `.` and at most 16, as one UDP datagram. `=` sends an OSC message to `/` plus its first input, with as many integers as its second input says, read from the inputs east of that. Lowercase `r` is a banged `R`, so its max is exclusive. `$` and `&` do nothing. `L`, `I`, `U`, `R`, `D`, `C` and `Z` keep Orca-c's defaults, and `R` its range.
+- **Upstream** (`upstream`) is upstream Orca-c's (at `9df9786`), so its patches play unchanged. `!` sends a MIDI CC from three inputs, channel, control and value: the control is one glyph, `0`-`z` for controls 0-35, the value's `0`-`z` is scaled to 0-127 (× 127 / 35), and it never glides; `;` sends the glyphs east of it, up to the first `.` and at most 16, as one UDP datagram. `=` sends an OSC message to `/` plus its first input, with as many integers as its second input says, read from the inputs east of that. Lowercase `r` is a banged `R`, so its max is exclusive. `$` and `&` do nothing. `L`, `I`, `U`, `R`, `D`, `C` and `Z` keep Orca-c's defaults, and `R` its range.
+- **Seaflake** (`seaflake`) follows the JavaScript fork: it adds probability (`^`), phase (`&`), timed bursts (`~`), and extended MIDI operators (`(`, `)`, `+`, `@`). Its `!`, `;`, `=`, and the seven dialect-specific alphabet operators follow upstream's rules.
+- **morfil** (`morfil`) is reserved for its own operator set and currently runs bOrca's operators.
+- **Combined** (`combined`) uses bOrca's rules for untagged cells. In the editor, type an operator and press F6 to tag the cell as Upstream, F8 to tag it as Seaflake, or F10 to return it to bOrca. Tagged operator glyphs are stored as bytes in the 128-255 range and display as their ordinary glyph; their dialect is shown by cell color and in the selection HUD. The tag is saved in the patch and preserved by the internal clipboard. Operator cells can carry a dialect tag, including shared operators; the four common symbols `#`, `%`, `*` and `:` remain ordinary ASCII. zOrca and morfil currently run bOrca's operators, so they have no distinct per-cell behavior to tag. The existing menu and `--dialect` choices still select one dialect for the whole session.
 
 In November 2025 Orca's author removed the defaults of `L`, `I`, `U`, `R`, `D`, `C` and `Z` from the web Orca (hundredrabbits/Orca), so that an empty input counts as 0 and a patch plays alike in every Orca. His reference is the playground on the [Orca wiki page](https://wiki.xxiivv.com/site/orca), whose `orca.rom` is dated 16 May 2026. The web Orca follows it, except that there a `C` with an empty modulo leaves its cell alone and a `D` with a modulo of 1 bangs on every frame. bOrca's dialect follows the playground. Orca-c has not changed, so the upstream dialect keeps its rules:
 
@@ -486,7 +490,7 @@ To write a patch that plays the same upstream and in bOrca's dialect (and so in 
 
 zorca runs bOrca's rules for these seven. Every other operator, `A`-`Z` but these seven, and `*`, `#`, `:`, `%` and `?`, is the same in all three. The editor colours ports bOrca's way in every dialect: `:`, `%`, `?`, `G` and `K` mark some inputs as parameters where upstream Orca-c marks them as plain inputs, which changes only how they look, never the events or the grid. In the upstream dialect `$` and `&` draw as unknown glyphs (bold red), as they do in Orca-c, since they do nothing there. OSC and UDP go to the address and port set under OSC Output in the main menu, and nowhere while OSC output is off. The `/orca/bpm`, `/orca/started` and `/orca/stopped` messages, and MIDI sent as OSC with `--osc-midi-bidule`, go to the same address.
 
-To switch, open the main menu (Ctrl+D), choose Operator Dialect..., and pick bOrca, Upstream, zOrca, Seaflake or morfil. The choice is saved in `orca.conf` as `dialect = borca`, `dialect = upstream`, `dialect = zorca`, `dialect = seaflake` or `dialect = morfil`; any other value (`zOrca` among them) is ignored, which leaves zorca. `orca --dialect upstream` (or `borca`, `zorca`, `seaflake` or `morfil`) picks the dialect for one session, over the saved one, without changing what is saved. Picking the dialect that is already active saves nothing, even when `--dialect` chose it; to save the dialect `--dialect` chose, pick another one and then pick it back. `cli --dialect upstream` runs a patch headless in the upstream dialect, and `cli --dialect borca` in bOrca's. `morfil` currently runs bOrca's operators. Changing the dialect, even while playing, clears every operator's per-cell state, as Ctrl+R does, and stops running CC glides. The operator guide (Ctrl+G) lists the active dialect's operators.
+To switch, open the main menu (Ctrl+D), choose Operator Dialect..., and pick bOrca, Upstream, zOrca, Seaflake, morfil or Combined. The choice is saved in `orca.conf` as `dialect = borca`, `dialect = upstream`, `dialect = zorca`, `dialect = seaflake`, `dialect = morfil` or `dialect = combined`; any other value (`zOrca` among them) is ignored, which leaves zorca. `orca --dialect upstream` (or `borca`, `zorca`, `seaflake`, `morfil` or `combined`) picks the dialect for one session, over the saved one, without changing what is saved. Picking the dialect that is already active saves nothing, even when `--dialect` chose it; to save the dialect `--dialect` chose, pick another one and then pick it back. `cli --dialect upstream` runs a patch headless in the upstream dialect, `cli --dialect borca` in bOrca's, and `cli --dialect combined` uses each cell's encoded dialect where available. Changing the session dialect, even while playing, clears every operator's per-cell state, as Ctrl+R does, and stops running CC glides. Changing a cell's dialect also clears operator state and stops running CC glides. The operator guide (Ctrl+G) lists the active dialect's operators; combined mode lists their union.
 
 For the patches in `examples/upstream/`, and how they are checked against Orca-c, see [`examples/upstream/README.md`](examples/upstream/README.md).
 

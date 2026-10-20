@@ -1,14 +1,11 @@
 // Unit tests for field.c, the shell's grid and mark buffers. tool links
 // field.c into the runner outside the CORE list: it is libc-only shell code.
-#ifdef UNIT_TESTS_REALLOC_HOOK
 #define _POSIX_C_SOURCE 200809L // mkstemp, open, write, close, unlink
-#endif
 #include "../../field.h"
+#include "../../gbuffer.h"
 #include "tests.h"
-#ifdef UNIT_TESTS_REALLOC_HOOK
 #include <fcntl.h>
 #include <unistd.h>
-#endif
 
 #ifdef UNIT_TESTS_REALLOC_HOOK
 // Grid and mark buffers that cannot grow. The runner's realloc hook
@@ -153,3 +150,40 @@ void test_field_alloc_fail(void) {
   field_deinit(&k);
 }
 #endif
+
+void test_field_dialect_tags(void) {
+  char path[] = "build/zorca-unit-field-tags-XXXXXX";
+  int fd = mkstemp(path);
+  CHECK(fd >= 0);
+  if (fd < 0)
+    return;
+  close(fd);
+  Field source, loaded;
+  field_init(&source);
+  field_init(&loaded);
+  bool initialized = field_init_fill(&source, 1, 2, '.');
+  CHECK(initialized);
+  if (!initialized) {
+    field_deinit(&source);
+    field_deinit(&loaded);
+    unlink(path);
+    return;
+  }
+  source.buffer[0] = orca_glyph_with_dialect('C', Orca_dialect_upstream);
+  source.buffer[1] = orca_glyph_with_dialect('~', Orca_dialect_seaflake);
+  FILE *stream = fopen(path, "wb");
+  CHECK(stream != NULL);
+  if (stream) {
+    field_fput(&source, stream);
+    fclose(stream);
+    CHECK(field_load_file(path, &loaded) == Field_load_error_ok);
+    CHECK(loaded.height == 1 && loaded.width == 2);
+    if (loaded.height == 1 && loaded.width == 2) {
+      CHECK(loaded.buffer[0] == source.buffer[0]);
+      CHECK(loaded.buffer[1] == source.buffer[1]);
+    }
+  }
+  field_deinit(&source);
+  field_deinit(&loaded);
+  unlink(path);
+}

@@ -476,15 +476,20 @@ static void seaflake_start_burst(Glyph *gbuffer, Usz height, Usz width,
 }
 
 BEGIN_OPERATOR(bang)
-  if (extra_params->ctx->dialect == Orca_dialect_seaflake &&
+  if ((extra_params->ctx->dialect == Orca_dialect_seaflake ||
+       extra_params->ctx->dialect == Orca_dialect_combined) &&
       !extra_params->ctx->is_seaflake_subtick) {
     static Isz const dy[] = {-1, 1, 0, 0};
     static Isz const dx[] = {0, 0, -1, 1};
     for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(dx); ++i) {
       Isz source_y = (Isz)y + dy[i], source_x = (Isz)x + dx[i];
       if (source_y < 0 || source_x < 0 || (Usz)source_y >= height ||
-          (Usz)source_x >= width ||
-          gbuffer[(Usz)source_y * width + (Usz)source_x] != '~')
+          (Usz)source_x >= width)
+        continue;
+      Glyph source = gbuffer[(Usz)source_y * width + (Usz)source_x];
+      if (orca_glyph_character(source) != '~' ||
+          (extra_params->ctx->dialect == Orca_dialect_combined &&
+           orca_glyph_dialect(source) != Orca_dialect_seaflake))
         continue;
       seaflake_start_burst(gbuffer, height, width, (Usz)source_y,
                            (Usz)source_x, extra_params->ctx);
@@ -1991,7 +1996,7 @@ BEGIN_OPERATOR(udp)
   Glyph cpy[Oevent_udp_string_count];
   Usz i;
   for (i = 0; i < n; ++i) {
-    Glyph g = gline[i];
+    Glyph g = orca_glyph_character(gline[i]);
     if (g == '.')
       break;
     cpy[i] = g;
@@ -2062,6 +2067,10 @@ bool orca_dialect_from_name(char const *name, Orca_dialect *out) {
     *out = Orca_dialect_morfil;
     return true;
   }
+  if (strcmp(name, "combined") == 0) {
+    *out = Orca_dialect_combined;
+    return true;
+  }
   return false;
 }
 
@@ -2077,6 +2086,8 @@ char const *orca_dialect_name(Orca_dialect d) {
     return "morfil";
   case Orca_dialect_borca:
     return "borca";
+  case Orca_dialect_combined:
+    return "combined";
   }
   return "borca"; // any other value runs as bOrca
 }
@@ -2119,7 +2130,7 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
     Glyph const *glyph_row = gbuf + iy * width;                                \
     Mark const *mark_row = mbuf + iy * width;                                  \
     for (Usz ix = 0; ix < width; ++ix) {                                       \
-      Glyph glyph_char = glyph_row[ix];                                        \
+      Glyph glyph_char = orca_glyph_character(glyph_row[ix]);                  \
       if (ORCA_LIKELY(glyph_char == '.'))                                      \
         continue;                                                              \
       Mark cell_flags = mark_row[ix] & (Mark_flag_lock | Mark_flag_sleep);     \
@@ -2134,8 +2145,46 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
     }                                                                          \
   }
 
+#define CELL_SWITCH(_dialect_unique_list, _dialect_alpha_list)                 \
+  do {                                                                         \
+    switch (glyph_char) {                                                       \
+      SHARED_UNIQUE_OPERATORS(UNIQUE_CASE)                                     \
+      _dialect_unique_list(UNIQUE_CASE)                                        \
+      SHARED_ALPHA_OPERATORS(ALPHA_CASE)                                       \
+      _dialect_alpha_list(ALPHA_CASE)                                          \
+    }                                                                          \
+  } while (0)
+
+#define MIXED_CELL_LOOP()                                                      \
+  for (Usz iy = 0; iy < height; ++iy) {                                        \
+    Glyph const *glyph_row = gbuf + iy * width;                                \
+    Mark const *mark_row = mbuf + iy * width;                                  \
+    for (Usz ix = 0; ix < width; ++ix) {                                       \
+      Glyph stored_glyph = glyph_row[ix];                                      \
+      Glyph glyph_char = orca_glyph_character(stored_glyph);                   \
+      if (ORCA_LIKELY(glyph_char == '.'))                                      \
+        continue;                                                              \
+      Mark cell_flags = mark_row[ix] & (Mark_flag_lock | Mark_flag_sleep);     \
+      if (cell_flags & (Mark_flag_lock | Mark_flag_sleep))                     \
+        continue;                                                              \
+      switch (orca_glyph_dialect(stored_glyph)) {                              \
+      case Orca_dialect_upstream:                                              \
+        CELL_SWITCH(UPSTREAM_UNIQUE_OPERATORS, UPSTREAM_ALPHA_OPERATORS);      \
+        break;                                                                 \
+      case Orca_dialect_seaflake:                                              \
+        CELL_SWITCH(SEAFLAKE_UNIQUE_OPERATORS, SEAFLAKE_ALPHA_OPERATORS);      \
+        break;                                                                 \
+      default:                                                                 \
+        CELL_SWITCH(BORCA_UNIQUE_OPERATORS, BORCA_ALPHA_OPERATORS);            \
+        break;                                                                 \
+      }                                                                        \
+    }                                                                          \
+  }
+
   // bOrca is the fallback: a zeroed context, and any value not named here.
-  if (ctx->dialect == Orca_dialect_upstream) {
+  if (ctx->dialect == Orca_dialect_combined) {
+    MIXED_CELL_LOOP()
+  } else if (ctx->dialect == Orca_dialect_upstream) {
     CELL_LOOP(UPSTREAM_UNIQUE_OPERATORS, UPSTREAM_ALPHA_OPERATORS)
   } else if (ctx->dialect == Orca_dialect_zorca) {
     CELL_LOOP(ZORCA_UNIQUE_OPERATORS, ZORCA_ALPHA_OPERATORS)
@@ -2144,6 +2193,8 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
   } else {
     CELL_LOOP(BORCA_UNIQUE_OPERATORS, BORCA_ALPHA_OPERATORS)
   }
+#undef MIXED_CELL_LOOP
+#undef CELL_SWITCH
 #undef CELL_LOOP
 #undef UNIQUE_CASE
 #undef ALPHA_CASE
@@ -2282,7 +2333,10 @@ bool orca_seaflake_process_due(Glyph *gbuf, Usz height, Usz width,
     if (!entry)
       return false;
     if (glyph == '~') {
-      if (gbuf[y * width + x] != '~') {
+      Glyph source = gbuf[y * width + x];
+      if (orca_glyph_character(source) != '~' ||
+          (ctx->dialect == Orca_dialect_combined &&
+           orca_glyph_dialect(source) != Orca_dialect_seaflake)) {
         entry->u.seaflake_burst.active = false;
         continue;
       }

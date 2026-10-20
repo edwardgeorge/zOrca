@@ -122,7 +122,7 @@ jobs:
       - name: cli takes zorca and rejects a bad --dialect value
         run: |
           printf '.\n' >"$RUNNER_TEMP/dot.orca"
-          for d in borca upstream zorca seaflake morfil; do
+          for d in borca upstream zorca seaflake morfil combined; do
             build/cli --dialect "$d" "$RUNNER_TEMP/dot.orca" >/dev/null
           done
           if ! build/cli -h 2>&1 | grep -q 'Operator dialect: zorca (default)'; then
@@ -138,7 +138,7 @@ jobs:
               echo "expected exit 1 from cli --dialect $bad, got $status"
               exit 1
             fi
-            if ! grep -qx "Unknown dialect $bad. Expected borca, upstream, zorca, seaflake or morfil." "$err"; then
+            if ! grep -qx "Unknown dialect $bad. Expected borca, upstream, zorca, seaflake, morfil or combined." "$err"; then
               echo "cli did not report the bad --dialect value $bad"
               exit 1
             fi
@@ -944,7 +944,7 @@ jobs:
             exit 1
           fi
           if ! grep -q '^Bad dialect argument: foo$' "$err" ||
-            ! grep -q '^Must be zorca, borca, upstream, seaflake or morfil\.$' "$err"; then
+            ! grep -q '^Must be zorca, borca, upstream, seaflake, morfil or combined\.$' "$err"; then
             echo "orca did not report the bad --dialect value"
             exit 1
           fi

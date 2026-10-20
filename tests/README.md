@@ -1536,9 +1536,9 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   first checks that `CFLAGS_EXTRA` reaches the compiler, then builds the
   debug and release `cli` with `CFLAGS_EXTRA=-Werror`, checks the debug
   `cli` with `tests/check-debug-build.sh`, checks that the release `cli`
-  takes `--dialect borca`, `upstream`, `zorca`, `seaflake` and `morfil`,
-  names zorca as its default in `cli -h` and refuses `foo` and `zOrca` with
-  exit 1 and `Expected borca, upstream, zorca, seaflake or morfil.`, and
+  takes `--dialect borca`, `upstream`, `zorca`, `seaflake`, `morfil` and
+  `combined`, names zorca as its default in `cli -h` and refuses `foo` and `zOrca` with
+  exit 1 and `Expected borca, upstream, zorca, seaflake, morfil or combined.`, and
   runs the golden suite on
   both and `tests/realloc-shim/check.sh` on the release `cli` and on the
   release `orca` without mouse support. It runs

@@ -72,14 +72,18 @@ void test_glyph_index_of_reference(void) {
   Usz mismatches = 0;
   for (int i = 0; i < 256; ++i) {
     Glyph c = (Glyph)i;
-    if (glyph_index_of(c) != glyph_index_reference((Glyph)(i & 0x7f)))
+    Glyph displayed = orca_glyph_is_tagged(c)
+                         ? orca_glyph_character(c)
+                         : (Glyph)(i & 0x7f);
+    if (glyph_index_of(c) != glyph_index_reference(displayed))
       ++mismatches;
   }
   CHECK(mismatches == 0);
   CHECK(glyph_index_of('0') == 0 && glyph_index_of('9') == 9);
   CHECK(glyph_index_of('a') == 10 && glyph_index_of('Z') == 35);
   CHECK(glyph_index_of('.') == 0 && glyph_index_of('#') == 0);
-  CHECK(glyph_index_of((Glyph)(0x80 | 'f')) == 15);
+  CHECK(glyph_index_of(orca_glyph_with_dialect('f', Orca_dialect_upstream)) ==
+        15);
 }
 
 // Growing past the initial capacity and several reallocations keeps every

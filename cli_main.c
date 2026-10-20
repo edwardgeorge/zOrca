@@ -27,9 +27,11 @@ fprintf(stderr,
 "                  print the event lines only.\n"
 "    --seed <n>    Seed for the random operators. Default: 0\n"
 "    --dialect <d> Operator dialect: zorca (default), borca, upstream,\n"
-"                  seaflake or morfil. zorca is zOrca's: bOrca's\n"
+"                  seaflake, morfil or combined. Combined uses bOrca\n"
+"                  unless a cell has an encoded dialect-specific glyph.\n"
+"                  zorca is zOrca's: bOrca's\n"
 "                  operators plus zOrca's own (none yet, so it plays as borca).\n"
-"                  seaflake timed operators use 125 ms virtual ticks;\n"
+"                  Seaflake timed operators use 125 ms virtual ticks;\n"
 "                  morfil currently runs bOrca's operators.\n"
 "                  upstream is Orca-c's: ! sends a plain CC, ; UDP,\n"
 "                  = OSC, r is a banged R, $ and & do nothing, and\n"
@@ -111,7 +113,7 @@ int main(int argc, char **argv) {
       if (!orca_dialect_from_name(optarg, &dialect)) {
         fprintf(stderr,
                 "Unknown dialect %s. Expected borca, upstream, zorca, "
-                "seaflake or morfil.\n",
+                "seaflake, morfil or combined.\n",
                 optarg);
         return 1;
       }
@@ -167,7 +169,8 @@ int main(int argc, char **argv) {
   bool run_ok = true;
   for (Usz i = 0; i < max_ticks; ++i) {
     U64 next_us = now_us;
-    if (dialect == Orca_dialect_seaflake) {
+    if (dialect == Orca_dialect_seaflake ||
+        dialect == Orca_dialect_combined) {
       if (now_us > UINT64_MAX - tick_len_us) {
         fputs("Cannot simulate: virtual clock overflow\n", stderr);
         run_ok = false;
@@ -183,7 +186,8 @@ int main(int argc, char **argv) {
                               .tick_len_us = tick_len_us};
     orca_run(field.buffer, mbuf_r.buffer, field.height, field.width, i,
              &oevent_list, seed, &ctx);
-    if (dialect == Orca_dialect_seaflake &&
+    if ((dialect == Orca_dialect_seaflake ||
+         dialect == Orca_dialect_combined) &&
         !orca_seaflake_process_due(field.buffer, field.height, field.width, i,
                                    &oevent_list, seed, &ctx, next_us)) {
       fputs("Cannot simulate: Seaflake timed-event processing failed\n",

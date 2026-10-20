@@ -92,7 +92,9 @@ fprintf(stderr,
 "                           for empty inputs and R's range), or seaflake\n"
 "                           (JavaScript fork's extended MIDI, probability,\n"
 "                           phase and timing operators), or morfil\n"
-"                           (currently bOrca's operators). Overrides the\n"
+"                           (currently bOrca's operators), or combined\n"
+"                           (bOrca by default, with tagged operator cells\n"
+"                           using their encoded dialect). Overrides the\n"
 "                           dialect saved in\n"
 "                           orca.conf without changing it; the Operator\n"
 "                           Dialect menu changes and saves it. Picking\n"
@@ -166,6 +168,9 @@ typedef enum {
 // 9df9786 draws them; bOrca's colours do not change, and zorca, which runs
 // bOrca's operators, draws as bOrca does.
 static Glyph_class glyph_class_of(Glyph glyph, Orca_dialect dialect) {
+  if (dialect == Orca_dialect_combined && orca_glyph_is_tagged(glyph))
+    dialect = orca_glyph_dialect(glyph);
+  glyph = orca_glyph_character(glyph);
   if (glyph == '.')
     return Glyph_class_grid;
   if (glyph >= '0' && glyph <= '9')
@@ -212,6 +217,7 @@ static Glyph_class glyph_class_of(Glyph glyph, Orca_dialect dialect) {
 }
 
 static attr_t term_attrs_of_cell(Glyph g, Mark m, Orca_dialect dialect) {
+  bool tagged = dialect == Orca_dialect_combined && orca_glyph_is_tagged(g);
   Glyph_class gclass = glyph_class_of(g, dialect);
   attr_t attr = A_normal;
   switch (gclass) {
@@ -255,6 +261,12 @@ static attr_t term_attrs_of_cell(Glyph g, Mark m, Orca_dialect dialect) {
   if (m & Mark_flag_haste_input) {
     attr = A_bold | fg_bg(C_cyan, C_natural);
   }
+  if (tagged) {
+    Color_name color = orca_glyph_dialect(g) == Orca_dialect_upstream
+                           ? C_green
+                           : C_magenta;
+    attr = (attr & ~A_COLOR) | fg_bg(color, C_natural);
+  }
   return attr;
 }
 
@@ -295,7 +307,7 @@ staticni void draw_grid_cursor(WINDOW *win, int draw_y, int draw_x, int draw_h,
                                Usz field_w, int scroll_y, int scroll_x,
                                Usz cursor_y, Usz cursor_x, Usz cursor_h,
                                Usz cursor_w, Ged_input_mode input_mode,
-                               bool is_playing) {
+                               bool is_playing, Orca_dialect dialect) {
   (void)input_mode;
   if (cursor_y >= field_h || cursor_x >= field_w)
     return;
@@ -313,12 +325,19 @@ staticni void draw_grid_cursor(WINDOW *win, int draw_y, int draw_x, int draw_h,
     return;
   if (draw_y >= draw_h || draw_x >= draw_w)
     return;
-  attr_t const curs_attr = A_reverse | A_bold | fg_bg(C_yellow, C_natural);
+  Glyph cursor_glyph = gbuffer[cursor_y * field_w + cursor_x];
+  Color_name cursor_color = C_yellow;
+  if (dialect == Orca_dialect_combined &&
+      orca_glyph_is_tagged(cursor_glyph))
+    cursor_color = orca_glyph_dialect(cursor_glyph) == Orca_dialect_upstream
+                       ? C_green
+                       : C_magenta;
+  attr_t const curs_attr = A_reverse | A_bold | fg_bg(cursor_color, C_natural);
   if (offset_y <= cursor_y && offset_x <= cursor_x) {
     Usz cdraw_y = cursor_y - offset_y + (Usz)draw_y;
     Usz cdraw_x = cursor_x - offset_x + (Usz)draw_x;
     if (cdraw_y < (Usz)draw_h && cdraw_x < (Usz)draw_w) {
-      Glyph beneath = gbuffer[cursor_y * field_w + cursor_x];
+      Glyph beneath = orca_glyph_character(gbuffer[cursor_y * field_w + cursor_x]);
       char displayed;
       if (beneath == '.') {
         displayed = is_playing ? '@' : '~';
@@ -396,12 +415,25 @@ staticni void draw_grid_cursor(WINDOW *win, int draw_y, int draw_x, int draw_h,
   chtype chbuffer[Bufcount];
   if (Bufcount < vis_sel_w)
     vis_sel_w = Bufcount;
+  Usz field_sel_y = offset_y > cursor_y ? offset_y : cursor_y;
+  Usz field_sel_x = offset_x > cursor_x ? offset_x : cursor_x;
   for (Usz iy = 0; iy < vis_sel_h; ++iy) {
     int at_y = (int)(vis_sel_y + iy);
     int num = mvwinchnstr(win, at_y, (int)vis_sel_x, chbuffer, (int)vis_sel_w);
     for (int ix = 0; ix < num; ++ix) {
       chbuffer[ix] = (chtype)((chbuffer[ix] & (A_CHARTEXT | A_ALTCHARSET)) |
                               (chtype)curs_attr);
+      if (dialect == Orca_dialect_combined) {
+        Glyph selected = gbuffer[(field_sel_y + iy) * field_w + field_sel_x +
+                                 (Usz)ix];
+        if (orca_glyph_is_tagged(selected)) {
+          Color_name color = orca_glyph_dialect(selected) == Orca_dialect_upstream
+                                 ? C_green
+                                 : C_magenta;
+          chbuffer[ix] = (chtype)((chbuffer[ix] & ~A_COLOR) |
+                                  fg_bg(color, C_natural));
+        }
+      }
     }
     waddchnstr(win, chbuffer, (int)num);
   }
@@ -601,7 +633,8 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
                        Usz bpm, char const *bpm_text,
                        Ged_cursor const *ged_cursor,
                        Ged_input_mode input_mode, Usz activity_counter,
-                       Glyph const *gbuffer, Port_label_cell const *labels,
+                       Glyph const *gbuffer, Orca_dialect dialect,
+                       Port_label_cell const *labels,
                        Usz labels_h, Usz labels_w, bool midi_err) {
   // Two rows: the tooltip's lines go on win_y and win_y + 1. Release builds
   // compile the assert out, so the parameter is also used by the cast.
@@ -637,6 +670,21 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
   advance_faketab(win, win_x, Tabstop);
   wprintw(win, "%zu:%zu", ged_cursor->w, ged_cursor->h);
   advance_faketab(win, win_x, Tabstop);
+  Orca_dialect cell_dialect = dialect;
+  if (dialect == Orca_dialect_combined) {
+    if (ged_cursor->y < field_h && ged_cursor->x < field_w)
+      cell_dialect = orca_glyph_dialect(
+          gbuffer[ged_cursor->y * field_w + ged_cursor->x]);
+    wattrset(win, A_bold);
+    char const *cell_dialect_name = orca_dialect_name(cell_dialect);
+    if (strlen(cell_dialect_name) > 6) {
+      waddnstr(win, cell_dialect_name, 5);
+      waddstr(win, "…");
+    } else {
+      waddstr(win, cell_dialect_name);
+    }
+    advance_faketab(win, win_x, Tabstop);
+  }
   switch (input_mode) {
   case Ged_input_mode_normal:
     wattrset(win, A_normal);
@@ -758,7 +806,8 @@ staticni void draw_glyphs_grid(WINDOW *win, int draw_y, int draw_x, int draw_h,
     Mark const *m_row = mbuffer + line_offset;
     bool use_y_ruler = use_rulers && (iy + offset_y) % ruler_spacing_y == 0;
     for (Usz ix = 0; ix < cols; ++ix) {
-      Glyph g = g_row[ix];
+      Glyph stored_glyph = g_row[ix];
+      Glyph g = orca_glyph_character(stored_glyph);
       Mark m = m_row[ix];
       chtype ch;
       if (g == '.') {
@@ -775,7 +824,7 @@ staticni void draw_glyphs_grid(WINDOW *win, int draw_y, int draw_x, int draw_h,
       } else {
         ch = (chtype)g;
       }
-      attr_t attrs = term_attrs_of_cell(g, m, dialect);
+      attr_t attrs = term_attrs_of_cell(stored_glyph, m, dialect);
       chbuffer[ix] = ch | attrs;
     }
     wmove(win, draw_y + (int)iy, draw_x);
@@ -1998,7 +2047,8 @@ staticni void ged_run_tick_body(Ged *a) {
 }
 
 staticni void ged_poll_seaflake(Ged *a) {
-  if (a->dialect != Orca_dialect_seaflake)
+  if (a->dialect != Orca_dialect_seaflake &&
+      a->dialect != Orca_dialect_combined)
     return;
   U64 now = now_us(), deadline;
   if (!orca_seaflake_next_deadline(&a->opstate, &deadline) || deadline > now)
@@ -2187,7 +2237,7 @@ staticni void ged_draw(Ged *a, WINDOW *win, char const *filename,
                    a->field.height, a->field.width, a->grid_scroll_y,
                    a->grid_scroll_x, a->ged_cursor.y, a->ged_cursor.x,
                    a->ged_cursor.h, a->ged_cursor.w, a->input_mode,
-                   a->is_playing);
+                   a->is_playing, a->dialect);
   if (a->is_hud_visible) {
     filename = filename ? filename : "unnamed";
     int hud_x = win_w > 50 + a->softmargin_x * 2 ? a->softmargin_x : 0;
@@ -2203,7 +2253,8 @@ staticni void ged_draw(Ged *a, WINDOW *win, char const *filename,
     draw_hud(win, a->grid_h, hud_x, Hud_height, win_w, filename,
              a->field.height, a->field.width, a->ruler_spacing_y,
              a->ruler_spacing_x, a->tick_num, a->bpm, bpm_text, &a->ged_cursor,
-             a->input_mode, a->activity_counter, a->field.buffer, a->labels,
+             a->input_mode, a->activity_counter, a->field.buffer, a->dialect,
+             a->labels,
              a->labels_h, a->labels_w, midi_mode_send_failed(&a->midi_mode));
   }
   if (a->draw_event_list)
@@ -2518,6 +2569,32 @@ staticni void ged_write_character(Ged *a, char c) {
     ged_cursor_move_relative(&a->ged_cursor, a->field.height, a->field.width, 0,
                              1);
   }
+  a->is_draw_dirty = true;
+}
+
+staticni void ged_set_cell_dialect(Ged *a, Orca_dialect dialect) {
+  if (a->dialect != Orca_dialect_combined ||
+      a->ged_cursor.y >= a->field.height ||
+      a->ged_cursor.x >= a->field.width) {
+    beep();
+    return;
+  }
+  Usz const cell = a->ged_cursor.y * a->field.width + a->ged_cursor.x;
+  Glyph before = a->field.buffer[cell];
+  Glyph after = orca_glyph_with_dialect(before, dialect);
+  if (after == before) {
+    if (dialect != Orca_dialect_borca &&
+        orca_glyph_dialect(before) != dialect)
+      beep();
+    return;
+  }
+  undo_history_push(&a->undo_hist, &a->field, a->tick_num);
+  Tick_sink const sink = ged_sink(a);
+  tick_release_seaflake_sequences(&a->opstate, &sink);
+  a->field.buffer[cell] = after;
+  opstate_clear(&a->opstate);
+  ccout_cancel(&a->ccout);
+  a->needs_remarking = true;
   a->is_draw_dirty = true;
 }
 
@@ -2979,12 +3056,14 @@ enum {
   Dialect_menu_zorca,
   Dialect_menu_seaflake,
   Dialect_menu_morfil,
+  Dialect_menu_combined,
 };
 static void push_dialect_menu(Orca_dialect dialect) {
   int active = dialect == Orca_dialect_upstream ? Dialect_menu_upstream
                : dialect == Orca_dialect_zorca  ? Dialect_menu_zorca
                : dialect == Orca_dialect_seaflake ? Dialect_menu_seaflake
                : dialect == Orca_dialect_morfil ? Dialect_menu_morfil
+               : dialect == Orca_dialect_combined ? Dialect_menu_combined
                                                     : Dialect_menu_borca;
   Qmenu *qm = qmenu_create(Dialect_menu_id);
   qmenu_set_title(qm, "Operator Dialect");
@@ -2998,6 +3077,8 @@ static void push_dialect_menu(Orca_dialect dialect) {
                    active == Dialect_menu_seaflake ? '*' : ' ');
   qmenu_add_printf(qm, Dialect_menu_morfil, "(%c) morfil",
                    active == Dialect_menu_morfil ? '*' : ' ');
+  qmenu_add_printf(qm, Dialect_menu_combined, "(%c) Combined",
+                   active == Dialect_menu_combined ? '*' : ' ');
   if (active != Dialect_menu_borca)
     qmenu_set_current_item(qm, active);
   qmenu_push_to_nav(qm);
@@ -3140,6 +3221,9 @@ static void push_controls_msg(void) {
       {"` (grave) or ~", "Slide Selection Mode"},
       {"Escape", "Return to Normal Mode or Deselect"},
       {"F2-F5", "Resize Grid (Width, Height)"},
+      {"F6", "Tag cell Upstream (Combined mode)"},
+      {"F8", "Tag cell Seaflake (Combined mode)"},
+      {"F10", "Tag cell Borca (Combined mode)"},
       {"[ ] { }", "Adjust Ruler Spacing"},
       {"< and >", "Adjust BPM"},
       {"Ctrl+E", "Show or Hide the Last Tick's Events"},
@@ -3250,7 +3334,8 @@ static void push_opers_guide_msg(Orca_dialect dialect) {
       {'(', Guide_seaflake, "midi just", "Plays a just-intonation note."},
       {'@', Guide_seaflake, "midi sequence", "Plays a shaped MIDI sequence."},
   };
-  U8 const shown = dialect == Orca_dialect_upstream ? Guide_upstream
+  U8 const shown = dialect == Orca_dialect_combined ? Guide_all
+                   : dialect == Orca_dialect_upstream ? Guide_upstream
                    : dialect == Orca_dialect_seaflake ? Guide_seaflake
                    : dialect == Orca_dialect_zorca  ? Guide_zorca
                                                      : Guide_borca;
@@ -3267,7 +3352,8 @@ static void push_opers_guide_msg(Orca_dialect dialect) {
   int left_pad = 1, mid_pad = 1, right_pad = 1;
   int total_width = left_pad + 1 + mid_pad + w_desc + right_pad;
   Qmsg *qm = qmsg_push(rows, total_width);
-  qmsg_set_title(qm, dialect == Orca_dialect_upstream ? "Upstream Operators"
+  qmsg_set_title(qm, dialect == Orca_dialect_combined ? "Combined Operators"
+                     : dialect == Orca_dialect_upstream ? "Upstream Operators"
                      : dialect == Orca_dialect_zorca  ? "zOrca Operators"
                      : dialect == Orca_dialect_seaflake ? "Seaflake Operators"
                                                        : "bOrca Operators");
@@ -3640,6 +3726,8 @@ staticni void dialect_menu_was_picked(Tui *t, int picked_id) {
                              ? Orca_dialect_seaflake
                          : picked_id == Dialect_menu_morfil
                              ? Orca_dialect_morfil
+                         : picked_id == Dialect_menu_combined
+                             ? Orca_dialect_combined
                              : Orca_dialect_borca;
   qnav_stack_pop();
   if (!tui_prefs_set_dialect(&t->prefs, dialect))
@@ -4735,7 +4823,7 @@ int main(int argc, char **argv) {
         break;
       }
       usage(); // then the error, last, where it shows
-      OPTFAIL("Must be zorca, borca, upstream, seaflake or morfil.");
+      OPTFAIL("Must be zorca, borca, upstream, seaflake, morfil or combined.");
     case Argopt_clock_source:
       // A session-only override through the pending overrides.
       if (clock_source_from_name(optarg, &t.overrides.clock_source)) {
@@ -5319,7 +5407,7 @@ event_loop:;
       }
       if (key != ' ') {
         char cleaned = (char)key;
-        if (!orca_is_valid_glyph((Glyph)key))
+        if (!orca_glyph_is_valid((Glyph)key))
           cleaned = '.';
         if (brackpaste_y < t.ged.field.height &&
             brackpaste_x < t.ged.field.width) {
@@ -5379,6 +5467,17 @@ event_loop:;
     break;
   case '}':
     ged_adjust_rulers_relative(&t.ged, 1, 0);
+    break;
+  case KEY_F(6):
+    ged_set_cell_dialect(&t.ged, Orca_dialect_upstream);
+    break;
+
+  case KEY_F(8):
+    ged_set_cell_dialect(&t.ged, Orca_dialect_seaflake);
+    break;
+
+  case KEY_F(10):
+    ged_set_cell_dialect(&t.ged, Orca_dialect_borca);
     break;
   case KEY_F(2):
     ged_resize_grid_relative(&t.ged, 0, -1);
@@ -5577,7 +5676,8 @@ event_loop:;
     break;
 
   default:
-    if (key >= CHAR_MIN && key <= CHAR_MAX && orca_is_valid_glyph((Glyph)key))
+    if (key >= CHAR_MIN && key <= CHAR_MAX &&
+        orca_glyph_is_valid((Glyph)key))
       ged_input_character(&t.ged, (char)key);
 #if 0
       else
