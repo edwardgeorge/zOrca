@@ -26,6 +26,9 @@ typedef struct {
   U8 velocity;
   U8 duration; // Instead of "duration:7"
   U8 mono;     // Instead of "mono:1"
+  U8 tuned;    // Set pitch_bend for the note and reset it on note-off.
+  U8 subtick;  // 1: immediate note-on; 2: immediate Seaflake sequence note-off.
+  U16 pitch_bend; // 14-bit bend value, centered at 8192.
 } Oevent_midi_note;
 
 typedef struct {

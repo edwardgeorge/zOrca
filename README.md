@@ -51,7 +51,7 @@ On a ClockworkPi uConsole, zOrca runs as an appliance:
 | Ctrl+D or F1 | Open the main menu |
 | Ctrl+O | Open a file |
 | Ctrl+S | Save |
-| `0`-`9`, `A`-`Z`, `a`-`z`, `!` `:` `%` `=` `#` `*` `;` `$` `&` `.` | Insert that glyph; `/` inserts a `?` |
+| `0`-`9`, `A`-`Z`, `a`-`z`, `!` `:` `%` `=` `#` `*` `;` `$` `&` `.` `+` `(` `)` | Insert that glyph; `/` inserts a `?` |
 | Backspace or Delete | Write a `.` in the cell under the cursor, or over the selection; in append mode Backspace writes it one cell to the left and moves there, and Delete moves right after it |
 | Space | Play or pause; under External it does nothing, and in append mode it inserts a `.` |
 | Ctrl+Z or Ctrl+U | Undo |
@@ -67,7 +67,8 @@ On a ClockworkPi uConsole, zOrca runs as an appliance:
 | Alt+Arrow keys | Slide the selection |
 | `` ` `` (grave) or `~` | Slide selection mode |
 | Escape | Return to normal mode, or deselect |
-| `(` `)` `_` `+` | Change the grid's width (`(` `)`) and height (`_` `+`) |
+| F2 / F3 | Shrink / grow the grid's width |
+| F4 / F5 | Shrink / grow the grid's height |
 | `[` `]` `{` `}` | Change the rulers' spacing, across (`[` `]`) and down (`{` `}`) |
 | `<` and `>` | Lower or raise the BPM; under External they do nothing |
 | Ctrl+E | Show or hide the list of the events the last tick sent |

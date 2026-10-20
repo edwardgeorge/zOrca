@@ -60,7 +60,14 @@
   X(control, "Control")                                                        \
   X(cc_value_upstream, "Value")     /* upstream's `!`: index x 127 / 35 */     \
   X(path, "Path")                                                              \
-  X(count, "Count")
+  X(count, "Count")                                                            \
+  X(chance, "Chance")                                                          \
+  X(phase, "Phase")                                                            \
+  X(division, "Division")                                                      \
+  X(multiplication, "Multiplication")                                          \
+  X(scale, "Scale")                                                            \
+  X(pitch, "Pitch")                                                            \
+  X(pulse_width, "Pulse width")
 
 // The ids, Port_label_<name>, in the order above; Port_label_none is 0 and
 // every id is below Port_label_id_count.

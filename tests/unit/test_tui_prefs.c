@@ -183,6 +183,10 @@ void test_prefs_read_line(void) {
   CHECK(p.dialect == Orca_dialect_zorca && p.touched == touched);
   CHECK(tui_prefs_read_line(&p, Confopt_dialect, "upstream"));
   CHECK(p.dialect == Orca_dialect_upstream && p.touched == touched);
+  CHECK(tui_prefs_read_line(&p, Confopt_dialect, "seaflake"));
+  CHECK(p.dialect == Orca_dialect_seaflake && p.touched == touched);
+  CHECK(tui_prefs_read_line(&p, Confopt_dialect, "upstream"));
+  CHECK(p.dialect == Orca_dialect_upstream && p.touched == touched);
 
   CHECK(tui_prefs_read_line(&p, Confopt_glide_hz, "200"));
   touched |= TOUCHFLAG(Confopt_glide_hz);
@@ -248,6 +252,7 @@ void test_prefs_bad_values(void) {
       {Confopt_grid_dot_type, "plain "},
       {Confopt_grid_ruler_type, "Plain"},
       {Confopt_dialect, "Upstream"},
+      {Confopt_dialect, "Seaflake"},
       {Confopt_dialect, "bOrca"},
       {Confopt_dialect, "zOrca"},
       {Confopt_dialect, "Zorca"},
@@ -709,7 +714,7 @@ void test_prefs_saved_value(void) {
   CHECK(tui_prefs_set_margins(&p, 10, 3));
   CHECK(tui_prefs_set_grid_dots(&p, false));
   CHECK(tui_prefs_read_line(&p, Confopt_grid_ruler_type, "plain"));
-  CHECK(tui_prefs_set_dialect(&p, Orca_dialect_upstream));
+  CHECK(tui_prefs_set_dialect(&p, Orca_dialect_seaflake));
   CHECK(tui_prefs_set_glide_hz(&p, 200));
   CHECK(tui_prefs_read_line(&p, Confopt_clock_source, "external"));
   CHECK(tui_prefs_set_midi_in(&p, "MidiHub:MidiHub MIDI 1"));
@@ -745,7 +750,7 @@ void test_prefs_saved_value(void) {
                      "margins = 10x3\n"
                      "grid_dot_type = plain\n"
                      "grid_ruler_type = plain\n"
-                     "dialect = upstream\n"
+                     "dialect = seaflake\n"
                      "glide_hz = 200\n"
                      "clock_source = external\n"
                      "portmidi_input_device = MidiHub:MidiHub MIDI 1\n"
@@ -753,7 +758,7 @@ void test_prefs_saved_value(void) {
   // Only margins and dialect touched: only their lines, in table order.
   p.touched = TOUCHFLAG(Confopt_margins) | TOUCHFLAG(Confopt_dialect);
   CHECK(saved_text(&p, text, sizeof text));
-  CHECK(strcmp(text, "margins = 10x3\ndialect = upstream\n") == 0);
+  CHECK(strcmp(text, "margins = 10x3\ndialect = seaflake\n") == 0);
   // A menu change to zorca saves `dialect = zorca`, and to borca
   // `dialect = borca`.
   CHECK(tui_prefs_set_dialect(&p, Orca_dialect_zorca));

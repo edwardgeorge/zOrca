@@ -1,6 +1,7 @@
 #include "sim.h"
 #include "gbuffer.h"
 #include "music.h"
+#include <math.h>
 #include <string.h>
 
 // Note Sequence
@@ -27,8 +28,16 @@ static inline Glyph glyph_of(Usz index) {
   return glyph_table[index];
 }
 
+static ORCA_FORCEINLINE Usz random_key(Usz seed, Usz y, Usz x, Usz width,
+                                       Usz tick);
+
 // A glyph's value: gbuffer.h's glyph_index_of, the one table.
 static ORCA_FORCEINLINE Usz index_of(Glyph c) { return glyph_index_of(c); }
+
+static ORCA_FORCEINLINE bool seaflake_is_variable(Glyph glyph) {
+  return (glyph >= '0' && glyph <= '9') || (glyph >= 'A' && glyph <= 'Z') ||
+         (glyph >= 'a' && glyph <= 'z');
+}
 
 // Reference implementation (test_core.c's glyph_index_of_reference checks
 // the table against it):
@@ -95,6 +104,7 @@ static U8 midi_velocity_of(Glyph g) {
 
 typedef struct {
   Glyph *vars_slots;
+  char (*vars_masks)[13];
   Oevent_list *oevent_list;
   Usz random_seed;
   Orca_run_ctx const *ctx;
@@ -236,6 +246,18 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
   _(';', udp)                                                                  \
   _('=', osc)
 
+#define SEAFLAKE_UNIQUE_OPERATORS(_)                                           \
+  _('!', midicc_upstream)                                                      \
+  _('&', seaflake_phase)                                                       \
+  _('(', seaflake_midi_just)                                                   \
+  _(')', seaflake_midi_scale)                                                  \
+  _('+', seaflake_binary_scale)                                                \
+  _(';', udp)                                                                  \
+  _('=', osc)                                                                  \
+  _('^', seaflake_probability)                                                 \
+  _('~', seaflake_burst)                                                       \
+  _('@', seaflake_midi_sequence)
+
 #define SHARED_ALPHA_OPERATORS(_)                                              \
   _('A', add)                                                                  \
   _('B', subtract)                                                             \
@@ -289,6 +311,15 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
 // default dialect: that is Breaking by the CHANGELOG's rule.
 #define ZORCA_UNIQUE_OPERATORS(_) BORCA_UNIQUE_OPERATORS(_)
 #define ZORCA_ALPHA_OPERATORS(_) BORCA_ALPHA_OPERATORS(_)
+
+#define SEAFLAKE_ALPHA_OPERATORS(_)                                            \
+  _('C', clock_upstream)                                                       \
+  _('D', delay_upstream)                                                       \
+  _('I', increment_upstream)                                                   \
+  _('L', lesser_upstream)                                                      \
+  _('R', random_upstream)                                                      \
+  _('U', uclid_upstream)                                                       \
+  _('Z', lerp_upstream)
 
 BEGIN_OPERATOR(movement)
   if (glyph_is_lowercase(This_oper_char) &&
@@ -351,27 +382,27 @@ BEGIN_OPERATOR(midicc)
 
   if (channel_g == '.' || value_g == '.')
     return;
-  
+
   Usz channel = index_of(channel_g);
   if (channel > 15)
     return;
-  
+
   // Calculate CC number from hundreds, tens, ones (support . for missing digits)
   Usz control_num = 0;
   if (control_h != '.') control_num += index_of(control_h) * 100;
   if (control_t != '.') control_num += index_of(control_t) * 10;
   if (control_o != '.') control_num += index_of(control_o);
-  
+
   // Clamp to valid MIDI CC range (0-127)
   if (control_num > 127) control_num = 127;
-  
+
   // Map ORCA values (0-35) to MIDI CC values in increments of 4: 0→0, 1→4, 2→8, etc.
   Usz value_index = index_of(value_g);
   Usz midi_value = value_index * 4;
   if (midi_value > 127) midi_value = 127; // Clamp to MIDI CC range
-  
+
   PORT(0, 0, OUT, Port_label_output);
-  
+
   // Handle interpolation rate
   if (interp_rate_g == '.') {
     // No interpolation - send immediate CC
@@ -408,7 +439,57 @@ BEGIN_OPERATOR(comment)
   }
 END_OPERATOR
 
+static void seaflake_start_burst(Glyph *gbuffer, Usz height, Usz width,
+                                 Usz y, Usz x, Orca_run_ctx const *ctx) {
+  Glyph repeats_glyph =
+      gbuffer_peek_relative(gbuffer, height, width, y, x, 0, 1);
+  Usz repeats = index_of(repeats_glyph == '.' ? '4' : repeats_glyph);
+  if (repeats == 0)
+    return;
+  Usz division =
+      index_of(gbuffer_peek_relative(gbuffer, height, width, y, x, 0, 2));
+  Usz multiplication =
+      index_of(gbuffer_peek_relative(gbuffer, height, width, y, x, 0, 3));
+  if (division == 0)
+    division = 1;
+  if (multiplication == 0)
+    multiplication = 1;
+  if (repeats > 35)
+    repeats = 35;
+  if (division > 35)
+    division = 35;
+  if (multiplication > 35)
+    multiplication = 35;
+  Opstate_entry *entry = opstate_lookup(ctx->opstate, y, x, '~');
+  if (!entry)
+    return;
+  U64 frame = ctx->tick_len_us;
+  if (frame == 0)
+    frame = UINT64_C(125000);
+  Opstate_seaflake_burst *state = &entry->u.seaflake_burst;
+  state->active = true;
+  state->remaining = (U8)repeats;
+  state->interval_us = frame * division / multiplication;
+  if (state->interval_us == 0)
+    state->interval_us = 1;
+  state->next_us = ctx->now_us;
+}
+
 BEGIN_OPERATOR(bang)
+  if (extra_params->ctx->dialect == Orca_dialect_seaflake &&
+      !extra_params->ctx->is_seaflake_subtick) {
+    static Isz const dy[] = {-1, 1, 0, 0};
+    static Isz const dx[] = {0, 0, -1, 1};
+    for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(dx); ++i) {
+      Isz source_y = (Isz)y + dy[i], source_x = (Isz)x + dx[i];
+      if (source_y < 0 || source_x < 0 || (Usz)source_y >= height ||
+          (Usz)source_x >= width ||
+          gbuffer[(Usz)source_y * width + (Usz)source_x] != '~')
+        continue;
+      seaflake_start_burst(gbuffer, height, width, (Usz)source_y,
+                           (Usz)source_x, extra_params->ctx);
+    }
+  }
   gbuffer_poke(gbuffer, height, width, y, x, '.');
 END_OPERATOR
 
@@ -448,6 +529,9 @@ BEGIN_OPERATOR(midi)
   oe->velocity = velocity;
   oe->duration = (U8)(index_of(length_g) & 0x7Fu);
   oe->mono = This_oper_char == '%' ? 1 : 0;
+  oe->tuned = 0;
+  oe->subtick = 0;
+  oe->pitch_bend = 0;
 END_OPERATOR
 
 BEGIN_OPERATOR(midipb)
@@ -470,6 +554,316 @@ BEGIN_OPERATOR(midipb)
   oe->channel = (U8)channel;
   oe->msb = (U8)(index_of(msb_g) * 127 / 35); // 0~35 -> 0~127
   oe->lsb = (U8)(index_of(lsb_g) * 127 / 35);
+END_OPERATOR
+
+BEGIN_OPERATOR(seaflake_probability)
+  PORT(0, 1, IN | PARAM, Port_label_chance);
+  PORT(1, 0, OUT, Port_label_output);
+  STOP_IF_NOT_BANGED;
+  Glyph chance_glyph = PEEK(0, 1);
+  Usz chance = index_of(chance_glyph == '.' ? 'i' : chance_glyph);
+  if (chance > 35)
+    chance = 35;
+  Usz draw = random_key(extra_params->random_seed, y, x, width, Tick_number) %
+             35;
+  POKE(1, 0, draw < chance ? '*' : '.');
+END_OPERATOR
+
+BEGIN_OPERATOR(seaflake_phase)
+  PORT(0, -1, IN | PARAM, Port_label_rate);
+  PORT(0, 1, IN | PARAM, Port_label_length);
+  PORT(-1, 0, IN | PARAM, Port_label_phase);
+  PORT(1, 0, OUT, Port_label_output);
+  Usz rate = index_of(PEEK(0, -1));
+  Glyph length_glyph = PEEK(0, 1);
+  Usz length = index_of(length_glyph == '.' ? '4' : length_glyph);
+  Usz phase = index_of(PEEK(-1, 0));
+  if (rate == 0)
+    rate = 1;
+  if (length == 0)
+    length = 1;
+  if (rate > 36)
+    rate = 36;
+  if (length > 36)
+    length = 36;
+  if (phase > 35)
+    phase = 35;
+  bool active = Tick_number % rate == 0 &&
+                (Tick_number / rate) % length == phase % length;
+  POKE(1, 0, active ? '*' : '.');
+END_OPERATOR
+
+BEGIN_OPERATOR(seaflake_burst)
+  PORT(0, 1, IN | PARAM, Port_label_count);
+  PORT(0, 2, IN | PARAM, Port_label_division);
+  PORT(0, 3, IN | PARAM, Port_label_multiplication);
+  PORT(1, 0, OUT, Port_label_output);
+  Glyph const *gp = gbuffer + y * width + x;
+  if (!((x > 0 && gp[-1] == '*') || (x < width - 1 && gp[1] == '*') ||
+        (y > 0 && gp[-(Isz)width] == '*')))
+    return;
+  seaflake_start_burst(gbuffer, height, width, y, x, extra_params->ctx);
+END_OPERATOR
+
+BEGIN_OPERATOR(seaflake_binary_scale)
+  PORT(0, -1, IN | PARAM, Port_label_variable);
+  static char const c_major[] = "101011010101";
+  Glyph key = PEEK(0, -1);
+  for (Usz pitch = 0; pitch < 12; ++pitch) {
+    PORT(0, (Isz)pitch + 1, IN | PARAM, Port_label_pitch);
+  }
+  if (!seaflake_is_variable(key))
+    return;
+  Usz key_index = index_of(key);
+  if (key_index >= Opstate_random_max_size)
+    return;
+  for (Usz pitch = 0; pitch < 12; ++pitch) {
+    Glyph value = PEEK(0, (Isz)pitch + 1);
+    Usz enabled =
+        value == '.' ? (Usz)(c_major[pitch] - '0') : index_of(value);
+    extra_params->vars_masks[key_index][pitch] =
+        enabled == 0 ? '0' : '1';
+  }
+  extra_params->vars_masks[key_index][12] = '\0';
+END_OPERATOR
+
+static void seaflake_add_midi_note(Oper_extra_params *extras, U8 channel,
+                                   U8 octave, U8 note, U8 velocity, U8 length,
+                                   bool tuned, U16 pitch_bend) {
+  Oevent_midi_note *oe =
+      (Oevent_midi_note *)oevent_list_alloc_item(extras->oevent_list);
+  *oe = (Oevent_midi_note){.oevent_type = Oevent_type_midi_note,
+                           .channel = channel,
+                           .octave = octave,
+                           .note = note,
+                           .velocity = velocity,
+                           .duration = length,
+                           .mono = 0,
+                           .tuned = tuned,
+                           .subtick = 0,
+                           .pitch_bend = pitch_bend};
+}
+
+static void seaflake_add_subtick_note(Oevent_list *events, U8 channel, U8 note,
+                                      U8 velocity, bool note_off) {
+  Oevent_midi_note *oe =
+      (Oevent_midi_note *)oevent_list_alloc_item(events);
+  *oe = (Oevent_midi_note){.oevent_type = Oevent_type_midi_note,
+                           .channel = channel,
+                           .octave = note / 12,
+                           .note = note % 12,
+                           .velocity = velocity,
+                           .duration = 0,
+                           .mono = 0,
+                           .tuned = 0,
+                           .subtick = note_off ? 2 : 1,
+                           .pitch_bend = 0};
+}
+
+static U8 seaflake_velocity(Glyph glyph) {
+  Usz velocity = index_of(glyph == '.' ? 'f' : glyph);
+  if (velocity > 16)
+    velocity = 16;
+  return (U8)(velocity * 127 / 16);
+}
+
+static U8 seaflake_length(Glyph glyph) {
+  Usz length = glyph == '.' ? 1 : index_of(glyph);
+  return (U8)(length > 32 ? 32 : length);
+}
+
+static U8 seaflake_octave(Glyph glyph) {
+  Usz octave = glyph == '.' ? 4 : index_of(glyph);
+  return (U8)(octave > 8 ? 8 : octave);
+}
+
+static U64 seaflake_sequence_offset(Opstate_seaflake_sequence const *state,
+                                   Usz index) {
+  double progress =
+      state->repeats < 2 ? 0.0 : (double)index / state->repeats;
+  double position = progress;
+  switch (state->shape) {
+  case 1:
+    position = 1.0 - sqrt(1.0 - progress);
+    break;
+  case 2:
+    position = sqrt(progress);
+    break;
+  case 3:
+    position = progress < 0.5
+                   ? sqrt(progress / 2.0)
+                   : 1.0 - sqrt((1.0 - progress) / 2.0);
+    break;
+  case 4:
+    position = progress * state->pulsewidth / 36.0;
+    break;
+  default:
+    break;
+  }
+  double offset = position * state->duration_us;
+  U64 at = offset > 0.0 ? (U64)offset : 0;
+  if (at >= state->duration_us && state->duration_us > 0)
+    at = state->duration_us - 1;
+  return at;
+}
+
+BEGIN_OPERATOR(seaflake_midi_scale)
+  static Port_label const labels[] = {
+      Port_label_channel, Port_label_octave, Port_label_degree,
+      Port_label_variable, Port_label_velocity, Port_label_length};
+  for (Isz i = 1; i <= 6; ++i)
+    PORT(0, i, IN | PARAM, labels[i - 1]);
+  PORT(0, 0, OUT, Port_label_output);
+  STOP_IF_NOT_BANGED;
+  Usz channel = PEEK(0, 1) == '.' ? 0 : index_of(PEEK(0, 1));
+  if (channel > 15)
+    channel = 15;
+  Usz octave = seaflake_octave(PEEK(0, 2));
+  Usz degree = PEEK(0, 3) == '.' ? 1 : index_of(PEEK(0, 3));
+  if (degree < 1)
+    degree = 1;
+  if (degree > 35)
+    degree = 35;
+  Glyph key_glyph = PEEK(0, 4);
+  if (!seaflake_is_variable(key_glyph))
+    return;
+  Usz key = index_of(key_glyph);
+  if (key >= Opstate_random_max_size)
+    return;
+  char const *mask = extra_params->vars_masks[key];
+  Usz notes[12], note_count = 0;
+  for (Usz pitch = 0; pitch < 12; ++pitch)
+    if (mask[pitch] == '1')
+      notes[note_count++] = pitch;
+  if (note_count == 0)
+    return;
+  Usz idx = degree - 1;
+  Usz absolute = 24 + (octave + idx / note_count) * 12 +
+                 notes[idx % note_count];
+  if (absolute > 127)
+    absolute = 127;
+  U8 velocity = seaflake_velocity(PEEK(0, 5));
+  seaflake_add_midi_note(extra_params, (U8)channel, (U8)(absolute / 12),
+                         (U8)(absolute % 12), velocity,
+                         seaflake_length(PEEK(0, 6)), false, 0);
+END_OPERATOR
+
+BEGIN_OPERATOR(seaflake_midi_just)
+  static Port_label const labels[] = {Port_label_channel, Port_label_octave,
+                                      Port_label_note, Port_label_velocity,
+                                      Port_label_length};
+  for (Isz i = 1; i <= 5; ++i)
+    PORT(0, i, IN | PARAM, labels[i - 1]);
+  PORT(0, 0, OUT, Port_label_output);
+  STOP_IF_NOT_BANGED;
+  Usz channel = PEEK(0, 1) == '.' ? 0 : index_of(PEEK(0, 1));
+  if (channel > 15)
+    channel = 15;
+  Glyph note_glyph = PEEK(0, 3);
+  U8 note = midi_note_number_of(note_glyph);
+  if (note == UINT8_MAX)
+    return;
+  Usz absolute = 24 + seaflake_octave(PEEK(0, 2)) * 12 + note;
+  if (absolute > 127)
+    absolute = 127;
+  U8 velocity = seaflake_velocity(PEEK(0, 4));
+  static double const ratios[12] = {1.0, 16.0 / 15.0, 9.0 / 8.0, 6.0 / 5.0,
+                                    5.0 / 4.0, 4.0 / 3.0, 45.0 / 32.0,
+                                    3.0 / 2.0, 8.0 / 5.0, 5.0 / 3.0,
+                                    16.0 / 9.0, 15.0 / 8.0};
+  Usz pitch_class = note % 12;
+  double semitones = 12.0 * log2(ratios[pitch_class]) - pitch_class;
+  double bend = 8192.0 + semitones * 4096.0;
+  Usz pitch_bend = (Usz)(bend + 0.5);
+  if (pitch_bend > 16383)
+    pitch_bend = 16383;
+  seaflake_add_midi_note(extra_params, (U8)channel, (U8)(absolute / 12),
+                         (U8)(absolute % 12), velocity,
+                         seaflake_length(PEEK(0, 5)), true,
+                         (U16)pitch_bend);
+END_OPERATOR
+
+BEGIN_OPERATOR(seaflake_midi_sequence)
+  static Port_label const labels[] = {
+      Port_label_channel, Port_label_octave, Port_label_note,
+      Port_label_velocity, Port_label_shape, Port_label_count,
+      Port_label_length, Port_label_pulse_width};
+  for (Isz i = 1; i <= 8; ++i)
+    PORT(0, i, IN | PARAM, labels[i - 1]);
+  bool banged = oper_has_neighboring_bang(gbuffer, height, width, y, x);
+  Opstate_entry *entry = opstate_lookup(extra_params->ctx->opstate, y, x,
+                                        This_oper_char);
+  if (!entry)
+    return;
+  Opstate_seaflake_sequence *state = &entry->u.seaflake_sequence;
+  if (!banged && !state->active)
+    return;
+  Usz channel = PEEK(0, 1) == '.' ? 0 : index_of(PEEK(0, 1));
+  Usz octave = seaflake_octave(PEEK(0, 2));
+  U8 note = midi_note_number_of(PEEK(0, 3));
+  Usz velocity = seaflake_velocity(PEEK(0, 4));
+  Usz shape = PEEK(0, 5) == '.' ? 1 : index_of(PEEK(0, 5));
+  Usz repeats = PEEK(0, 6) == '.' ? 1 : index_of(PEEK(0, 6));
+  Usz duration = PEEK(0, 7) == '.' ? 1 : index_of(PEEK(0, 7));
+  Usz pulsewidth = PEEK(0, 8) == '.' ? 18 : index_of(PEEK(0, 8));
+  if (channel > 15)
+    channel = 15;
+  if (shape < 1)
+    shape = 1;
+  if (shape > 4)
+    shape = 4;
+  if (repeats > 35)
+    repeats = 35;
+  if (duration < 1)
+    duration = 1;
+  if (duration > 36)
+    duration = 36;
+  if (pulsewidth < 1)
+    pulsewidth = 1;
+  if (pulsewidth > 35)
+    pulsewidth = 35;
+  if (note == UINT8_MAX) {
+    if (state->note_active)
+      seaflake_add_subtick_note(extra_params->oevent_list,
+                                state->active_channel, state->active_note, 0,
+                                true);
+    state->note_active = false;
+    state->active = false;
+    return;
+  }
+  if (banged) {
+    if (state->note_active) {
+      seaflake_add_subtick_note(extra_params->oevent_list,
+                                state->active_channel, state->active_note, 0,
+                                true);
+      state->note_active = false;
+    }
+    if (repeats == 0) {
+      state->active = false;
+      return;
+    }
+    state->active = true;
+    state->emitted = 0;
+    state->repeats = (U8)repeats;
+    state->started_us = extra_params->ctx->now_us;
+  } else {
+    state->repeats = (U8)repeats;
+  }
+  state->channel = (U8)channel;
+  state->octave = (U8)octave;
+  state->note = note;
+  state->velocity = (U8)velocity;
+  state->shape = (U8)shape;
+  state->pulsewidth = (U8)pulsewidth;
+  U64 frame = extra_params->ctx->tick_len_us;
+  if (frame == 0)
+    frame = UINT64_C(125000);
+  state->duration_us = frame * duration;
+  if (state->emitted < state->repeats)
+    state->next_us =
+        state->started_us + seaflake_sequence_offset(state, state->emitted);
+  else
+    state->next_us = state->started_us + state->duration_us;
 END_OPERATOR
 
 BEGIN_OPERATOR(add)
@@ -1047,6 +1441,9 @@ BEGIN_OPERATOR(midichord)
     oe->velocity = velocity;
     oe->duration = (U8)(index_of(length_g) & 0x7Fu);
     oe->mono = 0;
+    oe->tuned = 0;
+    oe->subtick = 0;
+    oe->pitch_bend = 0;
   }
 
 END_OPERATOR
@@ -1054,7 +1451,7 @@ END_OPERATOR
 // BOORCH's Simple Arpeggiator - outputs degree numbers for Scale operator
 typedef enum {
   ARP_UP = 0,        // 0: Ascending
-  ARP_DOWN,          // 1: Descending  
+  ARP_DOWN,          // 1: Descending
   ARP_UP_DOWN,       // 2: Up and down (without repeating highest)
   ARP_DOWN_UP,       // 3: Down and up (without repeating lowest)
   ARP_UP_DOWN_PLUS,  // 4: Up and down with repeated end points
@@ -1064,7 +1461,7 @@ typedef enum {
   ARP_PINKY_UP,      // 8: Alternate between notes and highest note
   ARP_THUMB_UP,      // 9: Alternate between lowest and other notes
   ARP_UP_DOWN_ALT,   // a: Up-down alternating pattern
-  ARP_DOWN_UP_ALT,   // b: Down-up alternating pattern  
+  ARP_DOWN_UP_ALT,   // b: Down-up alternating pattern
   ARP_RANDOM,        // c: Random selection
   ARP_BOUNCE,        // d: Bouncing pattern
   ARP_PATTERN_COUNT
@@ -1657,6 +2054,10 @@ bool orca_dialect_from_name(char const *name, Orca_dialect *out) {
     *out = Orca_dialect_zorca;
     return true;
   }
+  if (strcmp(name, "seaflake") == 0) {
+    *out = Orca_dialect_seaflake;
+    return true;
+  }
   return false;
 }
 
@@ -1666,8 +2067,10 @@ char const *orca_dialect_name(Orca_dialect d) {
     return "upstream";
   case Orca_dialect_zorca:
     return "zorca";
+  case Orca_dialect_seaflake:
+    return "seaflake";
   case Orca_dialect_borca:
-    break;
+    return "borca";
   }
   return "borca"; // any other value runs as bOrca
 }
@@ -1678,8 +2081,12 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
   assert(ctx && ctx->opstate);
   Glyph vars_slots[Glyphs_index_count];
   memset(vars_slots, '.', sizeof(vars_slots));
+  if (!ctx->preserve_seaflake_scales)
+    memset(ctx->opstate->seaflake_scales, 0,
+           sizeof ctx->opstate->seaflake_scales);
   Oper_extra_params extras;
   extras.vars_slots = &vars_slots[0];
+  extras.vars_masks = ctx->opstate->seaflake_scales;
   extras.oevent_list = oevent_list;
   extras.random_seed = random_seed;
   extras.ctx = ctx;
@@ -1726,10 +2133,232 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
     CELL_LOOP(UPSTREAM_UNIQUE_OPERATORS, UPSTREAM_ALPHA_OPERATORS)
   } else if (ctx->dialect == Orca_dialect_zorca) {
     CELL_LOOP(ZORCA_UNIQUE_OPERATORS, ZORCA_ALPHA_OPERATORS)
+  } else if (ctx->dialect == Orca_dialect_seaflake) {
+    CELL_LOOP(SEAFLAKE_UNIQUE_OPERATORS, SEAFLAKE_ALPHA_OPERATORS)
   } else {
     CELL_LOOP(BORCA_UNIQUE_OPERATORS, BORCA_ALPHA_OPERATORS)
   }
 #undef CELL_LOOP
 #undef UNIQUE_CASE
 #undef ALPHA_CASE
+}
+
+bool orca_run_bang_at(Glyph *gbuf, Usz height, Usz width, Usz y, Usz x,
+                      Usz tick_number, Oevent_list *events, Usz random_seed,
+                      Orca_run_ctx const *ctx) {
+  if (!gbuf || !ctx || !ctx->opstate || y >= height || x >= width ||
+      (width && height > SIZE_MAX / width))
+    return false;
+  Usz count = height * width;
+  Mark *marks = malloc(count * sizeof *marks);
+  Glyph *before = malloc(count * sizeof *before);
+  bool *visited = calloc(count, sizeof *visited);
+  bool *queued = calloc(count, sizeof *queued);
+  Usz *queue = malloc(count * sizeof *queue);
+  if (!marks || !before || !visited || !queued || !queue) {
+    free(marks);
+    free(before);
+    free(visited);
+    free(queued);
+    free(queue);
+    return false;
+  }
+
+  Orca_run_ctx subtick_ctx = *ctx;
+  subtick_ctx.labels = NULL;
+  subtick_ctx.preserve_seaflake_scales = true;
+  subtick_ctx.is_seaflake_subtick = true;
+  Usz head = 0, tail = 0;
+  Usz first = y * width + x;
+  gbuf[first] = '*';
+  queue[tail++] = first;
+  queued[first] = true;
+  while (head < tail) {
+    Usz bang = queue[head++];
+    queued[bang] = false;
+    if (visited[bang])
+      continue;
+    visited[bang] = true;
+    memset(marks, (Mark)Mark_flag_lock, count * sizeof *marks);
+    marks[bang] = (Mark)Mark_flag_lock;
+    Usz by = bang / width, bx = bang % width;
+    static Isz const dy[] = {0, 0, -1, 1};
+    static Isz const dx[] = {-1, 1, 0, 0};
+    for (Usz n = 0; n < ORCA_ARRAY_COUNTOF(dx); ++n) {
+      Isz ny = (Isz)by + dy[n], nx = (Isz)bx + dx[n];
+      if (ny < 0 || nx < 0 || (Usz)ny >= height || (Usz)nx >= width)
+        continue;
+      Usz cell = (Usz)ny * width + (Usz)nx;
+      Glyph glyph = gbuf[cell];
+      if (glyph == '.' || glyph == '*' || visited[cell])
+        continue;
+      marks[cell] = 0;
+    }
+    memcpy(before, gbuf, count * sizeof *before);
+    orca_run(gbuf, marks, height, width, tick_number, events, random_seed,
+             &subtick_ctx);
+    if (gbuf[bang] == '*')
+      gbuf[bang] = '.';
+    for (Usz i = 0; i < count; ++i) {
+      if (before[i] == '*' || gbuf[i] != '*' || visited[i] || queued[i])
+        continue;
+      if (tail == count) {
+        free(marks);
+        free(before);
+        free(visited);
+        free(queued);
+        free(queue);
+        return false;
+      }
+      queue[tail++] = i;
+      queued[i] = true;
+    }
+  }
+  free(marks);
+  free(before);
+  free(visited);
+  free(queued);
+  free(queue);
+  return true;
+}
+
+bool orca_seaflake_next_deadline(Opstate_store const *store, U64 *deadline) {
+  bool found = false;
+  for (Usz i = 0; i < store->capacity; ++i) {
+    Opstate_entry const *entry = store->slots + i;
+    U64 candidate;
+    if (entry->glyph == '~' && entry->u.seaflake_burst.active)
+      candidate = entry->u.seaflake_burst.next_us;
+    else if (entry->glyph == '@' && entry->u.seaflake_sequence.active)
+      candidate = entry->u.seaflake_sequence.next_us;
+    else
+      continue;
+    if (!found || candidate < *deadline) {
+      *deadline = candidate;
+      found = true;
+    }
+  }
+  return found;
+}
+
+bool orca_seaflake_process_due(Glyph *gbuf, Usz height, Usz width,
+                               Usz tick_number, Oevent_list *events,
+                               Usz random_seed, Orca_run_ctx const *ctx,
+                               U64 now_us) {
+  Opstate_store *store = ctx->opstate;
+  for (Usz actions = 0; actions < 1024; ++actions) {
+    bool found = false;
+    U64 due_us = 0;
+    Usz y = 0, x = 0;
+    Glyph glyph = 0;
+    for (Usz i = 0; i < store->capacity; ++i) {
+      Opstate_entry const *candidate = store->slots + i;
+      U64 candidate_due;
+      if (candidate->glyph == '~' && candidate->u.seaflake_burst.active)
+        candidate_due = candidate->u.seaflake_burst.next_us;
+      else if (candidate->glyph == '@' &&
+               candidate->u.seaflake_sequence.active)
+        candidate_due = candidate->u.seaflake_sequence.next_us;
+      else
+        continue;
+      if (candidate_due <= now_us && (!found || candidate_due < due_us)) {
+        found = true;
+        due_us = candidate_due;
+        y = candidate->y;
+        x = candidate->x;
+        glyph = candidate->glyph;
+      }
+    }
+    if (!found)
+      return true;
+
+    Opstate_entry *entry = opstate_lookup(store, y, x, glyph);
+    if (!entry)
+      return false;
+    if (glyph == '~') {
+      if (gbuf[y * width + x] != '~') {
+        entry->u.seaflake_burst.active = false;
+        continue;
+      }
+      Orca_run_ctx event_ctx = *ctx;
+      event_ctx.now_us = due_us;
+      if (y + 1 < height &&
+          !orca_run_bang_at(gbuf, height, width, y + 1, x, tick_number,
+                            events, random_seed, &event_ctx)) {
+        entry = opstate_lookup(store, y, x, '~');
+        if (entry)
+          entry->u.seaflake_burst.active = false;
+        return false;
+      }
+      entry = opstate_lookup(store, y, x, '~');
+      if (!entry)
+        return false;
+      Opstate_seaflake_burst *burst = &entry->u.seaflake_burst;
+      if (burst->remaining > 0)
+        --burst->remaining;
+      if (burst->remaining == 0)
+        burst->active = false;
+      else
+        burst->next_us += burst->interval_us;
+    } else {
+      Opstate_seaflake_sequence *sequence = &entry->u.seaflake_sequence;
+      if (sequence->emitted < sequence->repeats) {
+        Usz absolute = 24 + sequence->octave * 12 + sequence->note;
+        if (absolute > 127)
+          absolute = 127;
+        if (sequence->note_active) {
+          seaflake_add_subtick_note(events, sequence->active_channel,
+                                    sequence->active_note, 0, true);
+          sequence->note_active = false;
+        }
+        Oevent_midi_note *oe =
+            (Oevent_midi_note *)oevent_list_alloc_item(events);
+        *oe = (Oevent_midi_note){.oevent_type = Oevent_type_midi_note,
+                                 .channel = sequence->channel,
+                                 .octave = (U8)(absolute / 12),
+                                 .note = (U8)(absolute % 12),
+                                 .velocity = sequence->velocity,
+                                 .duration = 1,
+                                 .mono = 0,
+                                 .tuned = 0,
+                                 .subtick = 1,
+                                 .pitch_bend = 0};
+        sequence->active_channel = sequence->channel;
+        sequence->active_note = (U8)absolute;
+        sequence->note_active = true;
+        ++sequence->emitted;
+        if (sequence->emitted < sequence->repeats)
+          sequence->next_us =
+              sequence->started_us +
+              seaflake_sequence_offset(sequence, sequence->emitted);
+        else
+          sequence->next_us =
+              sequence->started_us + sequence->duration_us;
+      } else {
+        if (sequence->note_active) {
+          seaflake_add_subtick_note(events, sequence->active_channel,
+                                    sequence->active_note, 0, true);
+          sequence->note_active = false;
+        }
+        sequence->active = false;
+      }
+    }
+  }
+  for (Usz i = 0; i < store->capacity; ++i) {
+    Opstate_entry *entry = store->slots + i;
+    if (entry->glyph == '~' && entry->u.seaflake_burst.active &&
+        entry->u.seaflake_burst.next_us <= now_us) {
+      entry->u.seaflake_burst.active = false;
+    } else if (entry->glyph == '@' &&
+               entry->u.seaflake_sequence.active &&
+               entry->u.seaflake_sequence.next_us <= now_us) {
+      Opstate_seaflake_sequence *sequence = &entry->u.seaflake_sequence;
+      if (sequence->note_active)
+        seaflake_add_subtick_note(events, sequence->active_channel,
+                                  sequence->active_note, 0, true);
+      sequence->note_active = false;
+      sequence->active = false;
+    }
+  }
+  return false;
 }

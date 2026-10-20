@@ -22,13 +22,14 @@ fprintf(stderr,
 "                  Default: 1\n"
 "    -q or --quiet Don't print the grid to stdout.\n"
 "    --events      After each tick, print that tick's output events, one\n"
-"                  per line (NOTE, CC, CCI, PB, OSC, UDP, each prefixed\n"
+"                  per line (NOTE, OFF, CC, CCI, PB, OSC, UDP, each prefixed\n"
 "                  t<tick>), then 't<tick> GRID' and the grid. With -q,\n"
 "                  print the event lines only.\n"
 "    --seed <n>    Seed for the random operators. Default: 0\n"
-"    --dialect <d> Operator dialect: zorca (default), borca or\n"
-"                  upstream. zorca is zOrca's: bOrca's operators\n"
-"                  plus zOrca's own (none yet, so it plays as borca);\n"
+"    --dialect <d> Operator dialect: zorca (default), borca, upstream or\n"
+"                  seaflake. zorca is zOrca's: bOrca's operators plus\n"
+"                  zOrca's own (none yet, so it plays as borca).\n"
+"                  seaflake timed operators use 125 ms virtual ticks.\n"
 "                  upstream is Orca-c's: ! sends a plain CC, ; UDP,\n"
 "                  = OSC, r is a banged R, $ and & do nothing, and\n"
 "                  C, D, I, L, R, U and Z keep Orca-c's rules for\n"
@@ -108,7 +109,7 @@ int main(int argc, char **argv) {
     case Argopt_dialect:
       if (!orca_dialect_from_name(optarg, &dialect)) {
         fprintf(stderr,
-                "Unknown dialect %s. Expected borca, upstream or zorca.\n",
+                "Unknown dialect %s. Expected borca, upstream, zorca or seaflake.\n",
                 optarg);
         return 1;
       }
@@ -156,15 +157,38 @@ int main(int argc, char **argv) {
   }
   Oevent_list oevent_list;
   oevent_list_init(&oevent_list);
-  // The per-cell state of &, ; and r, owned here for the whole run.
+  // Stateful operator data and Seaflake scales, owned for the whole run.
   Opstate_store opstate;
   opstate_init(&opstate);
-  Orca_run_ctx const ctx = {.opstate = &opstate, .dialect = dialect};
+  U64 now_us = 0;
+  U64 const tick_len_us = UINT64_C(125000);
+  bool run_ok = true;
   for (Usz i = 0; i < max_ticks; ++i) {
+    U64 next_us = now_us;
+    if (dialect == Orca_dialect_seaflake) {
+      if (now_us > UINT64_MAX - tick_len_us) {
+        fputs("Cannot simulate: virtual clock overflow\n", stderr);
+        run_ok = false;
+        break;
+      }
+      next_us += tick_len_us;
+    }
     mbuffer_clear(mbuf_r.buffer, field.height, field.width);
     oevent_list_clear(&oevent_list);
+    Orca_run_ctx const ctx = {.opstate = &opstate,
+                              .dialect = dialect,
+                              .now_us = now_us,
+                              .tick_len_us = tick_len_us};
     orca_run(field.buffer, mbuf_r.buffer, field.height, field.width, i,
              &oevent_list, seed, &ctx);
+    if (dialect == Orca_dialect_seaflake &&
+        !orca_seaflake_process_due(field.buffer, field.height, field.width, i,
+                                   &oevent_list, seed, &ctx, next_us)) {
+      fputs("Cannot simulate: Seaflake timed-event processing failed\n",
+            stderr);
+      run_ok = false;
+      break;
+    }
     if (print_events) {
       events_print(stdout, i, oevent_list.buffer, oevent_list.count);
       if (print_output) {
@@ -172,6 +196,7 @@ int main(int argc, char **argv) {
         field_fput(&field, stdout);
       }
     }
+    now_us = next_us;
   }
   mbuf_reusable_deinit(&mbuf_r);
   oevent_list_deinit(&oevent_list);
@@ -186,5 +211,5 @@ int main(int argc, char **argv) {
     perror("cli: stdout");
     return 1;
   }
-  return 0;
+  return run_ok ? 0 : 1;
 }

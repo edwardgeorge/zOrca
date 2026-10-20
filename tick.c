@@ -120,6 +120,8 @@ static void send_note_offs(Tick_sink const *sink, Susnote const *start,
   for (; start != end; ++start) {
     U16 chan_note = start->chan_note;
     send_chan_msg(sink, 0x8, chan_note >> 8, chan_note & 0xFF, 0);
+    if (start->tuned)
+      send_chan_msg(sink, 0xE, chan_note >> 8, 0, 64);
   }
 }
 
@@ -187,11 +189,15 @@ static void tick_send_events(Tick_ctx const *ctx, Tick_sink const *sink,
     U8 channel;
     U8 note_number;
     U8 velocity;
+    U16 pitch_bend;
+    bool tuned;
   } Midi_note_on;
   typedef struct {
     U8 note_number;
     U8 velocity;
     U8 duration;
+    U16 pitch_bend;
+    bool tuned;
   } Midi_mono_on;
   Midi_note_on midi_note_ons[Midi_on_capacity];
   Midi_mono_on midi_mono_ons[16]; // Keep only a single one per channel
@@ -203,8 +209,6 @@ static void tick_send_events(Tick_ctx const *ctx, Tick_sink const *sink,
     Oevent const *e = events + i;
     switch ((Oevent_types)e->any.oevent_type) {
     case Oevent_type_midi_note: {
-      if (midi_note_count == Midi_on_capacity)
-        break;
       Oevent_midi_note const *em = &e->midi_note;
       Usz note_number = (Usz)(12u * em->octave + em->note);
       if (note_number > 127)
@@ -212,13 +216,29 @@ static void tick_send_events(Tick_ctx const *ctx, Tick_sink const *sink,
       Usz channel = em->channel;
       if (channel > 15)
         break;
+      if (em->subtick) {
+        if (em->subtick == 2) {
+          send_chan_msg(sink, 0x8, (int)channel, (int)note_number, 0);
+        } else {
+          if (em->tuned)
+            send_chan_msg(sink, 0xE, (int)channel, em->pitch_bend & 0x7F,
+                          em->pitch_bend >> 7);
+          send_chan_msg(sink, 0x9, (int)channel, (int)note_number,
+                        em->velocity);
+        }
+        break;
+      }
+      if (midi_note_count == Midi_on_capacity)
+        break;
       if (em->mono) {
         // 'mono' note-ons are strange. The more typical branch you'd expect to
         // see, where you can play multiple notes per channel, is below.
         monofied_chans |= 1u << (channel & 0xFu);
         midi_mono_ons[channel] = (Midi_mono_on){.note_number = (U8)note_number,
                                                 .velocity = em->velocity,
-                                                .duration = em->duration};
+                                                .duration = em->duration,
+                                                .pitch_bend = em->pitch_bend,
+                                                .tuned = em->tuned != 0};
       } else {
         // The same channel and note twice in a tick (two `:` on one note,
         // or a `=` chord sharing a note with a `:`) is one note-on, in the
@@ -232,15 +252,24 @@ static void tick_send_events(Tick_ctx const *ctx, Tick_sink const *sink,
           ++slot;
         if (slot < midi_note_count) {
           midi_note_ons[slot].velocity = em->velocity;
+          midi_note_ons[slot].pitch_bend = em->pitch_bend;
+          midi_note_ons[slot].tuned = em->tuned != 0;
           new_susnotes[slot].remaining = em->duration;
+          new_susnotes[slot].pitch_bend = em->pitch_bend;
+          new_susnotes[slot].tuned = em->tuned != 0;
           break;
         }
         midi_note_ons[midi_note_count] =
             (Midi_note_on){.channel = (U8)channel,
                            .note_number = (U8)note_number,
-                           .velocity = em->velocity};
+                           .velocity = em->velocity,
+                           .pitch_bend = em->pitch_bend,
+                           .tuned = em->tuned != 0};
         new_susnotes[midi_note_count] =
-            (Susnote){.remaining = em->duration, .chan_note = chan_note};
+            (Susnote){.remaining = em->duration,
+                      .chan_note = chan_note,
+                      .pitch_bend = em->pitch_bend,
+                      .tuned = em->tuned != 0};
         ++midi_note_count;
       }
       break;
@@ -297,6 +326,9 @@ do_note_ons:
       }
       for (Usz i = 0; i < midi_note_count; ++i) {
         Midi_note_on mno = midi_note_ons[i];
+        if (mno.tuned)
+          send_chan_msg(sink, 0xE, mno.channel, mno.pitch_bend & 0x7F,
+                        mno.pitch_bend >> 7);
         send_chan_msg(sink, 0x9, mno.channel, mno.note_number, mno.velocity);
       }
     }
@@ -320,10 +352,14 @@ do_note_ons:
       midi_note_ons[midi_note_count] =
           (Midi_note_on){.channel = (U8)i,
                          .note_number = midi_mono_ons[i].note_number,
-                         .velocity = midi_mono_ons[i].velocity};
+                         .velocity = midi_mono_ons[i].velocity,
+                         .pitch_bend = midi_mono_ons[i].pitch_bend,
+                         .tuned = midi_mono_ons[i].tuned};
       new_susnotes[midi_note_count] = (Susnote){
           .remaining = midi_mono_ons[i].duration,
-          .chan_note = (U16)((i << 8u) | midi_mono_ons[i].note_number)};
+          .chan_note = (U16)((i << 8u) | midi_mono_ons[i].note_number),
+          .pitch_bend = midi_mono_ons[i].pitch_bend,
+          .tuned = midi_mono_ons[i].tuned};
       midi_note_count++;
     }
     monofied_chans = 0;
@@ -359,12 +395,49 @@ void tick_body(Tick_ctx const *ctx, Tick_sink const *sink) {
   Oevent_list *list = ctx->tick_list;
   Orca_run_ctx const run_ctx = {.opstate = ctx->opstate,
                                 .dialect = ctx->dialect,
+                                .now_us = ctx->now_us,
+                                .tick_len_us = ctx->tick_len,
                                 .labels = ctx->labels};
   tick_run_vm(ctx->gbuffer, ctx->mbuffer, ctx->height, ctx->width,
               *ctx->tick_num, list, ctx->random_seed, &run_ctx);
   ++*ctx->tick_num;
   if (list->count > 0)
     tick_send_events(ctx, sink, list->buffer, list->count);
+}
+
+bool tick_poll_seaflake(Tick_ctx const *ctx, Tick_sink const *sink,
+                        U64 now_us) {
+  if (ctx->dialect != Orca_dialect_seaflake)
+    return true;
+  Orca_run_ctx const run_ctx = {.opstate = ctx->opstate,
+                                .dialect = ctx->dialect,
+                                .now_us = now_us,
+                                .tick_len_us = ctx->tick_len,
+                                .preserve_seaflake_scales = true};
+  oevent_list_clear(ctx->tick_list);
+  bool ok = orca_seaflake_process_due(
+      ctx->gbuffer, ctx->height, ctx->width, *ctx->tick_num, ctx->tick_list,
+      ctx->random_seed, &run_ctx, now_us);
+  if (ctx->tick_list->count > 0)
+    tick_send_events(ctx, sink, ctx->tick_list->buffer, ctx->tick_list->count);
+  return ok;
+}
+
+void tick_release_seaflake_sequences(Opstate_store *store,
+                                     Tick_sink const *sink) {
+  for (Usz i = 0; i < store->capacity; ++i) {
+    Opstate_entry *entry = store->slots + i;
+    if (entry->glyph == '~') {
+      entry->u.seaflake_burst.active = false;
+    } else if (entry->glyph == '@') {
+      Opstate_seaflake_sequence *sequence = &entry->u.seaflake_sequence;
+      if (sequence->note_active)
+        send_chan_msg(sink, 0x8, sequence->active_channel,
+                      sequence->active_note, 0);
+      sequence->note_active = false;
+      sequence->active = false;
+    }
+  }
 }
 
 U64 tick_len_us(Usz bpm) {
