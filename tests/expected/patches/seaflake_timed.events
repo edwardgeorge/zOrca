@@ -1,0 +1,12 @@
+t0 NOTE ch0 note48 vel127 len1 mono0
+t0 NOTE ch0 note74 vel127 len1 mono0
+t0 OFF ch0 note74
+t0 NOTE ch0 note74 vel127 len1 mono0
+t0 OFF ch0 note74
+t0 NOTE ch0 note74 vel127 len1 mono0
+t0 OFF ch0 note74
+t0 NOTE ch0 note74 vel127 len1 mono0
+t0 NOTE ch0 note48 vel127 len1 mono0
+t0 OFF ch0 note74
+t1 NOTE ch0 note48 vel127 len1 mono0
+t2 NOTE ch0 note48 vel127 len1 mono0

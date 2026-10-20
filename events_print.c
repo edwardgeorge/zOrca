@@ -14,9 +14,20 @@ void events_print(FILE *stream, Usz tick, Oevent const *events, Usz count) {
       Usz note_number = (Usz)(12u * em->octave + em->note);
       if (note_number > 127)
         note_number = 127;
+#ifdef ORCA_VMIO_BORCA
+      if (em->subtick == 2) {
+        fprintf(stream, "t%zu OFF ch%u note%zu\n", tick,
+                (unsigned)em->channel, note_number);
+      } else {
+        fprintf(stream, "t%zu NOTE ch%u note%zu vel%u len%u mono%u\n", tick,
+                (unsigned)em->channel, note_number, (unsigned)em->velocity,
+                (unsigned)em->duration, (unsigned)em->mono);
+      }
+#else
       fprintf(stream, "t%zu NOTE ch%u note%zu vel%u len%u mono%u\n", tick,
               (unsigned)em->channel, note_number, (unsigned)em->velocity,
               (unsigned)em->duration, (unsigned)em->mono);
+#endif
       break;
     }
     case Oevent_type_midi_cc: {

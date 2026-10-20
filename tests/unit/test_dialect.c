@@ -23,6 +23,19 @@ static void run_tick(Glyph *grid, Mark *marks, Usz height, Usz width,
   orca_run(grid, marks, height, width, tick, events, seed, &ctx);
 }
 
+static void run_tick_clock(Glyph *grid, Mark *marks, Usz height, Usz width,
+                           Usz tick, Oevent_list *events, Usz seed,
+                           Opstate_store *store, Orca_dialect dialect,
+                           U64 now_us, U64 tick_len_us) {
+  mbuffer_clear(marks, height, width);
+  oevent_list_clear(events);
+  Orca_run_ctx const ctx = {.opstate = store,
+                            .dialect = dialect,
+                            .now_us = now_us,
+                            .tick_len_us = tick_len_us};
+  orca_run(grid, marks, height, width, tick, events, seed, &ctx);
+}
+
 // Writes text into the grid at (y, x).
 static void put(Glyph *grid, Usz width, Usz y, Usz x, char const *text) {
   memcpy(grid + y * width + x, text, strlen(text));
@@ -35,18 +48,25 @@ static Usz count_type(Oevent_list const *events, Oevent_types type) {
   return n;
 }
 
-// Only "borca", "upstream" and "zorca" are dialect names, exactly; anything
-// else leaves the output alone, which the flags and the conf key rely on.
-// Each name reads back as itself.
+// Only "borca", "upstream", "zorca" and "seaflake" are dialect names,
+// exactly; anything else leaves the output alone, which the flags and the conf
+// key rely on. Each name reads back as itself.
 void test_dialect_names(void) {
+  CHECK(orca_is_valid_glyph('+'));
+  CHECK(orca_is_valid_glyph('('));
+  CHECK(orca_is_valid_glyph(')'));
   Orca_dialect d = Orca_dialect_upstream;
   CHECK(orca_dialect_from_name("borca", &d) && d == Orca_dialect_borca);
   CHECK(orca_dialect_from_name("upstream", &d) && d == Orca_dialect_upstream);
   CHECK(orca_dialect_from_name("zorca", &d) && d == Orca_dialect_zorca);
+  CHECK(orca_dialect_from_name("seaflake", &d) &&
+        d == Orca_dialect_seaflake);
   static char const *const bad[] = {
-      "",       "bOrca",  "Borca", "Upstream", "upstream ", " borca",
-      "orca-c", "1",      "zOrca", "Zorca",    "ZORCA",     "zorca ",
-      " zorca", "zorca2", "foo",   "orca",     "z"};
+      "",          "bOrca",   "Borca",    "Upstream", "upstream ",
+      " borca",    "orca-c",  "1",        "zOrca",    "Zorca",
+      "ZORCA",     "zorca ", " zorca",   "zorca2",   "sEaflake",
+      "Seaflake",  "SEAFLAKE", "seaflake ", " seaflake", "foo",
+      "orca",      "z"};
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(bad); ++i) {
     d = Orca_dialect_upstream;
     CHECK(!orca_dialect_from_name(bad[i], &d));
@@ -55,8 +75,10 @@ void test_dialect_names(void) {
   CHECK(strcmp(orca_dialect_name(Orca_dialect_borca), "borca") == 0);
   CHECK(strcmp(orca_dialect_name(Orca_dialect_upstream), "upstream") == 0);
   CHECK(strcmp(orca_dialect_name(Orca_dialect_zorca), "zorca") == 0);
+  CHECK(strcmp(orca_dialect_name(Orca_dialect_seaflake), "seaflake") == 0);
   // The round trip, for every dialect.
-  static char const *const names[] = {"borca", "upstream", "zorca"};
+  static char const *const names[] = {"borca", "upstream", "zorca",
+                                      "seaflake"};
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(names); ++i) {
     d = (Orca_dialect)7;
     CHECK(orca_dialect_from_name(names[i], &d));
@@ -658,4 +680,187 @@ void test_dialect_tick_body_upstream(void) {
     oevent_list_deinit(&engine_list);
     opstate_free(&store);
   }
+}
+
+void test_dialect_seaflake_operators(void) {
+  enum { H = 8, W = 24 };
+  Glyph grid[H * W];
+  Mark marks[H * W];
+  Oevent_list events;
+  oevent_list_init(&events);
+  Opstate_store store;
+  opstate_init(&store);
+
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 1, "^0");
+  put(grid, W, 2, 1, "*");
+  run_tick(grid, marks, H, W, 0, &events, 5, &store,
+           Orca_dialect_seaflake);
+  CHECK(grid[2 * W + 1] == '.'); // zero chance never passes
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 1, "^z");
+  put(grid, W, 2, 1, "*");
+  run_tick(grid, marks, H, W, 0, &events, 5, &store,
+           Orca_dialect_seaflake);
+  CHECK(grid[2 * W + 1] == '*'); // maximum chance always passes
+
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 1, "&");
+  put(grid, W, 0, 1, "2");
+  put(grid, W, 1, 0, "1");
+  put(grid, W, 1, 2, "4");
+  run_tick(grid, marks, H, W, 2, &events, 5, &store,
+           Orca_dialect_seaflake);
+  CHECK(grid[2 * W + 1] == '*');
+  run_tick(grid, marks, H, W, 1, &events, 5, &store,
+           Orca_dialect_seaflake);
+  CHECK(grid[2 * W + 1] == '.');
+
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 0, 0, "0+101011010101");
+  put(grid, W, 2, 1, ")0470f1");
+  put(grid, W, 3, 1, "*");
+  put(grid, W, 4, 1, "(04Cz1");
+  put(grid, W, 5, 1, "*");
+  run_tick_clock(grid, marks, H, W, 0, &events, 5, &store,
+                 Orca_dialect_seaflake, 1000, 125000);
+  CHECK(events.count == 2);
+  if (events.count == 2) {
+    Oevent_midi_note const *scale = &events.buffer[0].midi_note;
+    CHECK(scale->oevent_type == Oevent_type_midi_note);
+    CHECK(scale->octave == 6 && scale->note == 11 && scale->velocity == 119);
+    Oevent_midi_note const *just = &events.buffer[1].midi_note;
+    CHECK(just->oevent_type == Oevent_type_midi_note && just->tuned);
+    CHECK(just->pitch_bend == 8192 && just->octave == 6 && just->note == 0);
+  }
+  CHECK(strcmp(store.seaflake_scales[0], "101011010101") == 0);
+  Opstate_store scale_copy;
+  opstate_init(&scale_copy);
+  CHECK(opstate_copy(&store, &scale_copy));
+  CHECK(strcmp(scale_copy.seaflake_scales[0], "101011010101") == 0);
+  opstate_free(&scale_copy);
+
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 0, 0, "-+111111111111");
+  put(grid, W, 2, 1, ")04C0z1");
+  put(grid, W, 3, 1, "*");
+  run_tick(grid, marks, H, W, 0, &events, 5, &store,
+           Orca_dialect_seaflake);
+  CHECK(count_type(&events, Oevent_type_midi_note) == 0);
+
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 0, 0, "0+111111111111");
+  put(grid, W, 2, 1, ")04C*z1");
+  put(grid, W, 3, 1, "*");
+  run_tick(grid, marks, H, W, 0, &events, 5, &store,
+           Orca_dialect_seaflake);
+  CHECK(count_type(&events, Oevent_type_midi_note) == 0);
+
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 1, "@04Cz141i");
+  put(grid, W, 2, 1, "*");
+  run_tick_clock(grid, marks, H, W, 0, &events, 5, &store,
+                 Orca_dialect_seaflake, 1000, 125000);
+  Oevent_list engine_events;
+  oevent_list_init(&engine_events);
+  Susnote_list susnotes;
+  susnote_list_init(&susnotes);
+  Ccout_engine ccout;
+  ccout_init(&ccout);
+  Usz tick_number = 0;
+  Tick_ctx const sequence_ctx = {.gbuffer = grid,
+                                 .mbuffer = marks,
+                                 .height = H,
+                                 .width = W,
+                                 .random_seed = 5,
+                                 .opstate = &store,
+                                 .dialect = Orca_dialect_seaflake,
+                                 .tick_num = &tick_number,
+                                 .tick_list = &events,
+                                 .engine_list = &engine_events,
+                                 .susnotes = &susnotes,
+                                 .ccout = &ccout,
+                                 .now_us = 1000,
+                                 .tick_len = 125000};
+  Dialect_recording timed_rec = {0};
+  Tick_sink const timed_sink = {.u = &timed_rec,
+                                .midi3 = dialect_rec_midi3,
+                                .midi1 = dialect_rec_midi1,
+                                .osc = dialect_rec_osc};
+  CHECK(tick_poll_seaflake(&sequence_ctx, &timed_sink, 1000));
+  CHECK(timed_rec.midi3_count == 1 && timed_rec.midi3[0][0] == 0x90 &&
+        timed_rec.midi3[0][1] == 72 && timed_rec.midi3[0][2] == 127);
+  CHECK(events.count == 1 && events.buffer[0].midi_note.subtick == 1);
+  CHECK(susnotes.count == 0);
+  U64 sequence_deadline;
+  for (Usz i = 1; i < 4; ++i) {
+    CHECK(orca_seaflake_next_deadline(&store, &sequence_deadline));
+    timed_rec.midi3_count = 0;
+    CHECK(tick_poll_seaflake(&sequence_ctx, &timed_sink, sequence_deadline));
+    CHECK(timed_rec.midi3_count == 2 && timed_rec.midi3[0][0] == 0x80 &&
+          timed_rec.midi3[0][1] == 72 && timed_rec.midi3[1][0] == 0x90 &&
+          timed_rec.midi3[1][1] == 72 && timed_rec.midi3[1][2] == 127);
+    CHECK(events.count == 2 && events.buffer[0].midi_note.subtick == 2 &&
+          events.buffer[1].midi_note.subtick == 1);
+  }
+  CHECK(orca_seaflake_next_deadline(&store, &sequence_deadline));
+  timed_rec.midi3_count = 0;
+  CHECK(tick_poll_seaflake(&sequence_ctx, &timed_sink, sequence_deadline));
+  CHECK(timed_rec.midi3_count == 1 && timed_rec.midi3[0][0] == 0x80 &&
+        timed_rec.midi3[0][1] == 72 && timed_rec.midi3[0][2] == 0);
+  CHECK(events.count == 1 && events.buffer[0].midi_note.subtick == 2);
+  CHECK(!orca_seaflake_next_deadline(&store, &(U64){0}));
+
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 1, "@04Cz111i");
+  put(grid, W, 2, 1, "*");
+  run_tick_clock(grid, marks, H, W, 0, &events, 5, &store,
+                 Orca_dialect_seaflake, 200000, 125000);
+  Orca_run_ctx const restart_ctx = {.opstate = &store,
+                                    .dialect = Orca_dialect_seaflake,
+                                    .now_us = 200000,
+                                    .tick_len_us = 125000};
+  CHECK(orca_seaflake_process_due(grid, H, W, 0, &events, 5, &restart_ctx,
+                                  200000));
+  CHECK(events.count == 1 && events.buffer[0].midi_note.subtick == 1);
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 1, "@04Cz100i");
+  put(grid, W, 2, 1, "*");
+  run_tick_clock(grid, marks, H, W, 0, &events, 5, &store,
+                 Orca_dialect_seaflake, 200001, 125000);
+  CHECK(events.count == 1 && events.buffer[0].midi_note.subtick == 2);
+  CHECK(!orca_seaflake_next_deadline(&store, &(U64){0}));
+  susnote_list_deinit(&susnotes);
+  oevent_list_deinit(&engine_events);
+
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 1, "@04C01111i");
+  put(grid, W, 2, 1, "*");
+  run_tick_clock(grid, marks, H, W, 0, &events, 5, &store,
+                 Orca_dialect_seaflake, 1000, 125000);
+  Orca_run_ctx const zero_velocity_ctx = {.opstate = &store,
+                                          .dialect = Orca_dialect_seaflake,
+                                          .now_us = 1000,
+                                          .tick_len_us = 125000};
+  CHECK(orca_seaflake_process_due(grid, H, W, 0, &events, 5,
+                                  &zero_velocity_ctx, 1000));
+  CHECK(events.count == 1 && events.buffer[0].midi_note.subtick == 1 &&
+        events.buffer[0].midi_note.velocity == 0);
+
+  opstate_clear(&store);
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 0, "*~4");
+  put(grid, W, 2, 2, ":04Cz1");
+  run_tick_clock(grid, marks, H, W, 0, &events, 5, &store,
+                 Orca_dialect_seaflake, 0, 125000);
+  Orca_run_ctx const burst_ctx = {.opstate = &store,
+                                  .dialect = Orca_dialect_seaflake,
+                                  .now_us = 0,
+                                  .tick_len_us = 125000};
+  CHECK(orca_seaflake_process_due(grid, H, W, 0, &events, 5, &burst_ctx,
+                                  125000));
+  CHECK(count_type(&events, Oevent_type_midi_note) == 2);
+
+  oevent_list_deinit(&events);
+  opstate_free(&store);
 }

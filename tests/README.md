@@ -18,10 +18,12 @@ cases whose path contains it (`tests/run.sh build/cli midichord`).
 Default flags are `-t 64 --seed 0 --dialect borca`: the pinned
 `--dialect borca` keeps every golden in bOrca's dialect, though `cli`'s own
 default is zorca. The line formats are the ones `cli --events` prints
-(`t<tick> NOTE ch<c> note<n> vel<v> len<l> mono<m>`, `CC`, `CCI`, `PB`,
-`OSC`, `UDP`, then `t<tick> GRID` and the grid rows); see `events_print.c`
-and `cli -h`. The script exits 0 only when every case is PASS or XFAIL and
-no expected file is orphaned.
+(`t<tick> NOTE ch<c> note<n> vel<v> len<l> mono<m>`, `OFF`, `CC`, `CCI`,
+`PB`, `OSC`, `UDP`, then `t<tick> GRID` and the grid rows); see `events_print.c`
+and `cli -h`. In the Seaflake dialect, the CLI advances deterministic 125 ms
+virtual ticks and reports timed events with the enclosing tick. The script
+exits 0 only when every case is PASS or XFAIL and no expected file is
+orphaned.
 
 ### Layout
 

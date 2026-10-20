@@ -43,6 +43,8 @@ typedef struct {
 typedef struct {
   U8 remaining; // tick bodies left
   U16 chan_note;
+  U16 pitch_bend;
+  bool tuned;
 } Susnote;
 
 typedef struct {
@@ -125,6 +127,14 @@ typedef struct {
 // when the clock-out gate is open; a start sends FA, when the
 // gate is open, before /orca/started, both from the shell.
 void tick_body(Tick_ctx const *ctx, Tick_sink const *sink);
+
+// Polls Seaflake's monotonic subtick deadlines without aging existing MIDI
+// notes or advancing the grid frame. Returns false if a burst dispatch could
+// not allocate its bounded temporary traversal buffers.
+bool tick_poll_seaflake(Tick_ctx const *ctx, Tick_sink const *sink,
+                        U64 now_us);
+void tick_release_seaflake_sequences(Opstate_store *store,
+                                     Tick_sink const *sink);
 
 // One poll of the CC engine: clears engine, the engine
 // output list, polls ccout at now_us into it, and sends its CCs through the

@@ -105,6 +105,7 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(dialect_upstream_udp_osc)                                                  \
   X(dialect_upstream_inert)                                                    \
   X(dialect_tick_body_upstream)                                                \
+  X(dialect_seaflake_operators)                                               \
   X(rules_lesser)                                                              \
   X(rules_increment)                                                           \
   X(rules_uclid)                                                               \

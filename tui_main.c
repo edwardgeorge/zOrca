@@ -85,12 +85,14 @@ fprintf(stderr,
 "    --dialect <name>       Set the operator dialect for this session:\n"
 "                           zorca (zOrca's: bOrca's operators and\n"
 "                           zOrca's own, none yet, so it plays as\n"
-"                           borca), borca (bOrca's operators) or\n"
-"                           upstream (upstream Orca-c's: ! sends a plain\n"
-"                           CC, ; UDP, = OSC, r is a banged R, $ and &\n"
-"                           do nothing, and C, D, I, L, R, U and Z keep\n"
-"                           Orca-c's rules for empty inputs and R's\n"
-"                           range). Overrides the dialect saved in\n"
+"                           borca), borca (bOrca's operators), upstream\n"
+"                           (Orca-c's: ! sends a plain CC, ; UDP, = OSC,\n"
+"                           r is a banged R, $ and & do nothing, and\n"
+"                           C, D, I, L, R, U and Z keep Orca-c's rules\n"
+"                           for empty inputs and R's range), or seaflake\n"
+"                           (JavaScript fork's extended MIDI, probability,\n"
+"                           phase and timing operators). Overrides the\n"
+"                           dialect saved in\n"
 "                           orca.conf without changing it; the Operator\n"
 "                           Dialect menu changes and saves it. Picking\n"
 "                           the active dialect there saves nothing, so to\n"
@@ -167,7 +169,8 @@ static Glyph_class glyph_class_of(Glyph glyph, Orca_dialect dialect) {
     return Glyph_class_grid;
   if (glyph >= '0' && glyph <= '9')
     return Glyph_class_numeric;
-  if (dialect == Orca_dialect_upstream && (glyph == '$' || glyph == '&'))
+  if ((dialect == Orca_dialect_upstream && (glyph == '$' || glyph == '&')) ||
+      (dialect == Orca_dialect_seaflake && glyph == '$'))
     return Glyph_class_unknown;
   switch (glyph) {
   case 'N':
@@ -186,6 +189,12 @@ static Glyph_class glyph_class_of(Glyph glyph, Orca_dialect dialect) {
   case '%':
   case '?':
   case '&':
+  case '^':
+  case '~':
+  case '+':
+  case ')':
+  case '(':
+  case '@':
     return Glyph_class_lowercase;
   case '$':
     return Glyph_class_uppercase;
@@ -1460,9 +1469,9 @@ staticni void midi_mode_deinit(Midi_mode *mm) {
 typedef struct {
   Field field;
   Field scratch_field;
-  // The per-cell state of &, ; and r. Ticks and step-forward run on opstate;
-  // the paused re-mark runs on scratch_opstate, overwritten with a copy of
-  // opstate before each pass.
+  // Stateful operator data and Seaflake scales. Ticks and step-forward run on
+  // opstate; the paused re-mark runs on scratch_opstate, overwritten with a
+  // copy of opstate before each pass.
   Opstate_store opstate;
   Opstate_store scratch_opstate;
   // The operator list every VM run uses: ticks, step-forward and the
@@ -1533,6 +1542,8 @@ typedef struct {
   bool is_hud_visible : 1;
 } Ged;
 
+static Tick_sink ged_sink(Ged *a);
+
 // Every write of the tempo goes through here, so tick_len always matches it.
 // The tick body hands it to the CC engine's glide submits (tick.h). Under
 // External nothing writes the tempo (Set BPM is blocked, < and > are
@@ -1553,6 +1564,8 @@ static void ged_set_bpm(Ged *a, Usz bpm) {
 static bool ged_set_dialect(Ged *a, Orca_dialect d) {
   if (d == a->dialect)
     return false;
+  Tick_sink const sink = ged_sink(a);
+  tick_release_seaflake_sequences(&a->opstate, &sink);
   a->dialect = d;
   opstate_clear(&a->opstate);
   ccout_cancel(&a->ccout);
@@ -1875,6 +1888,7 @@ static void send_num_message(Oosc_dev *oosc_dev, char const *osc_address,
 staticni void ged_stop_all_sustained_notes(Ged *a) {
   Tick_sink const sink = ged_sink(a);
   tick_release_all(&sink, &a->susnote_list);
+  tick_release_seaflake_sequences(&a->opstate, &sink);
 }
 
 staticni void ged_clear_osc_udp(Ged *a) {
@@ -1953,9 +1967,8 @@ static Port_label_cell *ged_labels_for_run(Ged *a, Usz height, Usz width) {
 // The clock is read once, here, after the caller's sixths gate or the
 // event's stamp, never from the stamp itself: the engine's poll and every
 // submit in the body share this time.
-staticni void ged_run_tick_body(Ged *a) {
-  Tick_sink const sink = ged_sink(a);
-  Tick_ctx const ctx = {.gbuffer = a->field.buffer,
+static Tick_ctx ged_tick_context(Ged *a, U64 now) {
+  return (Tick_ctx){.gbuffer = a->field.buffer,
                         .mbuffer = a->mbuf_r.buffer,
                         .height = a->field.height,
                         .width = a->field.width,
@@ -1969,12 +1982,37 @@ staticni void ged_run_tick_body(Ged *a) {
                         .engine_list = &a->engine_oevent_list,
                         .susnotes = &a->susnote_list,
                         .ccout = &a->ccout,
-                        .now_us = now_us(),
+                        .now_us = now,
                         .tick_len = a->tick_len};
+}
+
+staticni void ged_run_tick_body(Ged *a) {
+  Tick_sink const sink = ged_sink(a);
+  Tick_ctx const ctx = ged_tick_context(a, now_us());
   tick_body(&ctx, &sink);
   a->needs_remarking = true;
   a->is_draw_dirty = true;
   // Engine events do not count as activity.
+  a->activity_counter += a->oevent_list.count;
+}
+
+staticni void ged_poll_seaflake(Ged *a) {
+  if (a->dialect != Orca_dialect_seaflake)
+    return;
+  U64 now = now_us(), deadline;
+  if (!orca_seaflake_next_deadline(&a->opstate, &deadline) || deadline > now)
+    return;
+  Tick_sink const sink = ged_sink(a);
+  Tick_ctx const ctx = ged_tick_context(a, now);
+  if (!tick_poll_seaflake(&ctx, &sink, now)) {
+    qmsg_printf_push("Seaflake Timing Error",
+                     "Could not process a timed event (memory or action limit).");
+    a->needs_remarking = true;
+    a->is_draw_dirty = true;
+    return;
+  }
+  a->needs_remarking = true;
+  a->is_draw_dirty = true;
   a->activity_counter += a->oevent_list.count;
 }
 
@@ -2565,6 +2603,7 @@ staticni void ged_set_playing(Ged *a, bool playing) {
     bool clock_out = clock_out_active(&a->clock_out, a->clock_source);
     a->is_playing = false;
     Tick_sink const sink = ged_sink(a);
+    tick_release_seaflake_sequences(&a->opstate, &sink);
     tick_stop(&sink, &a->susnote_list, &a->ccout, clock_out);
   }
   a->is_draw_dirty = true;
@@ -2937,13 +2976,13 @@ enum {
   Dialect_menu_borca = 1,
   Dialect_menu_upstream,
   Dialect_menu_zorca,
+  Dialect_menu_seaflake,
 };
 static void push_dialect_menu(Orca_dialect dialect) {
-  // bOrca is marked for any value but upstream and zorca, as orca_run runs
-  // it.
   int active = dialect == Orca_dialect_upstream ? Dialect_menu_upstream
                : dialect == Orca_dialect_zorca  ? Dialect_menu_zorca
-                                                : Dialect_menu_borca;
+               : dialect == Orca_dialect_seaflake ? Dialect_menu_seaflake
+                                                   : Dialect_menu_borca;
   Qmenu *qm = qmenu_create(Dialect_menu_id);
   qmenu_set_title(qm, "Operator Dialect");
   qmenu_add_printf(qm, Dialect_menu_borca, "(%c) bOrca",
@@ -2952,6 +2991,8 @@ static void push_dialect_menu(Orca_dialect dialect) {
                    active == Dialect_menu_upstream ? '*' : ' ');
   qmenu_add_printf(qm, Dialect_menu_zorca, "(%c) zOrca",
                    active == Dialect_menu_zorca ? '*' : ' ');
+  qmenu_add_printf(qm, Dialect_menu_seaflake, "(%c) Seaflake",
+                   active == Dialect_menu_seaflake ? '*' : ' ');
   if (active != Dialect_menu_borca)
     qmenu_set_current_item(qm, active);
   qmenu_push_to_nav(qm);
@@ -3076,7 +3117,7 @@ static void push_controls_msg(void) {
       {"Arrow Keys", "Move Cursor"},
       {"Ctrl+D or F1", "Open Main Menu"},
       {"0-9, A-Z, a-z,", "Insert Character"},
-      {"! : % / = # * ; $ &", NULL},
+      {"! : % / = # * ; $ & + ( )", NULL},
       {"Spacebar", "Play/Pause"},
       {"Ctrl+Z or Ctrl+U", "Undo"},
       {"Ctrl+X", "Cut"},
@@ -3093,7 +3134,8 @@ static void push_controls_msg(void) {
       {"Alt+Arrow Keys", "Slide Selection"},
       {"` (grave) or ~", "Slide Selection Mode"},
       {"Escape", "Return to Normal Mode or Deselect"},
-      {"( ) _ + [ ] { }", "Adjust Grid Size and Rulers"},
+      {"F2-F5", "Resize Grid (Width, Height)"},
+      {"[ ] { }", "Adjust Ruler Spacing"},
       {"< and >", "Adjust BPM"},
       {"Ctrl+E", "Show or Hide the Last Tick's Events"},
       {"Ctrl+G", "Operator Guide"},
@@ -3137,14 +3179,15 @@ static void push_controls_msg(void) {
 // characters.
 static void push_opers_guide_msg(Orca_dialect dialect) {
   // Which dialects list an item, one bit each. zorca runs bOrca's operators
-  // (sim.c's ZORCA_* lists), so every bOrca item is a zorca one too; an
-  // operator of zOrca's own is Guide_zorca alone.
+  // (sim.c's ZORCA_* lists), so every bOrca item is a zorca one too.
   enum {
     Guide_borca = 1,
     Guide_upstream = 2,
-    Guide_zorca = 4,
+    Guide_seaflake = 4,
+    Guide_zorca = 8,
     Guide_borca_zorca = Guide_borca | Guide_zorca,
-    Guide_all = Guide_borca | Guide_upstream | Guide_zorca,
+    Guide_upstream_seaflake = Guide_upstream | Guide_seaflake,
+    Guide_all = Guide_borca | Guide_upstream | Guide_seaflake | Guide_zorca,
   };
   struct Guide_item {
     char glyph;
@@ -3184,26 +3227,28 @@ static void push_opers_guide_msg(Orca_dialect dialect) {
       {'*', Guide_all, "bang", "Bangs neighboring operands."},
       {'#', Guide_all, "comment", "Halts line."},
       {':', Guide_all, "midi", "Sends MIDI note."},
-      {'!', Guide_borca_zorca, "cc",
-       "Sends MIDI CC; rates 1-y glide from last."},
-      {'!', Guide_upstream, "cc", "Sends MIDI control change."},
+      {'!', Guide_borca_zorca, "cc", "Sends MIDI CC; rates 1-y glide from last."},
+      {'!', Guide_upstream_seaflake, "cc", "Sends MIDI control change."},
       {'?', Guide_all, "pb", "Sends MIDI pitch bend."},
-      {'$', Guide_borca_zorca, "scale",
-       "Outputs note base on root, scale, degree."},
+      {'$', Guide_borca_zorca, "scale", "Outputs note base on root, scale, degree."},
       {'%', Guide_all, "mono", "Sends MIDI monophonic note."},
-      {'=', Guide_borca_zorca, "midichord",
-       "Sends preset chords over MIDI."},
-      {'=', Guide_upstream, "osc", "Sends OSC message."},
-      {';', Guide_borca_zorca, "arpeggiator",
-       "Outputs scale degrees by length and step."},
-      {';', Guide_upstream, "udp", "Sends UDP message."},
-      {'&', Guide_borca_zorca, "bouncer",
-       "LFO; rate is its cycle in beats."},
+      {'=', Guide_borca_zorca, "midichord", "Sends preset chords over MIDI."},
+      {'=', Guide_upstream_seaflake, "osc", "Sends OSC message."},
+      {';', Guide_borca_zorca, "arpeggiator", "Outputs scale degrees by length and step."},
+      {';', Guide_upstream_seaflake, "udp", "Sends UDP message."},
+      {'&', Guide_borca_zorca, "bouncer", "LFO; rate is its cycle in beats."},
+      {'^', Guide_seaflake, "probability", "Passes a bang by chance."},
+      {'&', Guide_seaflake, "phase clock", "Bangs at a selected cycle step."},
+      {'~', Guide_seaflake, "burst", "Repeats bangs at timed intervals."},
+      {'+', Guide_seaflake, "binary scale", "Stores a 12-pitch scale mask."},
+      {')', Guide_seaflake, "midi scale", "Plays a degree in a stored scale."},
+      {'(', Guide_seaflake, "midi just", "Plays a just-intonation note."},
+      {'@', Guide_seaflake, "midi sequence", "Plays a shaped MIDI sequence."},
   };
-  // bOrca's list for any value but upstream and zorca, as orca_run runs it.
   U8 const shown = dialect == Orca_dialect_upstream ? Guide_upstream
+                   : dialect == Orca_dialect_seaflake ? Guide_seaflake
                    : dialect == Orca_dialect_zorca  ? Guide_zorca
-                                                    : Guide_borca;
+                                                     : Guide_borca;
   int rows = 0;
   int w_desc = 0;
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(items); ++i) {
@@ -3219,7 +3264,8 @@ static void push_opers_guide_msg(Orca_dialect dialect) {
   Qmsg *qm = qmsg_push(rows, total_width);
   qmsg_set_title(qm, dialect == Orca_dialect_upstream ? "Upstream Operators"
                      : dialect == Orca_dialect_zorca  ? "zOrca Operators"
-                                                      : "bOrca Operators");
+                     : dialect == Orca_dialect_seaflake ? "Seaflake Operators"
+                                                       : "bOrca Operators");
   WINDOW *w = qmsg_window(qm);
   int row = 0;
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(items); ++i) {
@@ -3581,11 +3627,13 @@ staticni void plainorfancy_menu_was_picked(Tui *t, int picked_id,
 }
 
 staticni void dialect_menu_was_picked(Tui *t, int picked_id) {
-  Orca_dialect dialect = Orca_dialect_borca;
-  if (picked_id == Dialect_menu_upstream)
-    dialect = Orca_dialect_upstream;
-  else if (picked_id == Dialect_menu_zorca)
-    dialect = Orca_dialect_zorca;
+  Orca_dialect dialect = picked_id == Dialect_menu_upstream
+                             ? Orca_dialect_upstream
+                         : picked_id == Dialect_menu_zorca
+                             ? Orca_dialect_zorca
+                         : picked_id == Dialect_menu_seaflake
+                             ? Orca_dialect_seaflake
+                             : Orca_dialect_borca;
   qnav_stack_pop();
   if (!tui_prefs_set_dialect(&t->prefs, dialect))
     return; // already the dialect: nothing changes, nothing is saved
@@ -4680,7 +4728,7 @@ int main(int argc, char **argv) {
         break;
       }
       usage(); // then the error, last, where it shows
-      OPTFAIL("Must be borca, upstream or zorca.");
+      OPTFAIL("Must be zorca, borca, upstream or seaflake.");
     case Argopt_clock_source:
       // A session-only override through the pending overrides.
       if (clock_source_from_name(optarg, &t.overrides.clock_source)) {
@@ -5021,6 +5069,7 @@ event_loop:;
     }
 #endif
     ged_do_stuff(&t.ged);
+    ged_poll_seaflake(&t.ged);
 #ifdef FEAT_ALSA
     // After the tick, so a recovery burst never goes ahead of one that is due.
     ged_retry_note_offs(&t.ged);
@@ -5117,6 +5166,21 @@ event_loop:;
         if (wait_ms < (U64)new_timeout)
           new_timeout = (int)wait_ms;
       }
+    }
+    U64 seaflake_deadline;
+    if (orca_seaflake_next_deadline(&t.ged.opstate, &seaflake_deadline)) {
+      U64 now = now_us();
+      U64 wait_ms = 1;
+      if (seaflake_deadline > now) {
+        U64 wait_us = seaflake_deadline - now;
+        wait_ms = wait_us / 1000;
+        if (wait_us % 1000 != 0)
+          ++wait_ms;
+        if (wait_ms < 1)
+          wait_ms = 1;
+      }
+      if (wait_ms < (U64)new_timeout)
+        new_timeout = (int)wait_ms;
     }
 #ifdef ZORCA_HAS_MIDI_IN
     if (external) {
@@ -5309,16 +5373,16 @@ event_loop:;
   case '}':
     ged_adjust_rulers_relative(&t.ged, 1, 0);
     break;
-  case '(':
+  case KEY_F(2):
     ged_resize_grid_relative(&t.ged, 0, -1);
     break;
-  case ')':
+  case KEY_F(3):
     ged_resize_grid_relative(&t.ged, 0, 1);
     break;
-  case '_':
+  case KEY_F(4):
     ged_resize_grid_relative(&t.ged, -1, 0);
     break;
-  case '+':
+  case KEY_F(5):
     ged_resize_grid_relative(&t.ged, 1, 0);
     break;
   case '\r':

@@ -2,17 +2,18 @@
 #include "base.h"
 #include "prng.h"
 
-// The op-state store: the per-cell state of the stateful operators &, ; and
-// lowercase r, in one table that the caller owns and passes to orca_run through
-// Orca_run_ctx (sim.h). The TUI owns a live store and a scratch store for the
-// paused preview; cli owns one.
+// The op-state store: per-cell state for &, ;, lowercase r and Seaflake's
+// timed ~ and @ operators, plus its scale masks. The caller owns the store and
+// passes it to orca_run through Orca_run_ctx (sim.h). The TUI owns a live store
+// and a scratch store for the paused preview; cli owns one.
 //
 // An entry is keyed by its cell (y, x) and records the raw glyph of the
 // operator that owns it. That glyph tags the payload union: '&' uses
-// .bouncer, ';' uses .arp and 'r' uses .random. A lookup by any other glyph
-// hands the operator a zeroed entry, so an edited cell never inherits another
-// operator's state. A zeroed payload is the operator's first visit: its
-// `initialized` flag is false, and the operator seeds its own fields.
+// .bouncer, ';' uses .arp, 'r' uses .random, '~' uses .seaflake_burst and '@'
+// uses .seaflake_sequence. A lookup by any other glyph hands the operator a
+// zeroed entry, so an edited cell never inherits another operator's state. A
+// zeroed payload is the operator's first visit: its `initialized` flag is
+// false, and the operator seeds its own fields.
 //
 // Open addressing with linear probing over a power-of-2 table that is at most
 // half full. Entries are never removed one at a time, so there are no
@@ -54,18 +55,36 @@ typedef struct {
 } Opstate_random; // 'r'
 
 typedef struct {
+  bool active;
+  U8 remaining;
+  U64 next_us;
+  U64 interval_us;
+} Opstate_seaflake_burst; // '~'
+
+typedef struct {
+  bool active;
+  bool note_active;
+  U8 emitted, repeats, channel, octave, note, velocity, shape, pulsewidth;
+  U8 active_channel, active_note;
+  U64 started_us, next_us, duration_us;
+} Opstate_seaflake_sequence; // '@'
+
+typedef struct {
   U16 y, x;
   Glyph glyph; // owner; 0 marks an empty slot
   union {
     Opstate_bouncer bouncer;
     Opstate_arp arp;
     Opstate_random random;
+    Opstate_seaflake_burst seaflake_burst;
+    Opstate_seaflake_sequence seaflake_sequence;
   } u;
 } Opstate_entry;
 
 typedef struct {
   Opstate_entry *slots;
   Usz count, capacity; // capacity is 0 or a power of 2
+  char seaflake_scales[Opstate_random_max_size][13];
 } Opstate_store;
 
 void opstate_init(Opstate_store *store);
