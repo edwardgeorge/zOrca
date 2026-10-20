@@ -185,6 +185,8 @@ void test_prefs_read_line(void) {
   CHECK(p.dialect == Orca_dialect_upstream && p.touched == touched);
   CHECK(tui_prefs_read_line(&p, Confopt_dialect, "seaflake"));
   CHECK(p.dialect == Orca_dialect_seaflake && p.touched == touched);
+  CHECK(tui_prefs_read_line(&p, Confopt_dialect, "morfil"));
+  CHECK(p.dialect == Orca_dialect_morfil && p.touched == touched);
   CHECK(tui_prefs_read_line(&p, Confopt_dialect, "upstream"));
   CHECK(p.dialect == Orca_dialect_upstream && p.touched == touched);
 
@@ -253,6 +255,7 @@ void test_prefs_bad_values(void) {
       {Confopt_grid_ruler_type, "Plain"},
       {Confopt_dialect, "Upstream"},
       {Confopt_dialect, "Seaflake"},
+      {Confopt_dialect, "Morfil"},
       {Confopt_dialect, "bOrca"},
       {Confopt_dialect, "zOrca"},
       {Confopt_dialect, "Zorca"},
@@ -759,14 +762,16 @@ void test_prefs_saved_value(void) {
   p.touched = TOUCHFLAG(Confopt_margins) | TOUCHFLAG(Confopt_dialect);
   CHECK(saved_text(&p, text, sizeof text));
   CHECK(strcmp(text, "margins = 10x3\ndialect = seaflake\n") == 0);
-  // A menu change to zorca saves `dialect = zorca`, and to borca
-  // `dialect = borca`.
+  // Menu changes save the exact dialect name.
   CHECK(tui_prefs_set_dialect(&p, Orca_dialect_zorca));
   CHECK(saved_text(&p, text, sizeof text));
   CHECK(strcmp(text, "margins = 10x3\ndialect = zorca\n") == 0);
   CHECK(tui_prefs_set_dialect(&p, Orca_dialect_borca));
   CHECK(saved_text(&p, text, sizeof text));
   CHECK(strcmp(text, "margins = 10x3\ndialect = borca\n") == 0);
+  CHECK(tui_prefs_set_dialect(&p, Orca_dialect_morfil));
+  CHECK(saved_text(&p, text, sizeof text));
+  CHECK(strcmp(text, "margins = 10x3\ndialect = morfil\n") == 0);
 
   // The formatter: big and negative ints (which no read or setter stores)
   // still format whole within Tui_prefs_number_cap.

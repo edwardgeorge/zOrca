@@ -117,12 +117,12 @@ jobs:
       - name: Check version option on cli
         run: tests/check-version.sh build/cli
 
-      # cli takes --dialect borca, upstream or zorca, and zorca is the
-      # default; any other value, zOrca among them, exits 1 with its error.
+      # cli takes each dialect name, and zorca is the default; any other
+      # value, zOrca among them, exits 1 with its error.
       - name: cli takes zorca and rejects a bad --dialect value
         run: |
           printf '.\n' >"$RUNNER_TEMP/dot.orca"
-          for d in borca upstream zorca; do
+          for d in borca upstream zorca seaflake morfil; do
             build/cli --dialect "$d" "$RUNNER_TEMP/dot.orca" >/dev/null
           done
           if ! build/cli -h 2>&1 | grep -q 'Operator dialect: zorca (default)'; then
@@ -138,7 +138,7 @@ jobs:
               echo "expected exit 1 from cli --dialect $bad, got $status"
               exit 1
             fi
-            if ! grep -qx "Unknown dialect $bad. Expected borca, upstream or zorca." "$err"; then
+            if ! grep -qx "Unknown dialect $bad. Expected borca, upstream, zorca, seaflake or morfil." "$err"; then
               echo "cli did not report the bad --dialect value $bad"
               exit 1
             fi
@@ -930,7 +930,7 @@ jobs:
           fi
           exit "$status"
 
-      # orca takes --dialect borca, upstream or zorca only; any other value
+      # orca rejects any unrecognized --dialect value
       # exits 1 with its error on stderr, before curses starts and before the
       # ALSA client opens.
       - name: orca rejects a bad --dialect value
@@ -944,7 +944,7 @@ jobs:
             exit 1
           fi
           if ! grep -q '^Bad dialect argument: foo$' "$err" ||
-            ! grep -q '^Must be borca, upstream or zorca\.$' "$err"; then
+            ! grep -q '^Must be zorca, borca, upstream, seaflake or morfil\.$' "$err"; then
             echo "orca did not report the bad --dialect value"
             exit 1
           fi

@@ -418,7 +418,7 @@ If zOrca itself hangs while the master keeps clocking, because the device stalls
 | `margins` | `<x>x<y>`, or one number for both | `2x1` | Appearance..., Margins... | Another value is ignored; entering the margins already set saves nothing |
 | `grid_dot_type` | `fancy` or `plain` | `fancy` | Appearance..., Grid dots... | Another value is ignored; picking the active one saves nothing |
 | `grid_ruler_type` | `fancy` or `plain` | `fancy` | Appearance..., Grid rulers... | Another value is ignored; picking the active one saves nothing |
-| `dialect` | `zorca`, `borca` or `upstream` | `zorca` | Operator Dialect... | Another value is ignored; picking the active one saves nothing; `--dialect` overrides it for a session without saving |
+| `dialect` | `zorca`, `borca`, `upstream`, `seaflake` or `morfil` | `zorca` | Operator Dialect... | Another value is ignored; picking the active one saves nothing; `--dialect` overrides it for a session without saving |
 | `glide_hz` | `50`, `100` or `200` | `100` | Clock & Timing..., Glide Rate... | Another value is ignored; picking the active one saves nothing |
 | `clock_source` | `internal` or `external` | `internal` | Clock & Timing..., Clock Source... (ALSA or PortMidi build) | Another value is ignored, and so is `external` in a build with no MIDI input; picking the active one saves nothing; `--clock-source` overrides it for a session without saving |
 | `portmidi_input_device` | a PortMidi input device name | none | Clock & Timing..., MIDI Input... (PortMidi build) | Free text: a read never changes it, and a name not found is kept as it is; picking the active one saves nothing; `--midi-in` overrides it for a session without saving |
@@ -434,7 +434,7 @@ An ignored value leaves the key at its default, and its line is written back as 
 | `--initial-size <x>x<y>` | The size of a new grid, such as `40x30` | fits the window | any |
 | `--bpm <number>` | The tempo in beats per minute | 120 | any |
 | `--seed <number>` | The seed for `R`, for lowercase `r` (each cell seeds its own shuffle from it) and for the Random pattern (`c`) of `;` | 1 | any |
-| `--dialect <name>` | The operator dialect for this session, `zorca`, `borca` or `upstream`, over the saved one, without saving it | the saved dialect, else `zorca` | any |
+| `--dialect <name>` | The operator dialect for this session, `zorca`, `borca`, `upstream`, `seaflake` or `morfil`, over the saved one, without saving it | the saved dialect, else `zorca` | any |
 | `--strict-timing` | Tries to reduce the timing jitter of outgoing MIDI and OSC; uses more CPU time, and may have no effect | off | any |
 | `--osc-midi-bidule <path>` | Sends MIDI as OSC formatted for Plogue Bidule, to the path of its OSC MIDI device, such as `/OSC_MIDI_0/MIDI` | off | any |
 | `--clock-source <source>` | The clock source for this session, `internal` or `external`, over the saved one, without saving it | the saved source, else `internal` | ALSA or PortMidi |
@@ -452,7 +452,7 @@ An ignored value leaves the key at its default, and its line is written back as 
 | `-q`, `--quiet` | Prints no grid | off |
 | `--events` | After each tick, prints that tick's events, one per line (`NOTE`, `CC`, `CCI`, `PB`, `OSC` and `UDP`, each after `t<tick>`), then `t<tick> GRID` and the grid; with `-q`, only the events | off |
 | `--seed <n>` | The seed for the random operators | 0 |
-| `--dialect <d>` | The operator dialect, `zorca`, `borca` or `upstream` | `zorca` |
+| `--dialect <d>` | The operator dialect, `zorca`, `borca`, `upstream`, `seaflake` or `morfil` | `zorca` |
 | `--version` | Prints the version and exits | |
 | `-h`, `--help` | Prints the options and exits | |
 
@@ -486,7 +486,7 @@ To write a patch that plays the same upstream and in bOrca's dialect (and so in 
 
 zorca runs bOrca's rules for these seven. Every other operator, `A`-`Z` but these seven, and `*`, `#`, `:`, `%` and `?`, is the same in all three. The editor colours ports bOrca's way in every dialect: `:`, `%`, `?`, `G` and `K` mark some inputs as parameters where upstream Orca-c marks them as plain inputs, which changes only how they look, never the events or the grid. In the upstream dialect `$` and `&` draw as unknown glyphs (bold red), as they do in Orca-c, since they do nothing there. OSC and UDP go to the address and port set under OSC Output in the main menu, and nowhere while OSC output is off. The `/orca/bpm`, `/orca/started` and `/orca/stopped` messages, and MIDI sent as OSC with `--osc-midi-bidule`, go to the same address.
 
-To switch, open the main menu (Ctrl+D), choose Operator Dialect..., and pick bOrca, Upstream or zOrca. The choice is saved in `orca.conf` as `dialect = borca`, `dialect = upstream` or `dialect = zorca`; a value other than these three (`zOrca` among them) is ignored, which leaves zorca. `orca --dialect upstream` (or `borca`, or `zorca`) picks the dialect for one session, over the saved one, without changing what is saved. Picking the dialect that is already active saves nothing, even when `--dialect` chose it; to save the dialect `--dialect` chose, pick another one and then pick it back. `cli --dialect upstream` runs a patch headless in the upstream dialect, and `cli --dialect borca` in bOrca's. Changing the dialect, even while playing, clears every operator's per-cell state, as Ctrl+R does, and stops running CC glides. The operator guide (Ctrl+G) lists the active dialect's operators.
+To switch, open the main menu (Ctrl+D), choose Operator Dialect..., and pick bOrca, Upstream, zOrca, Seaflake or morfil. The choice is saved in `orca.conf` as `dialect = borca`, `dialect = upstream`, `dialect = zorca`, `dialect = seaflake` or `dialect = morfil`; any other value (`zOrca` among them) is ignored, which leaves zorca. `orca --dialect upstream` (or `borca`, `zorca`, `seaflake` or `morfil`) picks the dialect for one session, over the saved one, without changing what is saved. Picking the dialect that is already active saves nothing, even when `--dialect` chose it; to save the dialect `--dialect` chose, pick another one and then pick it back. `cli --dialect upstream` runs a patch headless in the upstream dialect, and `cli --dialect borca` in bOrca's. `morfil` currently runs bOrca's operators. Changing the dialect, even while playing, clears every operator's per-cell state, as Ctrl+R does, and stops running CC glides. The operator guide (Ctrl+G) lists the active dialect's operators.
 
 For the patches in `examples/upstream/`, and how they are checked against Orca-c, see [`examples/upstream/README.md`](examples/upstream/README.md).
 
