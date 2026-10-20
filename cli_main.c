@@ -26,10 +26,11 @@ fprintf(stderr,
 "                  t<tick>), then 't<tick> GRID' and the grid. With -q,\n"
 "                  print the event lines only.\n"
 "    --seed <n>    Seed for the random operators. Default: 0\n"
-"    --dialect <d> Operator dialect: zorca (default), borca, upstream or\n"
-"                  seaflake. zorca is zOrca's: bOrca's operators plus\n"
-"                  zOrca's own (none yet, so it plays as borca).\n"
-"                  seaflake timed operators use 125 ms virtual ticks.\n"
+"    --dialect <d> Operator dialect: zorca (default), borca, upstream,\n"
+"                  seaflake or morfil. zorca is zOrca's: bOrca's\n"
+"                  operators plus zOrca's own (none yet, so it plays as borca).\n"
+"                  seaflake timed operators use 125 ms virtual ticks;\n"
+"                  morfil currently runs bOrca's operators.\n"
 "                  upstream is Orca-c's: ! sends a plain CC, ; UDP,\n"
 "                  = OSC, r is a banged R, $ and & do nothing, and\n"
 "                  C, D, I, L, R, U and Z keep Orca-c's rules for\n"
@@ -109,7 +110,8 @@ int main(int argc, char **argv) {
     case Argopt_dialect:
       if (!orca_dialect_from_name(optarg, &dialect)) {
         fprintf(stderr,
-                "Unknown dialect %s. Expected borca, upstream, zorca or seaflake.\n",
+                "Unknown dialect %s. Expected borca, upstream, zorca, "
+                "seaflake or morfil.\n",
                 optarg);
         return 1;
       }

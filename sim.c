@@ -2058,6 +2058,10 @@ bool orca_dialect_from_name(char const *name, Orca_dialect *out) {
     *out = Orca_dialect_seaflake;
     return true;
   }
+  if (strcmp(name, "morfil") == 0) {
+    *out = Orca_dialect_morfil;
+    return true;
+  }
   return false;
 }
 
@@ -2069,6 +2073,8 @@ char const *orca_dialect_name(Orca_dialect d) {
     return "zorca";
   case Orca_dialect_seaflake:
     return "seaflake";
+  case Orca_dialect_morfil:
+    return "morfil";
   case Orca_dialect_borca:
     return "borca";
   }

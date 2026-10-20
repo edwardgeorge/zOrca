@@ -240,13 +240,12 @@ locks and sends at most 16 glyphs up to a `.`; upstream `=` sends its path
 and values; both stop at the grid's east edge; upstream `$` and `&` write,
 mark and keep nothing; the tick body runs `Tick_ctx`'s dialect, so upstream
 `;` and `=` reach the sink's `osc` and upstream `!` goes out as a plain CC;
-only `borca`, `upstream` and `zorca` are dialect names, and each reads
-back as itself (`zOrca`, `foo` and the rest are refused, leaving the
-output alone). `dialect_zorca_is_borca` runs every glyph Orca knows,
-banged between values, letters and empty cells, for 24 ticks at seeds 0
-and 7, and then `dialect_default_is_borca`'s grid for 16, in bOrca's
-dialect and in zorca: on every tick the grid, marks, labels, events and
-number of store entries match, so zorca runs bOrca's whole operator set.
+the exact dialect names round-trip, while `zOrca`, `foo` and the rest are
+refused, leaving the output alone. `dialect_zorca_is_borca` also checks
+morfil: each glyph Orca knows runs banged between values, letters and
+empty cells for 24 ticks at seeds 0 and 7; on every tick the grid, marks,
+labels, events and number of store entries match bOrca's, so both dialects
+currently run bOrca's whole operator set.
 
 The unit tests `rules_*` in `tests/unit/test_rules.c` check the seven
 operators whose rules differ between the dialects, Orca's 2025 rules in
@@ -1537,9 +1536,10 @@ from `v1.0.0`, and on `v*` tags; start a manual run with
   first checks that `CFLAGS_EXTRA` reaches the compiler, then builds the
   debug and release `cli` with `CFLAGS_EXTRA=-Werror`, checks the debug
   `cli` with `tests/check-debug-build.sh`, checks that the release `cli`
-  takes `--dialect borca`, `upstream` and `zorca`, names zorca as its
-  default in `cli -h` and refuses `foo` and `zOrca` with exit 1 and
-  `Expected borca, upstream or zorca.`, and runs the golden suite on
+  takes `--dialect borca`, `upstream`, `zorca`, `seaflake` and `morfil`,
+  names zorca as its default in `cli -h` and refuses `foo` and `zOrca` with
+  exit 1 and `Expected borca, upstream, zorca, seaflake or morfil.`, and
+  runs the golden suite on
   both and `tests/realloc-shim/check.sh` on the release `cli` and on the
   release `orca` without mouse support. It runs
   `tests/check-examples.sh` on the debug `cli`, builds

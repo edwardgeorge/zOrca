@@ -91,7 +91,8 @@ fprintf(stderr,
 "                           C, D, I, L, R, U and Z keep Orca-c's rules\n"
 "                           for empty inputs and R's range), or seaflake\n"
 "                           (JavaScript fork's extended MIDI, probability,\n"
-"                           phase and timing operators). Overrides the\n"
+"                           phase and timing operators), or morfil\n"
+"                           (currently bOrca's operators). Overrides the\n"
 "                           dialect saved in\n"
 "                           orca.conf without changing it; the Operator\n"
 "                           Dialect menu changes and saves it. Picking\n"
@@ -2977,12 +2978,14 @@ enum {
   Dialect_menu_upstream,
   Dialect_menu_zorca,
   Dialect_menu_seaflake,
+  Dialect_menu_morfil,
 };
 static void push_dialect_menu(Orca_dialect dialect) {
   int active = dialect == Orca_dialect_upstream ? Dialect_menu_upstream
                : dialect == Orca_dialect_zorca  ? Dialect_menu_zorca
                : dialect == Orca_dialect_seaflake ? Dialect_menu_seaflake
-                                                   : Dialect_menu_borca;
+               : dialect == Orca_dialect_morfil ? Dialect_menu_morfil
+                                                    : Dialect_menu_borca;
   Qmenu *qm = qmenu_create(Dialect_menu_id);
   qmenu_set_title(qm, "Operator Dialect");
   qmenu_add_printf(qm, Dialect_menu_borca, "(%c) bOrca",
@@ -2993,6 +2996,8 @@ static void push_dialect_menu(Orca_dialect dialect) {
                    active == Dialect_menu_zorca ? '*' : ' ');
   qmenu_add_printf(qm, Dialect_menu_seaflake, "(%c) Seaflake",
                    active == Dialect_menu_seaflake ? '*' : ' ');
+  qmenu_add_printf(qm, Dialect_menu_morfil, "(%c) morfil",
+                   active == Dialect_menu_morfil ? '*' : ' ');
   if (active != Dialect_menu_borca)
     qmenu_set_current_item(qm, active);
   qmenu_push_to_nav(qm);
@@ -3633,6 +3638,8 @@ staticni void dialect_menu_was_picked(Tui *t, int picked_id) {
                              ? Orca_dialect_zorca
                          : picked_id == Dialect_menu_seaflake
                              ? Orca_dialect_seaflake
+                         : picked_id == Dialect_menu_morfil
+                             ? Orca_dialect_morfil
                              : Orca_dialect_borca;
   qnav_stack_pop();
   if (!tui_prefs_set_dialect(&t->prefs, dialect))
@@ -4728,7 +4735,7 @@ int main(int argc, char **argv) {
         break;
       }
       usage(); // then the error, last, where it shows
-      OPTFAIL("Must be zorca, borca, upstream or seaflake.");
+      OPTFAIL("Must be zorca, borca, upstream, seaflake or morfil.");
     case Argopt_clock_source:
       // A session-only override through the pending overrides.
       if (clock_source_from_name(optarg, &t.overrides.clock_source)) {

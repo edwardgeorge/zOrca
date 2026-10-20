@@ -21,13 +21,14 @@
 //   seaflake: the JavaScript fork's operators, including its own meanings
 //             for ^, &, ~, +, ), ( and @. The shared alphabet operators
 //             follow upstream Orca-c rules.
-// The other 19 letters, and *, #, :, % and ?, are the same in all three.
+//   morfil: currently runs bOrca's full list, reserved for its own set.
 // Values are appended, so borca stays 0 and upstream 1.
 typedef enum {
   Orca_dialect_borca = 0,
   Orca_dialect_upstream = 1,
   Orca_dialect_zorca = 2,
   Orca_dialect_seaflake = 3,
+  Orca_dialect_morfil = 4,
 } Orca_dialect;
 
 // What orca_run takes beyond its first seven arguments, in one context struct.
@@ -51,7 +52,8 @@ typedef struct {
 } Orca_run_ctx;
 
 // The dialect names that cli's and orca's --dialect and the dialect key of
-// orca.conf take: "borca", "upstream", "zorca" and "seaflake", exactly.
+// orca.conf take: "borca", "upstream", "zorca", "seaflake" and
+// "morfil", exactly.
 // Returns false, leaving *out alone, for any other string.
 bool orca_dialect_from_name(char const *name, Orca_dialect *out);
 // The name of d. Invalid enum values report "borca", as orca_run falls back

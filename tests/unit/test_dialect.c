@@ -48,9 +48,9 @@ static Usz count_type(Oevent_list const *events, Oevent_types type) {
   return n;
 }
 
-// Only "borca", "upstream", "zorca" and "seaflake" are dialect names,
-// exactly; anything else leaves the output alone, which the flags and the conf
-// key rely on. Each name reads back as itself.
+// Only "borca", "upstream", "zorca", "seaflake" and "morfil" are
+// dialect names, exactly; anything else leaves the output alone, which the
+// flags and the conf key rely on. Each name reads back as itself.
 void test_dialect_names(void) {
   CHECK(orca_is_valid_glyph('+'));
   CHECK(orca_is_valid_glyph('('));
@@ -61,12 +61,14 @@ void test_dialect_names(void) {
   CHECK(orca_dialect_from_name("zorca", &d) && d == Orca_dialect_zorca);
   CHECK(orca_dialect_from_name("seaflake", &d) &&
         d == Orca_dialect_seaflake);
+  CHECK(orca_dialect_from_name("morfil", &d) &&
+        d == Orca_dialect_morfil);
   static char const *const bad[] = {
       "",          "bOrca",   "Borca",    "Upstream", "upstream ",
       " borca",    "orca-c",  "1",        "zOrca",    "Zorca",
       "ZORCA",     "zorca ", " zorca",   "zorca2",   "sEaflake",
-      "Seaflake",  "SEAFLAKE", "seaflake ", " seaflake", "foo",
-      "orca",      "z"};
+      "Seaflake",  "SEAFLAKE", "seaflake ", " seaflake", "Morfil",
+      "MORFIL",    "morfil ",  " morfil",   "foo",      "orca", "z"};
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(bad); ++i) {
     d = Orca_dialect_upstream;
     CHECK(!orca_dialect_from_name(bad[i], &d));
@@ -76,9 +78,10 @@ void test_dialect_names(void) {
   CHECK(strcmp(orca_dialect_name(Orca_dialect_upstream), "upstream") == 0);
   CHECK(strcmp(orca_dialect_name(Orca_dialect_zorca), "zorca") == 0);
   CHECK(strcmp(orca_dialect_name(Orca_dialect_seaflake), "seaflake") == 0);
+  CHECK(strcmp(orca_dialect_name(Orca_dialect_morfil), "morfil") == 0);
   // The round trip, for every dialect.
   static char const *const names[] = {"borca", "upstream", "zorca",
-                                      "seaflake"};
+                                      "seaflake", "morfil"};
   for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(names); ++i) {
     d = (Orca_dialect)7;
     CHECK(orca_dialect_from_name(names[i], &d));
@@ -87,7 +90,8 @@ void test_dialect_names(void) {
   // orca_run runs any other value as bOrca, and the name says so.
   CHECK(strcmp(orca_dialect_name((Orca_dialect)7), "borca") == 0);
   CHECK(Orca_dialect_borca == 0); // a zeroed context is bOrca
-  CHECK(Orca_dialect_zorca == 2); // appended: borca and upstream keep 0 and 1
+  CHECK(Orca_dialect_zorca == 2); // borca and upstream keep 0 and 1
+  CHECK(Orca_dialect_morfil == 4); // appended after seaflake
 }
 
 // A context that names no dialect runs bOrca's list. Three copies of a grid
@@ -175,11 +179,11 @@ void test_dialect_default_is_borca(void) {
 // each tick. On every tick the two have the same grid, marks, labels,
 // events (byte for byte) and number of store entries. Returns false, and
 // prints the rows, tick and seed, at the first difference.
-static bool zorca_matches_borca(char const *const *rows, Usz h, Usz w,
-                                Usz const (*bangs)[2], Usz nbangs, Usz ticks,
-                                Usz seed) {
+static bool dialect_matches_borca(char const *const *rows, Usz h, Usz w,
+                                  Usz const (*bangs)[2], Usz nbangs, Usz ticks,
+                                  Usz seed, Orca_dialect dialect) {
   enum { Max_cells = 128 };
-  Orca_dialect const dialects[2] = {Orca_dialect_borca, Orca_dialect_zorca};
+  Orca_dialect const dialects[2] = {Orca_dialect_borca, dialect};
   Glyph grids[2][Max_cells];
   Mark marks[2][Max_cells];
   Port_label_cell labels[2][Max_cells];
@@ -218,7 +222,8 @@ static bool zorca_matches_borca(char const *const *rows, Usz h, Usz w,
     for (Usz e = 0; same && e < events[0].count; ++e)
       same = oevent_equal(events[0].buffer + e, events[1].buffer + e);
     if (!same) {
-      printf("  zorca differs from borca at tick %u on", (unsigned)tick);
+      printf("  %s differs from borca at tick %u on",
+             orca_dialect_name(dialect), (unsigned)tick);
       for (Usz y = 0; y < h; ++y)
         printf(" %s", rows[y]);
       printf(" (seed %u)\n", (unsigned)seed);
@@ -232,11 +237,9 @@ static bool zorca_matches_borca(char const *const *rows, Usz h, Usz w,
   return ok;
 }
 
-// zorca runs bOrca's operator set, every glyph: until zOrca's own operators
-// land, it plays exactly as bOrca's dialect does. Each glyph Orca knows runs
-// banged, between inputs that are values, letters and empty cells, for 24
-// ticks at two seeds; then the grid that tells bOrca from upstream
-// (dialect_default_is_borca's) runs for 16. On every tick the grid, marks,
+// zorca and morfil currently run bOrca's operator set, every glyph. Each
+// glyph Orca knows runs banged, between inputs that are values, letters and
+// empty cells, for 24 ticks at two seeds. On every tick the grid, marks,
 // labels, events and store match.
 void test_dialect_zorca_is_borca(void) {
   enum { W = 8, H = 4 };
@@ -251,8 +254,12 @@ void test_dialect_zorca_is_borca(void) {
     row1[3] = (char)g;
     char const *const rows[H] = {".1Cg5...", row1, "...*....", ".5.A2..."};
     static Usz const bangs[][2] = {{2, 3}};
-    for (Usz seed = 0; seed < 8; seed += 7)
-      CHECK(zorca_matches_borca(rows, H, W, bangs, 1, 24, seed));
+    for (Usz seed = 0; seed < 8; seed += 7) {
+      CHECK(dialect_matches_borca(rows, H, W, bangs, 1, 24, seed,
+                                  Orca_dialect_zorca));
+      CHECK(dialect_matches_borca(rows, H, W, bangs, 1, 24, seed,
+                                  Orca_dialect_morfil));
+    }
   }
   static char const *const mixed[10] = {
       "!1..7g......", //
@@ -267,8 +274,12 @@ void test_dialect_zorca_is_borca(void) {
       "............", //
   };
   static Usz const mixed_bangs[][2] = {{1, 0}, {5, 0}, {7, 0}, {9, 9}};
-  CHECK(zorca_matches_borca(mixed, 10, 12, mixed_bangs,
-                            ORCA_ARRAY_COUNTOF(mixed_bangs), 16, 3));
+  CHECK(dialect_matches_borca(mixed, 10, 12, mixed_bangs,
+                              ORCA_ARRAY_COUNTOF(mixed_bangs), 16, 3,
+                              Orca_dialect_zorca));
+  CHECK(dialect_matches_borca(mixed, 10, 12, mixed_bangs,
+                              ORCA_ARRAY_COUNTOF(mixed_bangs), 16, 3,
+                              Orca_dialect_morfil));
 }
 
 // Upstream ! (Orca-c 9df9786's midicc): three inputs, channel, control and
