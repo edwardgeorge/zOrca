@@ -163,20 +163,38 @@ typedef enum {
   Glyph_class_bang,
 } Glyph_class;
 
-// The class a glyph draws as. In the upstream dialect (sim.h) `$` and `&`
-// are no operators, so they draw as unknown glyphs (bold red), as Orca-c
-// 9df9786 draws them; bOrca's colours do not change, and zorca, which runs
-// bOrca's operators, draws as bOrca does.
+// Unique symbols are operators only in the dialects that define them; an
+// unsupported symbol draws as an unknown glyph, not as an operator.
+static bool glyph_is_supported_symbol(Glyph glyph, Orca_dialect dialect) {
+  switch (glyph) {
+  case '$':
+    return dialect != Orca_dialect_upstream &&
+           dialect != Orca_dialect_seaflake;
+  case '&':
+    return dialect != Orca_dialect_upstream;
+  case '^':
+  case '~':
+  case '+':
+  case ')':
+  case '(':
+  case '@':
+    return dialect == Orca_dialect_seaflake;
+  default:
+    return true;
+  }
+}
+
 static Glyph_class glyph_class_of(Glyph glyph, Orca_dialect dialect) {
-  if (dialect == Orca_dialect_combined && orca_glyph_is_tagged(glyph))
-    dialect = orca_glyph_dialect(glyph);
+  if (dialect == Orca_dialect_combined) {
+    dialect = orca_glyph_is_tagged(glyph) ? orca_glyph_dialect(glyph)
+                                           : Orca_dialect_borca;
+  }
   glyph = orca_glyph_character(glyph);
   if (glyph == '.')
     return Glyph_class_grid;
   if (glyph >= '0' && glyph <= '9')
     return Glyph_class_numeric;
-  if ((dialect == Orca_dialect_upstream && (glyph == '$' || glyph == '&')) ||
-      (dialect == Orca_dialect_seaflake && glyph == '$'))
+  if (!glyph_is_supported_symbol(glyph, dialect))
     return Glyph_class_unknown;
   switch (glyph) {
   case 'N':
@@ -261,11 +279,11 @@ static attr_t term_attrs_of_cell(Glyph g, Mark m, Orca_dialect dialect) {
   if (m & Mark_flag_haste_input) {
     attr = A_bold | fg_bg(C_cyan, C_natural);
   }
-  if (tagged) {
+  if (tagged && gclass != Glyph_class_unknown) {
     Color_name color = orca_glyph_dialect(g) == Orca_dialect_upstream
                            ? C_green
                            : C_magenta;
-    attr = (attr & ~A_COLOR) | fg_bg(color, C_natural);
+    attr = (attr & ~A_COLOR) | fg_bg(C_black, color);
   }
   return attr;
 }
@@ -328,7 +346,9 @@ staticni void draw_grid_cursor(WINDOW *win, int draw_y, int draw_x, int draw_h,
   Glyph cursor_glyph = gbuffer[cursor_y * field_w + cursor_x];
   Color_name cursor_color = C_yellow;
   if (dialect == Orca_dialect_combined &&
-      orca_glyph_is_tagged(cursor_glyph))
+      orca_glyph_is_tagged(cursor_glyph) &&
+      glyph_is_supported_symbol(orca_glyph_character(cursor_glyph),
+                                orca_glyph_dialect(cursor_glyph)))
     cursor_color = orca_glyph_dialect(cursor_glyph) == Orca_dialect_upstream
                        ? C_green
                        : C_magenta;
@@ -426,7 +446,9 @@ staticni void draw_grid_cursor(WINDOW *win, int draw_y, int draw_x, int draw_h,
       if (dialect == Orca_dialect_combined) {
         Glyph selected = gbuffer[(field_sel_y + iy) * field_w + field_sel_x +
                                  (Usz)ix];
-        if (orca_glyph_is_tagged(selected)) {
+        if (orca_glyph_is_tagged(selected) &&
+            glyph_is_supported_symbol(orca_glyph_character(selected),
+                                      orca_glyph_dialect(selected))) {
           Color_name color = orca_glyph_dialect(selected) == Orca_dialect_upstream
                                  ? C_green
                                  : C_magenta;
