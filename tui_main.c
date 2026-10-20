@@ -692,21 +692,6 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
   advance_faketab(win, win_x, Tabstop);
   wprintw(win, "%zu:%zu", ged_cursor->w, ged_cursor->h);
   advance_faketab(win, win_x, Tabstop);
-  Orca_dialect cell_dialect = dialect;
-  if (dialect == Orca_dialect_combined) {
-    if (ged_cursor->y < field_h && ged_cursor->x < field_w)
-      cell_dialect = orca_glyph_dialect(
-          gbuffer[ged_cursor->y * field_w + ged_cursor->x]);
-    wattrset(win, A_bold);
-    char const *cell_dialect_name = orca_dialect_name(cell_dialect);
-    if (strlen(cell_dialect_name) > 6) {
-      waddnstr(win, cell_dialect_name, 5);
-      waddstr(win, "…");
-    } else {
-      waddstr(win, cell_dialect_name);
-    }
-    advance_faketab(win, win_x, Tabstop);
-  }
   switch (input_mode) {
   case Ged_input_mode_normal:
     wattrset(win, A_normal);
@@ -733,14 +718,50 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
   if (filename_x < width)
     waddnstr(win, filename, width - filename_x);
 
-  // The tooltip for the port under the cursor (tooltips.h), on the HUD's
-  // two rows, right of each row's last field, cut from the end to fit. Row
-  // 1's last field is the 8-column MIDI err slot at midi_err_x, reserved
-  // whether or not the error shows; row 2's is the filename. Every field
-  // is drawn before it, and MIDI err after it.
+  // The dialect badge shares the right side of the HUD with the port tooltip.
+  // When both are present, reserve the second row's right edge for the badge.
   char tip1[Tooltip_line_max], tip2[Tooltip_line_max];
-  if (tooltip_at(labels, labels_h, labels_w, gbuffer, field_h, field_w,
-                 ged_cursor->y, ged_cursor->x, tip1, tip2)) {
+  bool has_port_tooltip =
+      tooltip_at(labels, labels_h, labels_w, gbuffer, field_h, field_w,
+                 ged_cursor->y, ged_cursor->x, tip1, tip2);
+  bool has_dialect_badge = false;
+  int dialect_badge_x = width;
+  bool has_cursor_cell =
+      ged_cursor->y < field_h && ged_cursor->x < field_w;
+  if (dialect == Orca_dialect_combined && has_cursor_cell) {
+    Glyph cell_glyph = gbuffer[ged_cursor->y * field_w + ged_cursor->x];
+    Orca_dialect cell_dialect = orca_glyph_dialect(cell_glyph);
+    Glyph_class cell_class = glyph_class_of(cell_glyph, dialect);
+    bool is_operator = cell_class == Glyph_class_uppercase ||
+                       cell_class == Glyph_class_lowercase ||
+                       cell_class == Glyph_class_movement ||
+                       cell_class == Glyph_class_bang;
+    bool cursor_on_port =
+        labels && labels_h == field_h && labels_w == field_w &&
+        labels[ged_cursor->y * labels_w + ged_cursor->x].id != Port_label_none;
+    if (is_operator && !cursor_on_port) {
+      char const *cell_dialect_name = orca_dialect_name(cell_dialect);
+      int len = (int)strlen(cell_dialect_name);
+      int limit = has_port_tooltip ? 0 : filename_x + filename_len;
+      int n = tooltip_place(limit, len, width, &dialect_badge_x);
+      if (n > 0) {
+        Color_name bg = C_natural;
+        if (orca_glyph_is_tagged(cell_glyph) &&
+            glyph_is_supported_symbol(orca_glyph_character(cell_glyph),
+                                     cell_dialect))
+          bg = cell_dialect == Orca_dialect_upstream ? C_green : C_magenta;
+        attr_t badge_attrs = A_bold;
+        if (bg != C_natural)
+          badge_attrs |= fg_bg(C_black, bg);
+        wmove(win, win_y + 1, dialect_badge_x);
+        wattrset(win, (int)badge_attrs);
+        waddnstr(win, cell_dialect_name, n);
+        wattrset(win, A_normal);
+        has_dialect_badge = true;
+      }
+    }
+  }
+  if (has_port_tooltip) {
     enum { Midi_err_width = 8 };
     char const *lines[2] = {tip1, tip2};
     int limits[2] = {midi_err_x + Midi_err_width, filename_x + filename_len};
@@ -748,9 +769,12 @@ staticni void draw_hud(WINDOW *win, int win_y, int win_x, int height, int width,
       int len = (int)strlen(lines[row]);
       if (len == 0)
         continue;
-      int limit = limits[row] < width ? limits[row] : width;
+      int row_width = width;
+      if (row == 1 && has_dialect_badge)
+        row_width = dialect_badge_x;
+      int limit = limits[row] < row_width ? limits[row] : row_width;
       int x;
-      int n = tooltip_place(limit, len, width, &x);
+      int n = tooltip_place(limit, len, row_width, &x);
       if (n <= 0)
         continue;
       wmove(win, win_y + row, x);
