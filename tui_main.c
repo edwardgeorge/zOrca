@@ -3137,7 +3137,7 @@ static void push_controls_msg(void) {
       {"' (quote)", "Rectangle Selection Mode"},
       {"Shift+Arrow Keys", "Adjust Rectangle Selection"},
       {"Alt+Arrow Keys", "Slide Selection"},
-      {"` (grave) or ~", "Slide Selection Mode"},
+      {"~", "Slide Selection Mode"},
       {"Escape", "Return to Normal Mode or Deselect"},
       {"F2-F5", "Resize Grid (Width, Height)"},
       {"[ ] { }", "Adjust Ruler Spacing"},
@@ -5459,6 +5459,8 @@ event_loop:;
     ged_input_cmd(&t.ged, Ged_input_cmd_toggle_selresize_mode);
     break;
   case '`':
+    ged_input_character(&t.ged, '`');
+    break;
   case '~':
     ged_input_cmd(&t.ged, Ged_input_cmd_toggle_slide_mode);
     break;

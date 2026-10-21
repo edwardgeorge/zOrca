@@ -3,6 +3,7 @@
 #include "music.h"
 #include <math.h>
 #include <string.h>
+#include <sys/_types/_ct_rune_t.h>
 
 // Note Sequence
 static char const note_sequence[] = "CcDdEFfGgAaB";
@@ -111,6 +112,7 @@ typedef struct {
   // ctx->labels, copied so PORT loads one pointer per port; NULL records
   // nothing
   Port_label_cell *labels;
+  Orca_dialect active_dialect;
 } Oper_extra_params;
 
 // PORT's record (portlabel.h holds the ids): the label id and the owner's
@@ -258,6 +260,10 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
   _('~', seaflake_burst)                                                       \
   _('@', seaflake_midi_sequence)
 
+#define MORFIL_UNIQUE_OPERATORS(_)                                             \
+  BORCA_UNIQUE_OPERATORS(_)                                                    \
+  _('`', morfil_switch_dialect)
+
 #define SHARED_ALPHA_OPERATORS(_)                                              \
   _('A', add)                                                                  \
   _('B', subtract)                                                             \
@@ -311,6 +317,8 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
 // default dialect: that is Breaking by the CHANGELOG's rule.
 #define ZORCA_UNIQUE_OPERATORS(_) BORCA_UNIQUE_OPERATORS(_)
 #define ZORCA_ALPHA_OPERATORS(_) BORCA_ALPHA_OPERATORS(_)
+
+#define MORFIL_ALPHA_OPERATORS(_) BORCA_ALPHA_OPERATORS(_)
 
 #define SEAFLAKE_ALPHA_OPERATORS(_)                                            \
   _('C', clock_upstream)                                                       \
@@ -554,6 +562,31 @@ BEGIN_OPERATOR(midipb)
   oe->channel = (U8)channel;
   oe->msb = (U8)(index_of(msb_g) * 127 / 35); // 0~35 -> 0~127
   oe->lsb = (U8)(index_of(lsb_g) * 127 / 35);
+END_OPERATOR
+
+BEGIN_OPERATOR(morfil_switch_dialect)
+    PORT(0, 1, IN | PARAM, Port_label_dialect);
+    Glyph dialect_glyph = PEEK(0, 1);
+    switch (dialect_glyph) {
+        case 'z':
+            extra_params->active_dialect = Orca_dialect_zorca;
+            break;
+        case 'b':
+            extra_params->active_dialect = Orca_dialect_borca;
+            break;
+        case 'u':
+            extra_params->active_dialect = Orca_dialect_upstream;
+            break;
+        case 's':
+            extra_params->active_dialect = Orca_dialect_seaflake;
+            break;
+        case 'm':
+            extra_params->active_dialect = Orca_dialect_morfil;
+            break;
+        case '.':
+            extra_params->active_dialect = extra_params->ctx->dialect;
+            break;
+    }
 END_OPERATOR
 
 BEGIN_OPERATOR(seaflake_probability)
@@ -2102,6 +2135,7 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
   extras.random_seed = random_seed;
   extras.ctx = ctx;
   extras.labels = ctx->labels;
+  extras.active_dialect = ctx->dialect;
 
 #define UNIQUE_CASE(_oper_char, _oper_name)                                    \
   case _oper_char:                                                             \
@@ -2116,40 +2150,48 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
                                &extras, cell_flags, glyph_char);               \
     break;
 
-// The cell loop, over one dialect's lists: the shared ones plus the
-// dialect's own. It is instantiated once per dialect and chosen once per
-// call, so the per-cell dispatch is the same switch in each.
-#define CELL_LOOP(_dialect_unique_list, _dialect_alpha_list)                   \
-  for (Usz iy = 0; iy < height; ++iy) {                                        \
-    Glyph const *glyph_row = gbuf + iy * width;                                \
-    Mark const *mark_row = mbuf + iy * width;                                  \
-    for (Usz ix = 0; ix < width; ++ix) {                                       \
-      Glyph glyph_char = glyph_row[ix];                                        \
-      if (ORCA_LIKELY(glyph_char == '.'))                                      \
-        continue;                                                              \
-      Mark cell_flags = mark_row[ix] & (Mark_flag_lock | Mark_flag_sleep);     \
-      if (cell_flags & (Mark_flag_lock | Mark_flag_sleep))                     \
-        continue;                                                              \
-      switch (glyph_char) {                                                    \
-        SHARED_UNIQUE_OPERATORS(UNIQUE_CASE)                                   \
-        _dialect_unique_list(UNIQUE_CASE)                                      \
-        SHARED_ALPHA_OPERATORS(ALPHA_CASE)                                     \
-        _dialect_alpha_list(ALPHA_CASE)                                        \
-      }                                                                        \
-    }                                                                          \
+#define DISPATCH(_dialect_unique_list, _dialect_alpha_list)                    \
+  switch (glyph_char) {                                                        \
+    SHARED_UNIQUE_OPERATORS(UNIQUE_CASE)                                       \
+    _dialect_unique_list(UNIQUE_CASE)                                          \
+    SHARED_ALPHA_OPERATORS(ALPHA_CASE)                                         \
+    _dialect_alpha_list(ALPHA_CASE)                                            \
   }
 
-  // bOrca is the fallback: a zeroed context, and any value not named here.
-  if (ctx->dialect == Orca_dialect_upstream) {
-    CELL_LOOP(UPSTREAM_UNIQUE_OPERATORS, UPSTREAM_ALPHA_OPERATORS)
-  } else if (ctx->dialect == Orca_dialect_zorca) {
-    CELL_LOOP(ZORCA_UNIQUE_OPERATORS, ZORCA_ALPHA_OPERATORS)
-  } else if (ctx->dialect == Orca_dialect_seaflake) {
-    CELL_LOOP(SEAFLAKE_UNIQUE_OPERATORS, SEAFLAKE_ALPHA_OPERATORS)
-  } else {
-    CELL_LOOP(BORCA_UNIQUE_OPERATORS, BORCA_ALPHA_OPERATORS)
+  for (Usz iy = 0; iy < height; ++iy) {
+    extras.active_dialect = ctx->dialect;
+    Glyph const *glyph_row = gbuf + iy * width;
+    Mark const *mark_row = mbuf + iy * width;
+    for (Usz ix = 0; ix < width; ++ix) {
+      Glyph glyph_char = glyph_row[ix];
+      if (ORCA_LIKELY(glyph_char == '.'))
+        continue;
+      Mark cell_flags = mark_row[ix] & (Mark_flag_lock | Mark_flag_sleep);
+      if (cell_flags & (Mark_flag_lock | Mark_flag_sleep))
+        continue;
+
+      switch (extras.active_dialect) {
+      case Orca_dialect_upstream:
+        DISPATCH(UPSTREAM_UNIQUE_OPERATORS, UPSTREAM_ALPHA_OPERATORS);
+        break;
+      case Orca_dialect_zorca:
+        DISPATCH(ZORCA_UNIQUE_OPERATORS, ZORCA_ALPHA_OPERATORS);
+        break;
+      case Orca_dialect_seaflake:
+        DISPATCH(SEAFLAKE_UNIQUE_OPERATORS, SEAFLAKE_ALPHA_OPERATORS);
+        break;
+      case Orca_dialect_morfil:
+        DISPATCH(MORFIL_UNIQUE_OPERATORS, MORFIL_ALPHA_OPERATORS);
+        break;
+      case Orca_dialect_borca:
+      default:
+        // bOrca is the fallback, including for an invalid dialect value.
+        DISPATCH(BORCA_UNIQUE_OPERATORS, BORCA_ALPHA_OPERATORS);
+        break;
+      }
+    }
   }
-#undef CELL_LOOP
+#undef DISPATCH
 #undef UNIQUE_CASE
 #undef ALPHA_CASE
 }

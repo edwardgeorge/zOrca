@@ -65,7 +65,7 @@ On a ClockworkPi uConsole, zOrca runs as an appliance:
 | Shift+Arrow keys | Grow or shrink the selection |
 | Shift+Ctrl+Arrow keys | Grow or shrink the selection by the rulers' spacing |
 | Alt+Arrow keys | Slide the selection |
-| `` ` `` (grave) or `~` | Slide selection mode |
+| `~` | Slide selection mode |
 | Escape | Return to normal mode, or deselect |
 | F2 / F3 | Shrink / grow the grid's width |
 | F4 / F5 | Shrink / grow the grid's height |
