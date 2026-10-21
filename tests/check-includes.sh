@@ -104,7 +104,7 @@ noncalls_rel=tests/includes/canary-noncalls.c
 # The include allow-list, in two tiers: the core headers, the port-label
 # header (portlabel.h) among them, for every CORE file; the testable shell's
 # headers only for the testable shell's files.
-allowed_system='<assert.h> <errno.h> <limits.h> <stdbool.h> <stddef.h> <stdint.h> <stdlib.h> <string.h>'
+allowed_system='<assert.h> <errno.h> <limits.h> <math.h> <stdbool.h> <stddef.h> <stdint.h> <stdlib.h> <string.h>'
 core_headers='base.h vmio.h gbuffer.h sim.h opstate.h prng.h ccout.h transport.h music.h portlabel.h'
 shell_headers='tick.h tooltips.h tui_prefs.h'
 shell_files='tick.c tooltips.c tui_prefs.c'

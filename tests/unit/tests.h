@@ -5,37 +5,39 @@
 #include "check.h"
 #include <string.h>
 
-// The bytes an event of this type occupies: its own struct's size, not the
-// union's. oevent_list_alloc_item never zeroes a slot's tail, so a test that
-// compares two event lists compares each pair over this size.
-static inline Usz oevent_size(U8 type) {
-  switch ((Oevent_types)type) {
-  case Oevent_type_midi_note:
-    return sizeof(Oevent_midi_note);
-  case Oevent_type_midi_cc:
-    return sizeof(Oevent_midi_cc);
-  case Oevent_type_midi_cc_interpolated:
-    return sizeof(Oevent_midi_cc_interpolated);
-  case Oevent_type_midi_pb:
-    return sizeof(Oevent_midi_pb);
-  case Oevent_type_osc_ints:
-    return sizeof(Oevent_osc_ints);
-  case Oevent_type_udp_string:
-    return sizeof(Oevent_udp_string);
-  default:
-    return sizeof(Oevent);
-  }
-}
-
-// Two events are equal when their types match and the bytes the writer
-// filled match: a struct's own fields, and for OSC and UDP only the first
-// count numbers or characters, since sim.c writes no more and the slot's tail
-// holds whatever the allocator left (found by the armhf run under qemu, where
-// the two lists' tails differ).
+// Compare fields rather than struct bytes: padding and unused array tails are
+// not part of an event and need not be initialized.
 static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   if (a->any.oevent_type != b->any.oevent_type)
     return false;
   switch ((Oevent_types)a->any.oevent_type) {
+  case Oevent_type_midi_note:
+    return a->midi_note.channel == b->midi_note.channel &&
+           a->midi_note.octave == b->midi_note.octave &&
+           a->midi_note.note == b->midi_note.note &&
+           a->midi_note.velocity == b->midi_note.velocity &&
+           a->midi_note.duration == b->midi_note.duration &&
+           a->midi_note.mono == b->midi_note.mono &&
+           a->midi_note.tuned == b->midi_note.tuned &&
+           a->midi_note.subtick == b->midi_note.subtick &&
+           a->midi_note.pitch_bend == b->midi_note.pitch_bend;
+  case Oevent_type_midi_cc:
+    return a->midi_cc.channel == b->midi_cc.channel &&
+           a->midi_cc.control == b->midi_cc.control &&
+           a->midi_cc.value == b->midi_cc.value;
+  case Oevent_type_midi_cc_interpolated:
+    return a->midi_cc_interpolated.channel ==
+               b->midi_cc_interpolated.channel &&
+           a->midi_cc_interpolated.control ==
+               b->midi_cc_interpolated.control &&
+           a->midi_cc_interpolated.target_value ==
+               b->midi_cc_interpolated.target_value &&
+           a->midi_cc_interpolated.interpolation_rate ==
+               b->midi_cc_interpolated.interpolation_rate;
+  case Oevent_type_midi_pb:
+    return a->midi_pb.channel == b->midi_pb.channel &&
+           a->midi_pb.lsb == b->midi_pb.lsb &&
+           a->midi_pb.msb == b->midi_pb.msb;
   case Oevent_type_osc_ints:
     return a->osc_ints.glyph == b->osc_ints.glyph &&
            a->osc_ints.count == b->osc_ints.count &&
@@ -48,7 +50,7 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
            memcmp(a->udp_string.chars, b->udp_string.chars,
                   a->udp_string.count) == 0;
   default:
-    return memcmp(a, b, oevent_size(a->any.oevent_type)) == 0;
+    return false;
   }
 }
 
