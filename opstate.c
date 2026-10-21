@@ -59,6 +59,7 @@ void opstate_init(Opstate_store *store) {
   store->count = 0;
   store->capacity = 0;
   memset(store->seaflake_scales, 0, sizeof store->seaflake_scales);
+  memset(store->seaflake_vars, '.', sizeof store->seaflake_vars);
 }
 
 void opstate_free(Opstate_store *store) {
@@ -107,6 +108,7 @@ void opstate_clear(Opstate_store *store) {
     memset(store->slots, 0, store->capacity * sizeof *store->slots);
   store->count = 0;
   memset(store->seaflake_scales, 0, sizeof store->seaflake_scales);
+  memset(store->seaflake_vars, '.', sizeof store->seaflake_vars);
 }
 
 bool opstate_prune(Opstate_store *store, Usz height, Usz width) {
@@ -132,6 +134,8 @@ bool opstate_copy(Opstate_store const *src, Opstate_store *dest) {
     opstate_clear(dest);
     memcpy(dest->seaflake_scales, src->seaflake_scales,
            sizeof dest->seaflake_scales);
+    memcpy(dest->seaflake_vars, src->seaflake_vars,
+           sizeof dest->seaflake_vars);
     return true;
   }
   // The slot of an entry depends on the capacity, so dest takes src's.
@@ -149,6 +153,8 @@ bool opstate_copy(Opstate_store const *src, Opstate_store *dest) {
   dest->count = src->count;
   memcpy(dest->seaflake_scales, src->seaflake_scales,
          sizeof dest->seaflake_scales);
+  memcpy(dest->seaflake_vars, src->seaflake_vars,
+         sizeof dest->seaflake_vars);
   return true;
 }
 
