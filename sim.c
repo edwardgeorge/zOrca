@@ -478,8 +478,8 @@ static void seaflake_start_burst(Glyph *gbuffer, Usz height, Usz width,
 BEGIN_OPERATOR(bang)
   if (extra_params->ctx->dialect == Orca_dialect_seaflake &&
       !extra_params->ctx->is_seaflake_subtick) {
-    static Isz const dy[] = {-1, 1, 0, 0};
-    static Isz const dx[] = {0, 0, -1, 1};
+    static Isz const dy[] = {1, 0, 0};
+    static Isz const dx[] = {0, -1, 1};
     for (Usz i = 0; i < ORCA_ARRAY_COUNTOF(dx); ++i) {
       Isz source_y = (Isz)y + dy[i], source_x = (Isz)x + dx[i];
       if (source_y < 0 || source_x < 0 || (Usz)source_y >= height ||
@@ -582,10 +582,6 @@ BEGIN_OPERATOR(seaflake_phase)
     rate = 1;
   if (length == 0)
     length = 1;
-  if (rate > 36)
-    rate = 36;
-  if (length > 36)
-    length = 36;
   if (phase > 35)
     phase = 35;
   bool active = Tick_number % rate == 0 &&
@@ -2086,12 +2082,21 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
               Orca_run_ctx const *ctx) {
   assert(ctx && ctx->opstate);
   Glyph vars_slots[Glyphs_index_count];
-  memset(vars_slots, '.', sizeof(vars_slots));
+  Glyph *vars = vars_slots;
+  if (ctx->dialect == Orca_dialect_seaflake) {
+    // Seaflake's variables live in the store, so a subtick sees the ones its
+    // grid tick wrote; only a grid tick clears them.
+    vars = ctx->opstate->seaflake_vars;
+    if (!ctx->is_seaflake_subtick)
+      memset(vars, '.', sizeof ctx->opstate->seaflake_vars);
+  } else {
+    memset(vars, '.', sizeof vars_slots);
+  }
   if (!ctx->preserve_seaflake_scales)
     memset(ctx->opstate->seaflake_scales, 0,
            sizeof ctx->opstate->seaflake_scales);
   Oper_extra_params extras;
-  extras.vars_slots = &vars_slots[0];
+  extras.vars_slots = vars;
   extras.vars_masks = ctx->opstate->seaflake_scales;
   extras.oevent_list = oevent_list;
   extras.random_seed = random_seed;
@@ -2252,7 +2257,7 @@ bool orca_seaflake_process_due(Glyph *gbuf, Usz height, Usz width,
                                Usz random_seed, Orca_run_ctx const *ctx,
                                U64 now_us) {
   Opstate_store *store = ctx->opstate;
-  for (Usz actions = 0; actions < 1024; ++actions) {
+  for (;;) {
     bool found = false;
     U64 due_us = 0;
     Usz y = 0, x = 0;
@@ -2350,21 +2355,4 @@ bool orca_seaflake_process_due(Glyph *gbuf, Usz height, Usz width,
       }
     }
   }
-  for (Usz i = 0; i < store->capacity; ++i) {
-    Opstate_entry *entry = store->slots + i;
-    if (entry->glyph == '~' && entry->u.seaflake_burst.active &&
-        entry->u.seaflake_burst.next_us <= now_us) {
-      entry->u.seaflake_burst.active = false;
-    } else if (entry->glyph == '@' &&
-               entry->u.seaflake_sequence.active &&
-               entry->u.seaflake_sequence.next_us <= now_us) {
-      Opstate_seaflake_sequence *sequence = &entry->u.seaflake_sequence;
-      if (sequence->note_active)
-        seaflake_add_subtick_note(events, sequence->active_channel,
-                                  sequence->active_note, 0, true);
-      sequence->note_active = false;
-      sequence->active = false;
-    }
-  }
-  return false;
 }

@@ -106,6 +106,9 @@ static inline bool oevent_equal(Oevent const *a, Oevent const *b) {
   X(dialect_upstream_inert)                                                    \
   X(dialect_tick_body_upstream)                                                \
   X(dialect_seaflake_operators)                                               \
+  X(dialect_seaflake_due_action_limit)                                         \
+  X(dialect_seaflake_burst_trigger_direction)                                 \
+  X(dialect_seaflake_subtick_variables)                                        \
   X(rules_lesser)                                                              \
   X(rules_increment)                                                           \
   X(rules_uclid)                                                               \

@@ -875,3 +875,80 @@ void test_dialect_seaflake_operators(void) {
   oevent_list_deinit(&events);
   opstate_free(&store);
 }
+
+void test_dialect_seaflake_due_action_limit(void) {
+  enum { H = 90, W = 8, Burst_count = 30 };
+  Glyph grid[H * W];
+  Mark marks[H * W];
+  memset(grid, '.', sizeof grid);
+  for (Usz i = 0; i < Burst_count; ++i) {
+    Usz y = i * 3;
+    put(grid, W, y, 1, "*");
+    put(grid, W, y + 1, 1, "~z1z");
+  }
+
+  Oevent_list events;
+  oevent_list_init(&events);
+  Opstate_store store;
+  opstate_init(&store);
+  run_tick_clock(grid, marks, H, W, 0, &events, 5, &store,
+                 Orca_dialect_seaflake, 0, 125000);
+  Orca_run_ctx const ctx = {.opstate = &store,
+                            .dialect = Orca_dialect_seaflake,
+                            .now_us = 0,
+                            .tick_len_us = 125000};
+  CHECK(orca_seaflake_process_due(grid, H, W, 0, &events, 5, &ctx, 125000));
+  CHECK(!orca_seaflake_next_deadline(&store, &(U64){0}));
+  oevent_list_deinit(&events);
+  opstate_free(&store);
+}
+
+void test_dialect_seaflake_burst_trigger_direction(void) {
+  enum { H = 4, W = 8 };
+  Glyph grid[H * W];
+  Mark marks[H * W];
+  memset(grid, '.', sizeof grid);
+  Oevent_list events;
+  oevent_list_init(&events);
+  Opstate_store store;
+  opstate_init(&store);
+  // A bang left of or above a ~ starts a burst; one below does not.
+  struct { Usz y, x; bool expect; } const cases[] = {
+      {2, 1, true}, {1, 2, true}, {3, 2, false}};
+  for (Usz i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
+    memset(grid, '.', sizeof grid);
+    opstate_clear(&store);
+    put(grid, W, 2, 2, "~z1z");
+    grid[cases[i].y * W + cases[i].x] = '*';
+    run_tick_clock(grid, marks, H, W, 0, &events, 5, &store,
+                   Orca_dialect_seaflake, 0, 125000);
+    CHECK(orca_seaflake_next_deadline(&store, &(U64){0}) == cases[i].expect);
+  }
+  oevent_list_deinit(&events);
+  opstate_free(&store);
+}
+
+void test_dialect_seaflake_subtick_variables(void) {
+  enum { H = 6, W = 8 };
+  Glyph grid[H * W];
+  memset(grid, '.', sizeof grid);
+  put(grid, W, 1, 2, "v");
+  grid[1 * W + 1] = '0';
+  grid[1 * W + 3] = 'g';
+  put(grid, W, 3, 4, "v");
+  grid[3 * W + 5] = '0';
+
+  Oevent_list events;
+  oevent_list_init(&events);
+  Opstate_store store;
+  opstate_init(&store);
+  Orca_run_ctx const ctx = {.opstate = &store,
+                            .dialect = Orca_dialect_seaflake,
+                            .tick_len_us = 125000};
+  CHECK(orca_run_bang_at(grid, H, W, 2, 2, 0, &events, 5, &ctx));
+  CHECK(store.seaflake_vars[0] == 'g');
+  CHECK(orca_run_bang_at(grid, H, W, 4, 4, 0, &events, 5, &ctx));
+  CHECK(grid[4 * W + 4] == 'g');
+  oevent_list_deinit(&events);
+  opstate_free(&store);
+}

@@ -13,7 +13,8 @@
 // uses .seaflake_sequence. A lookup by any other glyph hands the operator a
 // zeroed entry, so an edited cell never inherits another operator's state. A
 // zeroed payload is the operator's first visit: its `initialized` flag is
-// false, and the operator seeds its own fields.
+// false, and the operator seeds its own fields. Seaflake variables are reset
+// once per grid tick and shared by all generated subticks in that tick.
 //
 // Open addressing with linear probing over a power-of-2 table that is at most
 // half full. Entries are never removed one at a time, so there are no
@@ -85,6 +86,7 @@ typedef struct {
   Opstate_entry *slots;
   Usz count, capacity; // capacity is 0 or a power of 2
   char seaflake_scales[Opstate_random_max_size][13];
+  Glyph seaflake_vars[Opstate_random_max_size];
 } Opstate_store;
 
 void opstate_init(Opstate_store *store);

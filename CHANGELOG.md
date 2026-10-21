@@ -4,6 +4,12 @@ zOrca's versions follow [semantic versioning](https://semver.org). A change is B
 
 To bring a patch over from boorch/bOrca or from upstream Orca-c, see [Coming from boorch/bOrca 4f349cd](#coming-from-boorchborca-4f349cd) and [Coming from Orca-c](#coming-from-orca-c).
 
+## Unreleased
+
+### Added
+
+- **The seaflake and morfil dialects.** `seaflake` ports the JavaScript fork's operators (`^`, `&`, `~`, `+`, `)`, `(` and `@`) with 125 ms virtual ticks in `cli`; `morfil` currently plays as bOrca. Seaflake's timed `~` bursts and `@` sequences run until every due event has fired, with no cap per poll. A `~` starts from a bang to its left, right or above, and Seaflake's variables (`V`) are cleared once per grid tick and shared by the subticks it generates.
+
 ## v6.1.0 (2026-10-18)
 
 ### Changed
