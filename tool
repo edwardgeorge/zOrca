@@ -370,6 +370,7 @@ build_target() {
   check_alsa_option
   cc_flags=
   libraries=
+  add libraries -lm
   source_files=
   out_exe=
   version=${ZORCA_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || true)}
@@ -698,4 +699,3 @@ EOF
   ;;
   *) fatal "Unrecognized command $cmd";;
 esac
-
