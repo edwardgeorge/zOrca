@@ -1910,17 +1910,19 @@ END_OPERATOR
 // END_OPERATOR
 
 BEGIN_OPERATOR(morfil_markov_seq)
-    Isz in_x = (Isz)index_of(PEEK(0, -3));
-    Isz in_y = (Isz)index_of(PEEK(0, -2));
-    Isz len = (Isz)index_of(PEEK(0, -1));
-    PORT(0, -4, IN | PARAM, Port_label_reset);
-    PORT(0, -3, IN | PARAM, Port_label_x_offset);
-    PORT(0, -2, IN | PARAM, Port_label_y_offset);
-    PORT(0, -1, IN | PARAM, Port_label_length);
-    bool reset = PEEK(0, -4) == '*';
+    Isz in_x = (Isz)index_of(PEEK(0, 1));
+    Isz in_y = (Isz)index_of(PEEK(0, 2));
+    Isz len = (Isz)index_of(PEEK(0, 3));
+    PORT(0, -1, IN | PARAM, Port_label_reset);
+    PORT(0, 1, IN | PARAM, Port_label_x_offset);
+    PORT(0, 2, IN | PARAM, Port_label_y_offset);
+    PORT(0, 3, IN | PARAM, Port_label_length);
+    PORT(1, 0, OUT, Port_label_output);
+    PORT(1, -1, OUT, Port_label_output);
+    bool reset = PEEK(0, -1) == '*';
     if (len == 0) return;
-    POKE(0, -4, (Glyph)'.');
-    POKE(1, 0, (Glyph)'.');
+    POKE(0, -1, (Glyph)'.');
+    //POKE(1, -1, (Glyph)'.');
 
     Opstate_entry *entry =
         opstate_lookup(extra_params->ctx->opstate, y, x, This_oper_char);
@@ -1931,7 +1933,8 @@ BEGIN_OPERATOR(morfil_markov_seq)
         entry->u.markov_seq_position = 0;
     }
     STOP_IF_NOT_BANGED;
-    PORT(1, 0, OUT, Port_label_output);
+    // PORT(1, 0, OUT, Port_label_output);
+    // PORT(1, -1, OUT, Port_label_output);
     Usz markov_seq_position = entry->u.markov_seq_position;
     in_y += markov_seq_position;
 
@@ -1948,9 +1951,9 @@ BEGIN_OPERATOR(morfil_markov_seq)
         Usz bucket = index_of(PEEK(in_y, in_x + i));
         if (val < bucket) {
             entry->u.markov_seq_position = (Usz)i;
-            PORT(0, 1, OUT, Port_label_output);
-            POKE(0, 1, glyph_of((Usz)i));
-            POKE(1, 0, (Glyph)'*');
+            //PORT(1, -1, OUT, Port_label_output);
+            POKE(1, 0, glyph_of((Usz)i));
+            POKE(1, -1, (Glyph)'*');
             return;
         } else {
             val -= bucket;
