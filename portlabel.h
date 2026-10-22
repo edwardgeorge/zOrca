@@ -68,7 +68,9 @@
   X(scale, "Scale")                                                            \
   X(pitch, "Pitch")                                                            \
   X(pulse_width, "Pulse width")                                                \
-  X(dialect, "Dialect")
+  X(dialect, "Dialect")                                                        \
+  X(reset, "Reset")
+
 
 // The ids, Port_label_<name>, in the order above; Port_label_none is 0 and
 // every id is below Port_label_id_count.

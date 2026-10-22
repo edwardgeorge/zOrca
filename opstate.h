@@ -79,6 +79,7 @@ typedef struct {
     Opstate_random random;
     Opstate_seaflake_burst seaflake_burst;
     Opstate_seaflake_sequence seaflake_sequence;
+    Usz markov_seq_position;
   } u;
 } Opstate_entry;
 

@@ -1,7 +1,9 @@
 #include "sim.h"
 #include "gbuffer.h"
 #include "music.h"
+#include "portlabel.h"
 #include <math.h>
+#include <stdbool.h>
 #include <string.h>
 #include <sys/_types/_ct_rune_t.h>
 
@@ -262,6 +264,7 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
 
 #define MORFIL_UNIQUE_OPERATORS(_)                                             \
   BORCA_UNIQUE_OPERATORS(_)                                                    \
+  _('_', morfil_markov_seq)                                                    \
   _('`', morfil_switch_dialect)
 
 #define SHARED_ALPHA_OPERATORS(_)                                              \
@@ -1876,6 +1879,85 @@ BEGIN_OPERATOR(random_upstream)
                           min, max);
   POKE(1, 0, glyph_with_case(glyph_of(val), gb));
 END_OPERATOR
+
+// BEGIN_OPERATOR(morfil_markov_seq)
+//     Isz in_x = (Isz)index_of(PEEK(0, -3));
+//     Isz in_y = (Isz)index_of(PEEK(0, -2));
+//     Isz len = (Isz)index_of(PEEK(0, -1));
+//     PORT(0, -3, IN | PARAM, Port_label_x_offset);
+//     PORT(0, -2, IN | PARAM, Port_label_y_offset);
+//     PORT(0, -1, IN | PARAM, Port_label_length);
+//     if (len == 0) return;
+//     STOP_IF_NOT_BANGED;
+//
+//     PORT(1, 0, OUT, Port_label_output);
+//     Isz total = 0;
+//     for (Isz i = 0; i < len; i++) {
+//         total += (Isz)index_of(PEEK(in_y, in_x + i));
+//         PORT(in_y, in_x + i, IN, Port_label_value);
+//     }
+//     Usz val = random_hashed(extra_params->random_seed, y, x, width, Tick_number,
+//                             0, total);
+//     for (Isz i = 0; i < len; i++) {
+//         Isz bucket = (Isz)index_of(PEEK(in_y, in_x + i));
+//         if (val < bucket) {
+//             POKE(1, 0, glyph_of((Usz)i));
+//             return;
+//         } else {
+//             val -= bucket;
+//         }
+//     }
+// END_OPERATOR
+
+BEGIN_OPERATOR(morfil_markov_seq)
+    Isz in_x = (Isz)index_of(PEEK(0, -3));
+    Isz in_y = (Isz)index_of(PEEK(0, -2));
+    Isz len = (Isz)index_of(PEEK(0, -1));
+    PORT(0, -4, IN | PARAM, Port_label_reset);
+    PORT(0, -3, IN | PARAM, Port_label_x_offset);
+    PORT(0, -2, IN | PARAM, Port_label_y_offset);
+    PORT(0, -1, IN | PARAM, Port_label_length);
+    bool reset = PEEK(0, -4) == '*';
+    if (len == 0) return;
+    POKE(0, -4, (Glyph)'.');
+    POKE(1, 0, (Glyph)'.');
+
+    Opstate_entry *entry =
+        opstate_lookup(extra_params->ctx->opstate, y, x, This_oper_char);
+    if (!entry)
+        return;
+
+    if (reset) {
+        entry->u.markov_seq_position = 0;
+    }
+    STOP_IF_NOT_BANGED;
+    PORT(1, 0, OUT, Port_label_output);
+    Usz markov_seq_position = entry->u.markov_seq_position;
+    in_y += markov_seq_position;
+
+    Usz total = 0;
+    for (Isz i = 0; i < len; i++) {
+        total += index_of(PEEK(in_y, in_x + i));
+        PORT(in_y, in_x + i, IN, Port_label_value);
+    }
+    if (total == 0) return;
+
+    Usz val = random_hashed(extra_params->random_seed, y, x, width, Tick_number,
+                            0, total);
+    for (Isz i = 0; i < len; i++) {
+        Usz bucket = index_of(PEEK(in_y, in_x + i));
+        if (val < bucket) {
+            entry->u.markov_seq_position = (Usz)i;
+            PORT(0, 1, OUT, Port_label_output);
+            POKE(0, 1, glyph_of((Usz)i));
+            POKE(1, 0, (Glyph)'*');
+            return;
+        } else {
+            val -= bucket;
+        }
+    }
+END_OPERATOR
+
 
 // BOORCH's BOUNCER OP, tempo-synced since v2.0.0 (its rate counts beats).
 // Predefined waveform sequences: one cycle of each shape in 128 steps, each
