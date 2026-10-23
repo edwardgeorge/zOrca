@@ -572,6 +572,11 @@ END_OPERATOR
 BEGIN_OPERATOR(morfil_switch_dialect)
     PORT(0, 1, IN | PARAM, Port_label_dialect);
     Glyph dialect_glyph = PEEK(0, 1);
+    // if (dialect_glyph == '.')
+    //     return;
+    bool quoted = glyph_is_lowercase(dialect_glyph);
+    if (dialect_glyph >= 'A' && dialect_glyph <= 'Z')
+        dialect_glyph = glyph_lowered_unsafe(dialect_glyph);
     switch (dialect_glyph) {
         case 'z':
             extra_params->active_dialect = Orca_dialect_zorca;
@@ -591,6 +596,17 @@ BEGIN_OPERATOR(morfil_switch_dialect)
         case '.':
             extra_params->active_dialect = extra_params->ctx->dialect;
             break;
+    }
+    if (quoted) {
+        for (Usz dx = 2; dx < width - x; ++dx) {
+            if (PEEK(0, (Isz)dx) == This_oper_char) {
+                // Matching operator is at column x + dx, on row y.
+                mbuffer_poke_relative_flags_or(
+                    mbuffer, height, width, y, x, 0, (Isz)dx,
+                    Mark_flag_dialect_end);
+                break;
+            }
+        }
     }
 END_OPERATOR
 
@@ -2339,10 +2355,13 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
     Glyph const *glyph_row = gbuf + iy * width;
     Mark const *mark_row = mbuf + iy * width;
     for (Usz ix = 0; ix < width; ++ix) {
+      Mark cell_flags = mark_row[ix];
+      if (cell_flags & Mark_flag_dialect_end)
+          extras.active_dialect = ctx->dialect;
+
       Glyph glyph_char = glyph_row[ix];
       if (ORCA_LIKELY(glyph_char == '.'))
         continue;
-      Mark cell_flags = mark_row[ix] & (Mark_flag_lock | Mark_flag_sleep);
       if (cell_flags & (Mark_flag_lock | Mark_flag_sleep))
         continue;
 

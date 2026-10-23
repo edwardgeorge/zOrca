@@ -62,6 +62,7 @@ typedef enum {
   Mark_flag_haste_input = 1 << 2,
   Mark_flag_lock = 1 << 3,
   Mark_flag_sleep = 1 << 4,
+  Mark_flag_dialect_end = 1 << 5,
 } Mark_flags;
 
 ORCA_OK_IF_UNUSED
