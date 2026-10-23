@@ -71,6 +71,11 @@ typedef struct {
 } Opstate_seaflake_sequence; // '@'
 
 typedef struct {
+  Usz length;
+  Usz position;
+} Opstate_morfil_markov;
+
+typedef struct {
   U16 y, x;
   Glyph glyph; // owner; 0 marks an empty slot
   union {
@@ -80,6 +85,7 @@ typedef struct {
     Opstate_seaflake_burst seaflake_burst;
     Opstate_seaflake_sequence seaflake_sequence;
     Usz markov_seq_position;
+    Opstate_morfil_markov morfil_markov;
   } u;
 } Opstate_entry;
 
