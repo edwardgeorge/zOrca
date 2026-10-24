@@ -2029,6 +2029,7 @@ BEGIN_OPERATOR(morfil_markov_seq2)
                 break;
             }
         }
+        PORT(0, -1, IN | PARAM, Port_label_y_offset);
         PORT(len, 0, OUT, Port_label_output);
         PORT(len, 1, OUT, Port_label_length);
         for (Usz i = 1; i <= len; i++) {
@@ -2039,11 +2040,23 @@ BEGIN_OPERATOR(morfil_markov_seq2)
         if (!entry)
             return;
         entry->u.morfil_markov.length = len;
+        Glyph reset = PEEK(0, -1);
+        if (reset != (Glyph)'.') {
+            entry->u.morfil_markov.position = (Usz)index_of(reset);
+            entry->u.morfil_markov.is_reset = true;
+            POKE(0, -1, (Glyph)'.');
+        }
         STOP_IF_NOT_BANGED;
         POKE(len, 1, glyph_of(len));
         Usz pos = entry->u.morfil_markov.position;
         if (pos >= len)
             pos = 0;
+        if (entry->u.morfil_markov.is_reset) {
+            // if we're reset then first bang just sets the position to the reset
+            entry->u.morfil_markov.is_reset = false;
+            POKE(len, 0, glyph_of(pos));
+            return;
+        }
 
         Usz total = 0;
         for (Usz i = 1; i <= len; i++) {

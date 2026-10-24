@@ -73,6 +73,7 @@ typedef struct {
 typedef struct {
   Usz length;
   Usz position;
+  bool is_reset;
 } Opstate_morfil_markov;
 
 typedef struct {
