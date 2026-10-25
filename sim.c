@@ -2022,8 +2022,12 @@ BEGIN_OPERATOR(morfil_markov_seq2)
         }
     } else {
         Usz len = 1;
+        Usz reset_at = 0;
         while (true) {
             if (PEEK(len, 0) == This_oper_char) {
+                if (PEEK(len, -1) == (Glyph)'*') {
+                    reset_at = len;
+                }
                 len ++;
             } else {
                 break;
@@ -2041,11 +2045,15 @@ BEGIN_OPERATOR(morfil_markov_seq2)
             return;
         entry->u.morfil_markov.length = len;
         Glyph reset = PEEK(0, -1);
-        if (reset != (Glyph)'.') {
+        if (reset_at > 0) {
+            entry->u.morfil_markov.position = reset_at;
+            entry->u.morfil_markov.is_reset = true;
+        } else  if (reset != (Glyph)'.') {
             entry->u.morfil_markov.position = (Usz)index_of(reset);
             entry->u.morfil_markov.is_reset = true;
-            POKE(0, -1, (Glyph)'.');
         }
+        POKE(0, -1, (Glyph)'.');
+
         STOP_IF_NOT_BANGED;
         POKE(len, 1, glyph_of(len));
         Usz pos = entry->u.morfil_markov.position;
