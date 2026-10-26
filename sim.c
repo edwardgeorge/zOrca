@@ -266,8 +266,9 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
 
 #define MORFIL_UNIQUE_OPERATORS(_)                                             \
   BORCA_UNIQUE_OPERATORS(_)                                                    \
-  _('_', morfil_markov_seq2)                                                   \
-  _('`', morfil_switch_dialect)
+  _('_', morfil_markov_seq)                                                    \
+  _('`', morfil_switch_dialect)                                                \
+  _(',', morfil_weighted_buckets)
 
 #define SHARED_ALPHA_OPERATORS(_)                                              \
   _('A', add)                                                                  \
@@ -1898,35 +1899,6 @@ BEGIN_OPERATOR(random_upstream)
   POKE(1, 0, glyph_with_case(glyph_of(val), gb));
 END_OPERATOR
 
-// BEGIN_OPERATOR(morfil_markov_seq)
-//     Isz in_x = (Isz)index_of(PEEK(0, -3));
-//     Isz in_y = (Isz)index_of(PEEK(0, -2));
-//     Isz len = (Isz)index_of(PEEK(0, -1));
-//     PORT(0, -3, IN | PARAM, Port_label_x_offset);
-//     PORT(0, -2, IN | PARAM, Port_label_y_offset);
-//     PORT(0, -1, IN | PARAM, Port_label_length);
-//     if (len == 0) return;
-//     STOP_IF_NOT_BANGED;
-//
-//     PORT(1, 0, OUT, Port_label_output);
-//     Isz total = 0;
-//     for (Isz i = 0; i < len; i++) {
-//         total += (Isz)index_of(PEEK(in_y, in_x + i));
-//         PORT(in_y, in_x + i, IN, Port_label_value);
-//     }
-//     Usz val = random_hashed(extra_params->random_seed, y, x, width, Tick_number,
-//                             0, total);
-//     for (Isz i = 0; i < len; i++) {
-//         Isz bucket = (Isz)index_of(PEEK(in_y, in_x + i));
-//         if (val < bucket) {
-//             POKE(1, 0, glyph_of((Usz)i));
-//             return;
-//         } else {
-//             val -= bucket;
-//         }
-//     }
-// END_OPERATOR
-
 BEGIN_OPERATOR(morfil_weighted_buckets)
     Isz len = (Isz)index_of(PEEK(0, 1));
     PORT(0, 1, IN | PARAM, Port_label_length);
@@ -1952,59 +1924,7 @@ BEGIN_OPERATOR(morfil_weighted_buckets)
     POKE(1, 0, (Glyph)'.');
 END_OPERATOR
 
-// BEGIN_OPERATOR(morfil_markov_seq)
-//     Isz in_x = (Isz)index_of(PEEK(0, 1));
-//     Isz in_y = (Isz)index_of(PEEK(0, 2));
-//     Isz len = (Isz)index_of(PEEK(0, 3));
-//     PORT(0, -1, IN | PARAM, Port_label_reset);
-//     PORT(0, 1, IN | PARAM, Port_label_x_offset);
-//     PORT(0, 2, IN | PARAM, Port_label_y_offset);
-//     PORT(0, 3, IN | PARAM, Port_label_length);
-//     PORT(1, 0, OUT, Port_label_output);
-//     PORT(1, -1, OUT, Port_label_output);
-//     bool reset = PEEK(0, -1) == '*';
-//     if (len == 0) return;
-//     POKE(0, -1, (Glyph)'.');
-//     //POKE(1, -1, (Glyph)'.');
-//
-//     Opstate_entry *entry =
-//         opstate_lookup(extra_params->ctx->opstate, y, x, This_oper_char);
-//     if (!entry)
-//         return;
-//
-//     if (reset) {
-//         entry->u.markov_seq_position = 0;
-//     }
-//     STOP_IF_NOT_BANGED;
-//     // PORT(1, 0, OUT, Port_label_output);
-//     // PORT(1, -1, OUT, Port_label_output);
-//     Usz markov_seq_position = entry->u.markov_seq_position;
-//     in_y += markov_seq_position;
-//
-//     Usz total = 0;
-//     for (Isz i = 0; i < len; i++) {
-//         total += index_of(PEEK(in_y, in_x + i));
-//         PORT(in_y, in_x + i, IN, Port_label_value);
-//     }
-//     if (total == 0) return;
-//
-//     Usz val = random_hashed(extra_params->random_seed, y, x, width, Tick_number,
-//                             0, total);
-//     for (Isz i = 0; i < len; i++) {
-//         Usz bucket = index_of(PEEK(in_y, in_x + i));
-//         if (val < bucket) {
-//             entry->u.markov_seq_position = (Usz)i;
-//             //PORT(1, -1, OUT, Port_label_output);
-//             POKE(1, 0, glyph_of((Usz)i));
-//             POKE(1, -1, (Glyph)'*');
-//             return;
-//         } else {
-//             val -= bucket;
-//         }
-//     }
-// END_OPERATOR
-
-BEGIN_OPERATOR(morfil_markov_seq2)
+BEGIN_OPERATOR(morfil_markov_seq)
     bool first = (PEEK(-1, 0) != This_oper_char);
 //bool last = (PEEK(1, 0) != This_oper_char);
     if (!first) {
@@ -2018,11 +1938,11 @@ BEGIN_OPERATOR(morfil_markov_seq2)
         if (!entry)
             return;
         for (Usz i = 1; i <= entry->u.morfil_markov.length; i++) {
-            PORT(0, i, IN | PARAM, Port_label_value);
+            PORT(0, (Isz)i, IN | PARAM, Port_label_value);
         }
     } else {
-        Usz len = 1;
-        Usz reset_at = 0;
+        Isz len = 1;
+        Isz reset_at = 0;
         while (true) {
             if (PEEK(len, 0) == This_oper_char) {
                 if (PEEK(len, -1) == (Glyph)'*') {
@@ -2036,17 +1956,17 @@ BEGIN_OPERATOR(morfil_markov_seq2)
         PORT(0, -1, IN | PARAM, Port_label_y_offset);
         PORT(len, 0, OUT, Port_label_output);
         PORT(len, 1, OUT, Port_label_length);
-        for (Usz i = 1; i <= len; i++) {
+        for (Isz i = 1; i <= len; i++) {
             PORT(0, i, IN | PARAM, Port_label_value);
         }
         Opstate_entry *entry =
             opstate_lookup(extra_params->ctx->opstate, y, x, This_oper_char);
         if (!entry)
             return;
-        entry->u.morfil_markov.length = len;
+        entry->u.morfil_markov.length = (Usz)len; // can't be negative
         Glyph reset = PEEK(0, -1);
         if (reset_at > 0) {
-            entry->u.morfil_markov.position = reset_at;
+            entry->u.morfil_markov.position = (Usz)reset_at; // can't be negative
             entry->u.morfil_markov.is_reset = true;
         } else  if (reset != (Glyph)'.') {
             entry->u.morfil_markov.position = (Usz)index_of(reset);
@@ -2055,20 +1975,20 @@ BEGIN_OPERATOR(morfil_markov_seq2)
         POKE(0, -1, (Glyph)'.');
 
         STOP_IF_NOT_BANGED;
-        POKE(len, 1, glyph_of(len));
-        Usz pos = entry->u.morfil_markov.position;
+        POKE(len, 1, glyph_of((Usz)len));
+        Isz pos = (Isz)entry->u.morfil_markov.position;
         if (pos >= len)
             pos = 0;
         if (entry->u.morfil_markov.is_reset) {
             // if we're reset then first bang just sets the position to the reset
             entry->u.morfil_markov.is_reset = false;
-            POKE(len, 0, glyph_of(pos));
+            POKE(len, 0, glyph_of((Usz)pos));
             return;
         }
 
         Usz total = 0;
-        for (Usz i = 1; i <= len; i++) {
-            total += (Usz)index_of(PEEK(pos, i));
+        for (Isz i = 1; i <= len; i++) {
+            total += index_of(PEEK(pos, i));
         }
         if (total == 0)
             return;
@@ -2078,7 +1998,7 @@ BEGIN_OPERATOR(morfil_markov_seq2)
         for (Isz i = 1; i <= len; i++) {
             Usz bucket = (Usz)index_of(PEEK(pos, i));
             if (val < bucket) {
-                entry->u.morfil_markov.position = i - 1;
+                entry->u.morfil_markov.position = (Usz)i - 1;
                 POKE(len, 0, glyph_of((Usz)i - 1));
                 return;
             } else {
