@@ -265,7 +265,7 @@ static void oper_poke_and_stun(Glyph *restrict gbuffer, Mark *restrict mbuffer,
   _('@', seaflake_midi_sequence)
 
 #define MORFIL_UNIQUE_OPERATORS(_)                                             \
-  BORCA_UNIQUE_OPERATORS(_)                                                    \
+  UPSTREAM_UNIQUE_OPERATORS(_)                                                 \
   _('_', morfil_markov_seq)                                                    \
   _('`', morfil_switch_dialect)                                                \
   _(',', morfil_weighted_buckets)
