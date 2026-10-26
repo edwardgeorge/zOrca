@@ -1,3 +1,15 @@
+# Orca (Morfil)
+
+This repo adds my own operators to the [Orca](https://wiki.xxiivv.com/site/orca.html) livecoding language as the dialect 'morfil'.
+
+It is based on the [zOrca](https://github.com/ianhundere/zOrca) fork of Orca, which adds multiple dialects to the Orca language, notably `bOrca` from the [bOrca](https://github.com/boorch/bOrca) fork which it is based on and expands upon, and the `zOrca` dialect which extends `bOrca` although presently does not add anything new.
+
+My fork also adds the `seaflake` dialect from the [ORCΛ SEΛFLΛKE](https://github.com/femifleming/orca_seaflake) fork of the [Javascript Orca implementation](https://github.com/hundredrabbits/Orca). LLM Disclaimer: Github Copilot was used (solely) to port the JS seaflake operators to C automatically (Seaflake itself is openly implemented using LLMs). 
+
+The `morfil` dialect crucially adds the ability through the backtick operator to quote lines of the grid in a different dialect adding support for multiple dialects in a single Orca patch.
+
+The original zOrca README is reproduced below:
+
 # zOrca
 
 zOrca is a terminal [Orca](https://wiki.xxiivv.com/site/orca.html) for hardware MIDI. Orca is a livecoding language for procedural sequencers: every letter of the alphabet is an operator, lowercase operators run when banged, and uppercase ones run on every frame. zOrca adds scales and chords, chord and arpeggiator operators, an LFO, CC glides and following an external MIDI clock, and it sends MIDI notes, CC with glides, MIDI clock and OSC status messages. It runs on Linux and macOS, and as an appliance on a ClockworkPi uConsole. The program is `orca`. The code is at [github.com/ianhundere/zOrca](https://github.com/ianhundere/zOrca), each release is a [tag](https://github.com/ianhundere/zOrca/tags), and the release notes are in [CHANGELOG.md](CHANGELOG.md).
