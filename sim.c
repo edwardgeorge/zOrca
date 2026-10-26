@@ -7,7 +7,6 @@
 #include <math.h>
 #include <stdbool.h>
 #include <string.h>
-#include <sys/_types/_ct_rune_t.h>
 
 // Note Sequence
 static char const note_sequence[] = "CcDdEFfGgAaB";
