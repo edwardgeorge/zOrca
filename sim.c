@@ -750,7 +750,7 @@ static U64 seaflake_sequence_offset(Opstate_seaflake_sequence const *state,
   default:
     break;
   }
-  double offset = position * state->duration_us;
+  double offset = position * (double)state->duration_us;
   U64 at = offset > 0.0 ? (U64)offset : 0;
   if (at >= state->duration_us && state->duration_us > 0)
     at = state->duration_us - 1;
@@ -813,7 +813,7 @@ BEGIN_OPERATOR(seaflake_midi_just)
   U8 note = midi_note_number_of(note_glyph);
   if (note == UINT8_MAX)
     return;
-  Usz absolute = 24 + seaflake_octave(PEEK(0, 2)) * 12 + note;
+  Usz absolute = (Usz)24 + seaflake_octave(PEEK(0, 2)) * 12 + note;
   if (absolute > 127)
     absolute = 127;
   U8 velocity = seaflake_velocity(PEEK(0, 4));
@@ -822,7 +822,7 @@ BEGIN_OPERATOR(seaflake_midi_just)
                                     3.0 / 2.0, 8.0 / 5.0, 5.0 / 3.0,
                                     16.0 / 9.0, 15.0 / 8.0};
   Usz pitch_class = note % 12;
-  double semitones = 12.0 * log2(ratios[pitch_class]) - pitch_class;
+  double semitones = 12.0 * log2(ratios[pitch_class]) - (double)pitch_class;
   double bend = 8192.0 + semitones * 4096.0;
   Usz pitch_bend = (Usz)(bend + 0.5);
   if (pitch_bend > 16383)
@@ -2491,7 +2491,7 @@ bool orca_seaflake_process_due(Glyph *gbuf, Usz height, Usz width,
     } else {
       Opstate_seaflake_sequence *sequence = &entry->u.seaflake_sequence;
       if (sequence->emitted < sequence->repeats) {
-        Usz absolute = 24 + sequence->octave * 12 + sequence->note;
+        Usz absolute = (Usz)24 + sequence->octave * 12 + sequence->note;
         if (absolute > 127)
           absolute = 127;
         if (sequence->note_active) {
