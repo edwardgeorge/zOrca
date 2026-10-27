@@ -463,6 +463,24 @@ void test_labels_no_buffer(void) {
   }
 }
 
+void test_labels_event_equal_ignores_padding(void) {
+  Oevent a, b;
+  memset(&a, 0, sizeof a);
+  memset(&b, 0xff, sizeof b);
+  a.midi_note.oevent_type = b.midi_note.oevent_type =
+      Oevent_type_midi_note;
+  a.midi_note.channel = b.midi_note.channel = 1;
+  a.midi_note.octave = b.midi_note.octave = 4;
+  a.midi_note.note = b.midi_note.note = 7;
+  a.midi_note.velocity = b.midi_note.velocity = 100;
+  a.midi_note.duration = b.midi_note.duration = 8;
+  a.midi_note.mono = b.midi_note.mono = 0;
+  a.midi_note.tuned = b.midi_note.tuned = 0;
+  a.midi_note.subtick = b.midi_note.subtick = 0;
+  a.midi_note.pitch_bend = b.midi_note.pitch_bend = 8192;
+  CHECK(oevent_equal(&a, &b));
+}
+
 // Upstream `!`: Channel, Control and Value, whose tooltip scales x 127 / 35
 // (`z` is 127, `f` 54; bOrca's x 4 would give 60 for `f`).
 void test_labels_upstream_cc(void) {
