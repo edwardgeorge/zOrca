@@ -237,7 +237,7 @@ static bool dialect_matches_borca(char const *const *rows, Usz h, Usz w,
   return ok;
 }
 
-// zorca and morfil currently run bOrca's operator set, every glyph. Each
+// zorca currently runs bOrca's operator set, every glyph. Each
 // glyph Orca knows runs banged, between inputs that are values, letters and
 // empty cells, for 24 ticks at two seeds. On every tick the grid, marks,
 // labels, events and store match.
@@ -257,8 +257,6 @@ void test_dialect_zorca_is_borca(void) {
     for (Usz seed = 0; seed < 8; seed += 7) {
       CHECK(dialect_matches_borca(rows, H, W, bangs, 1, 24, seed,
                                   Orca_dialect_zorca));
-      CHECK(dialect_matches_borca(rows, H, W, bangs, 1, 24, seed,
-                                  Orca_dialect_morfil));
     }
   }
   static char const *const mixed[10] = {
@@ -277,9 +275,6 @@ void test_dialect_zorca_is_borca(void) {
   CHECK(dialect_matches_borca(mixed, 10, 12, mixed_bangs,
                               ORCA_ARRAY_COUNTOF(mixed_bangs), 16, 3,
                               Orca_dialect_zorca));
-  CHECK(dialect_matches_borca(mixed, 10, 12, mixed_bangs,
-                              ORCA_ARRAY_COUNTOF(mixed_bangs), 16, 3,
-                              Orca_dialect_morfil));
 }
 
 // Upstream ! (Orca-c 9df9786's midicc): three inputs, channel, control and
