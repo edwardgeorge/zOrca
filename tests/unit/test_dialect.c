@@ -947,3 +947,64 @@ void test_dialect_seaflake_subtick_variables(void) {
   oevent_list_deinit(&events);
   opstate_free(&store);
 }
+
+// The dialect buffer (Orca_run_ctx.dialects): orca_run records the dialect
+// active at every cell, the `.`, locked and operator cells alike. In a morfil
+// session a quoted ` (lowercase) switches the cells up to its matching `,
+// which runs, and records, the session's dialect again; an unquoted one
+// (uppercase) switches the rest of its row; each row starts in the session's.
+// The grid, marks and events are the same with the buffer as without it.
+void test_dialect_cell_buffer(void) {
+  enum { H = 3, W = 12 };
+  static char const *const rows[H] = {"1A2`u1A2`1A2", "............",
+                                      "`U.A........"};
+  Orca_dialect const M = Orca_dialect_morfil, U = Orca_dialect_upstream;
+  Orca_dialect const want[H][W] = {
+      {M, M, M, M, U, U, U, U, M, M, M, M},
+      {M, M, M, M, M, M, M, M, M, M, M, M},
+      {M, U, U, U, U, U, U, U, U, U, U, U},
+  };
+  Glyph grid[2][H * W];
+  Mark marks[2][H * W];
+  Port_label_cell labels[H * W];
+  Oevent_list events[2];
+  Opstate_store store[2];
+  for (int k = 0; k < 2; ++k) {
+    for (Usz y = 0; y < H; ++y)
+      memcpy(grid[k] + y * W, rows[y], W);
+    oevent_list_init(&events[k]);
+    opstate_init(&store[k]);
+  }
+  for (Usz tick = 0; tick < 3; ++tick) {
+    memset(labels, 0xEE, sizeof labels); // stale: every cell is rewritten
+    for (int k = 0; k < 2; ++k) {
+      mbuffer_clear(marks[k], H, W);
+      oevent_list_clear(&events[k]);
+      Orca_run_ctx const ctx = {.opstate = &store[k],
+                                .dialect = M,
+                                .labels = k ? labels : NULL};
+      orca_run(grid[k], marks[k], H, W, tick, &events[k], 1, &ctx);
+    }
+    for (Usz y = 0; y < H; ++y)
+      for (Usz x = 0; x < W; ++x)
+        CHECK(labels[y * W + x].dialect == (U8)want[y][x]);
+    CHECK(marks[1][2 * W + 1] & Mark_flag_lock); // the switch's own input
+    CHECK(memcmp(grid[0], grid[1], sizeof grid[0]) == 0);
+    CHECK(memcmp(marks[0], marks[1], sizeof marks[0]) == 0);
+    CHECK(events[0].count == events[1].count);
+  }
+  // Under another session dialect ` is no operator, so nothing switches.
+  mbuffer_clear(marks[1], H, W);
+  memset(labels, 0x00, sizeof labels);
+  Orca_run_ctx const zctx = {.opstate = &store[1],
+                             .dialect = Orca_dialect_zorca,
+                             .labels = labels};
+  orca_run(grid[1], marks[1], H, W, 3, &events[1], 1, &zctx);
+  for (Usz i = 0; i < H * W; ++i)
+    // not morfil, so we do not set the dialect anywhere
+    CHECK(labels[i].dialect == 0);
+  for (int k = 0; k < 2; ++k) {
+    oevent_list_deinit(&events[k]);
+    opstate_free(&store[k]);
+  }
+}

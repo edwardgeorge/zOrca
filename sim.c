@@ -2294,10 +2294,14 @@ void orca_run(Glyph *restrict gbuf, Mark *restrict mbuf, Usz height, Usz width,
     extras.active_dialect = ctx->dialect;
     Glyph const *glyph_row = gbuf + iy * width;
     Mark const *mark_row = mbuf + iy * width;
+    Port_label_cell *labels =
+        ctx->labels && ctx->dialect == Orca_dialect_morfil ? ctx->labels + iy * width : NULL;
     for (Usz ix = 0; ix < width; ++ix) {
       Mark cell_flags = mark_row[ix];
       if (cell_flags & Mark_flag_dialect_end)
-          extras.active_dialect = ctx->dialect;
+        extras.active_dialect = ctx->dialect;
+      if (labels)
+        labels[ix].dialect = (U8)extras.active_dialect;
 
       Glyph glyph_char = glyph_row[ix];
       if (ORCA_LIKELY(glyph_char == '.'))

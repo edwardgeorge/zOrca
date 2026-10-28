@@ -97,6 +97,7 @@ typedef struct {
   U8 id;        // a Port_label; 0 is no port
   bool is_input; // the port counted as an input
   I16 owner_dy, owner_dx;
+  U8 dialect;
 } Port_label_cell;
 
 // The label text of id, "" for Port_label_none, Port_label_output and any
