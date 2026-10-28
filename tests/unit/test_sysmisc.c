@@ -3,6 +3,9 @@
 // from a tmpfile() through conf_read_line, the reader under ezconf's load
 // and save of orca.conf, and save through an Ezconf_w over tmpfile()s.
 #define _POSIX_C_SOURCE 200809L // fileno, dup, lseek, read, close
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE
+#endif
 #include "../../sysmisc.h"
 #include "../../thirdparty/oso.h"
 #include "tests.h"
@@ -215,4 +218,3 @@ void test_path_is_dir(void) {
     rmdir(dir_path);
   }
 }
-
